@@ -99,6 +99,7 @@ export function SecureVideoPlayer({
     const ytReadyRef = useRef(false)
     // الـ videoId يُخزّن في ref فقط - لا يدخل الـ React state ولا يُعرض في الـ DOM
     const ytVideoIdRef = useRef<string | null>(null)
+    const srcSetRef = useRef(false)
 
     // ── State ─────────────────────────────────────────────────────────────────
     const [isPlaying, setIsPlaying] = useState(false)
@@ -141,6 +142,7 @@ export function SecureVideoPlayer({
         setVideoType(null)
         ytVideoIdRef.current = null
         ytReadyRef.current = false
+        srcSetRef.current = false
 
         async function fetchToken() {
             try {
@@ -442,12 +444,10 @@ export function SecureVideoPlayer({
         }
 
         document.addEventListener("visibilitychange", onVisibility)
-        window.addEventListener("blur", onWindowBlur)
         window.addEventListener("keydown", onKey, { capture: true })
 
         return () => {
             document.removeEventListener("visibilitychange", onVisibility)
-            window.removeEventListener("blur", onWindowBlur)
             window.removeEventListener("keydown", onKey, { capture: true })
         }
     }, [pauseAny])
@@ -495,7 +495,9 @@ export function SecureVideoPlayer({
     const handleSeek = (value: number[]) => {
         const t = value[0]
         if (youtubeId && ytPlayerRef.current) {
-            ytPlayerRef.current.seekTo(t, true)
+            if (typeof ytPlayerRef.current.seekTo === "function") {
+                ytPlayerRef.current.seekTo(t, true)
+            }
             setCurrentTime(t)
         } else if (videoRef.current) {
             videoRef.current.currentTime = t
@@ -532,8 +534,10 @@ export function SecureVideoPlayer({
 
     const skip = (sec: number) => {
         if (youtubeId && ytPlayerRef.current) {
-            const next = (ytPlayerRef.current.getCurrentTime() ?? 0) + sec
-            ytPlayerRef.current.seekTo(Math.max(0, next), true)
+            if (typeof ytPlayerRef.current.getCurrentTime === "function" && typeof ytPlayerRef.current.seekTo === "function") {
+                const next = (ytPlayerRef.current.getCurrentTime() ?? 0) + sec
+                ytPlayerRef.current.seekTo(Math.max(0, next), true)
+            }
         } else if (videoRef.current) {
             videoRef.current.currentTime += sec
         }
@@ -669,12 +673,15 @@ export function SecureVideoPlayer({
                         ref={(el) => {
                             // @ts-ignore
                             videoRef.current = el
-                            if (el && blobUrl) {
+                            if (el && blobUrl && !srcSetRef.current) {
                                 // تعيين المصدر برمجياً ومسحه فوراً من الـ DOM للتمويه
-                                if (!el.src) {
+                                if (!el.src || el.src === "") {
                                     el.src = blobUrl
+                                    srcSetRef.current = true
                                     // مسح السمة من الـ HTML لكي لا تظهر في الـ Inspect
-                                    setTimeout(() => el.removeAttribute("src"), 100)
+                                    setTimeout(() => {
+                                        if (el) el.removeAttribute("src")
+                                    }, 100)
                                 }
                             }
                         }}
