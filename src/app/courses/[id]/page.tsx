@@ -22,7 +22,7 @@ import {
     HelpCircle
 } from "lucide-react"
 import { auth, db } from "@/lib/firebase/config"
-import { doc, getDoc, setDoc, collection, query, where, getDocs, runTransaction } from "firebase/firestore"
+import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, runTransaction } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { toast } from "sonner"
 import Link from "next/link"
@@ -133,6 +133,11 @@ export default function CourseDetailsPage() {
                         status: "active",
                         paid_amount: coursePrice
                     })
+
+                    // Increment students_count in course document
+                    transaction.update(doc(db, "courses", course.id), {
+                        students_count: (course.students_count || 0) + 1
+                    })
                 })
             } else {
                 // Free course enrollment
@@ -150,6 +155,15 @@ export default function CourseDetailsPage() {
                     status: "active",
                     paid_amount: 0
                 })
+
+                // Increment students_count
+                const courseRef = doc(db, "courses", course.id)
+                const cSnap = await getDoc(courseRef)
+                if (cSnap.exists()) {
+                    await updateDoc(courseRef, {
+                        students_count: (cSnap.data().students_count || 0) + 1
+                    })
+                }
             }
 
             toast.success("تم الالتحاق بالكورس بنجاح!")
@@ -285,7 +299,11 @@ export default function CourseDetailsPage() {
                                     </div>
                                 </div>
 
-                                {isEnrolled ? (
+                                {profile?.role === 'admin' ? (
+                                    <Button className="w-full h-12 text-lg font-bold bg-amber-600 hover:bg-amber-700" size="lg" asChild>
+                                        <Link href={`/learn/${course.id}`}>دخول كمسؤول (معاينة)</Link>
+                                    </Button>
+                                ) : isEnrolled ? (
                                     <Button className="w-full h-12 text-lg font-bold" size="lg" asChild>
                                         <Link href={`/learn/${course.id}`}>دخول للكورس</Link>
                                     </Button>

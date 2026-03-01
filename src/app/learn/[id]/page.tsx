@@ -21,9 +21,8 @@ import {
     Search,
     Loader2
 } from "lucide-react"
-import { collection, query, where, getDocs } from "firebase/firestore"
+import { collection, query, where, getDocs, doc, getDoc, updateDoc, onSnapshot } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase/config"
-import { doc, getDoc, updateDoc } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { toast } from "sonner"
 import { SecureVideoPlayer } from "@/components/courses/secure-video-player"
@@ -31,6 +30,8 @@ import { InternalExam } from "@/components/courses/internal-exam"
 import {
     Sheet,
     SheetContent,
+    SheetHeader,
+    SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
 import { motion, AnimatePresence } from "framer-motion"
@@ -49,6 +50,7 @@ export default function LearnPage() {
     const [isCheckingRestrictions, setIsCheckingRestrictions] = useState(true)
     const [isSidebarHidden, setIsSidebarHidden] = useState(false)
     const [videoStartTime, setVideoStartTime] = useState(0)
+    const [isSheetOpen, setIsSheetOpen] = useState(false)
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -68,18 +70,26 @@ export default function LearnPage() {
                 const pDoc = await getDoc(doc(db, "profiles", user.uid))
                 if (pDoc.exists()) setProfile(pDoc.data())
 
-                // 1. Check enrollment
+                // 1. Check enrollment (Bypass for admin)
                 const enrollmentRef = doc(db, "enrollments", `${user.uid}_${id}`)
                 const enrollmentSnap = await getDoc(enrollmentRef)
 
-                if (!enrollmentSnap.exists()) {
+                const isAdmin = pDoc.exists() ? pDoc.data()?.role === 'admin' : false
+
+                if (!enrollmentSnap.exists() && !isAdmin) {
                     router.push(`/restricted-access?reason=course&courseId=${id}`)
                     return
                 }
 
-                const enrollmentData = enrollmentSnap.data()
-                setProgress(enrollmentData.progress || 0)
-                setCompletedLessons(enrollmentData.completed_lessons || [])
+                if (enrollmentSnap.exists()) {
+                    const enrollmentData = enrollmentSnap.data()
+                    setProgress(enrollmentData.progress || 0)
+                    setCompletedLessons(enrollmentData.completed_lessons || [])
+                } else {
+                    // Admin preview mode
+                    setProgress(0)
+                    setCompletedLessons([])
+                }
 
                 // 2. Fetch course
                 const courseRef = doc(db, "courses", id as string)
@@ -100,14 +110,18 @@ export default function LearnPage() {
                         }
                     }
                 }
-                // 3. Fetch submissions for restrictions
+                // 3. Listen to submissions in real-time
                 const submissionsQ = query(
                     collection(db, "submissions"),
                     where("student_id", "==", user.uid),
                     where("course_id", "==", id as string)
                 )
-                const subsSnap = await getDocs(submissionsQ)
-                setSubmissions(subsSnap.docs.map(doc => doc.data()))
+
+                const unsubSubmissions = onSnapshot(submissionsQ, (snapshot) => {
+                    setSubmissions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })))
+                })
+
+                return () => unsubSubmissions()
 
             } catch (error) {
                 console.error("Error loading learn page:", error)
@@ -115,11 +129,22 @@ export default function LearnPage() {
                 setIsLoading(false)
             }
         }
-        if (user) fetchCourseAndEnrollment()
+        let unsubSub: any;
+        if (user) {
+            fetchCourseAndEnrollment().then(cleanup => {
+                unsubSub = cleanup
+            })
+        }
+        return () => {
+            if (unsubSub) unsubSub()
+        }
     }, [id, user, router])
 
     const isLessonLocked = (lesson: any) => {
         if (!course || !lesson) return false
+
+        // If the course is not tied to a specific grade level, it has no lesson restrictions
+        if (!course.grade_level) return false
 
         const flatLessons = course.modules?.flatMap((m: any) => m.lessons) || []
         const lessonIndex = flatLessons.findIndex((l: any) => l.id === lesson.id)
@@ -184,6 +209,8 @@ export default function LearnPage() {
         )
     }
 
+
+
     const CourseSidebar = () => (
         <div className="flex flex-col h-full bg-background border-r overflow-y-auto">
             <div className="p-6 border-b">
@@ -218,6 +245,9 @@ export default function LearnPage() {
                                             } else {
                                                 setIsSidebarHidden(false)
                                             }
+
+                                            // Auto-close sheet on mobile
+                                            setIsSheetOpen(false)
 
                                             // Fetch video progress if it's a video
                                             if (lesson.type === 'video' || !lesson.type) {
@@ -303,13 +333,16 @@ export default function LearnPage() {
                     </div>
                     {/* Top Bar for Mobile */}
                     <div className="lg:hidden flex items-center justify-between p-4 bg-background border-b sticky top-0 z-40">
-                        <Sheet>
+                        <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
                             <SheetTrigger asChild>
                                 <Button variant="ghost" size="icon">
                                     <Menu className="h-5 w-5" />
                                 </Button>
                             </SheetTrigger>
                             <SheetContent side="right" className="p-0 w-80">
+                                <SheetHeader className="sr-only">
+                                    <SheetTitle>قائمة الدروس</SheetTitle>
+                                </SheetHeader>
                                 <CourseSidebar />
                             </SheetContent>
                         </Sheet>
@@ -321,9 +354,9 @@ export default function LearnPage() {
                         {/* Content Viewer Section */}
                         {(currentLesson?.type === 'video' || !currentLesson?.type) && (
                             <SecureVideoPlayer
+                                key={`${id}_${currentLesson?.id}`}
                                 courseId={course.id}
                                 lessonId={currentLesson?.id}
-                                videoPath={currentLesson?.video_path}
                                 userEmail={user?.email}
                                 studentId={user?.uid}
                                 startTime={videoStartTime}

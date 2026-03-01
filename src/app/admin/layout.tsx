@@ -46,6 +46,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const pathname = usePathname()
     const [isLoading, setIsLoading] = useState(true)
     const [isAdmin, setIsAdmin] = useState(false)
+    const [isSheetOpen, setIsSheetOpen] = useState(false)
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -88,7 +89,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
                 {/* Mobile Header with Sidebar Toggle */}
                 <div className="md:hidden border-b bg-muted/20 px-4 py-3 flex items-center gap-4">
-                    <Sheet>
+                    <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
                         <SheetTrigger asChild>
                             <Button variant="ghost" size="icon">
                                 <Menu className="h-5 w-5" />
@@ -108,6 +109,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                                         <Link
                                             key={item.href}
                                             href={item.href}
+                                            onClick={() => setIsSheetOpen(false)}
                                             className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${pathname === item.href
                                                 ? "bg-primary text-primary-foreground font-bold shadow-sm"
                                                 : "hover:bg-muted text-muted-foreground"
