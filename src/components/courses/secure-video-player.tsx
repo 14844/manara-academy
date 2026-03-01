@@ -33,11 +33,14 @@ declare global {
             Player: new (
                 el: HTMLElement | string,
                 opts: {
-                    videoId: string
-                    playerVars?: Record<string, unknown>
+                    videoId: string,
+                    width?: string | number,
+                    height?: string | number,
+                    playerVars?: Record<string, unknown>,
                     events?: {
                         onReady?: (e: { target: YTPlayer }) => void
                         onStateChange?: (e: { data: number }) => void
+                        onError?: (e: { data: number }) => void
                     }
                 }
             ) => YTPlayer
@@ -272,7 +275,7 @@ export function SecureVideoPlayer({
                                 setIsPlaying(false)
                             }
                         },
-                        onError: (e) => {
+                        onError: (e: { data: number }) => {
                             console.error("YouTube Player Error:", e.data)
                             setError("حدث خطأ في مشغل يوتيوب (رمز: " + e.data + ")")
                             setIsLoading(false)
