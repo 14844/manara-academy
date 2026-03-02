@@ -86,7 +86,7 @@ export default function InstructorWithdrawalsPage() {
             })
 
             const currentGross = totalGross - totalRequested
-            const currentCommission = currentGross * 0.2
+            const currentCommission = currentGross * 0.15
             const currentNet = currentGross - currentCommission
 
             setBalance({

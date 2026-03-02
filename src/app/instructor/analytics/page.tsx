@@ -64,7 +64,7 @@ export default function InstructorAnalyticsPage() {
 
             // 3. Process Stats
             const grossRevenue = enrollments.reduce((acc, e: any) => acc + (Number(e.paid_amount) || 0), 0)
-            const commission = grossRevenue * 0.20
+            const commission = grossRevenue * 0.15
             const net = grossRevenue - commission
 
             const breakdown = courses.map((c: any) => {
