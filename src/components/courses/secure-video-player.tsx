@@ -149,12 +149,16 @@ export function SecureVideoPlayer({
 
         async function fetchToken() {
             try {
-                const res = await fetch(
-                    `/api/video/token?courseId=${encodeURIComponent(courseId)}&lessonId=${encodeURIComponent(lessonId)}`
-                )
+                // استخدام URL مطلق لضمان عدم حدوث مشاكل في المسارات المشفرة
+                const url = new URL("/api/video/token", window.location.origin)
+                url.searchParams.set("courseId", courseId)
+                url.searchParams.set("lessonId", lessonId)
+
+                const res = await fetch(url.toString(), { cache: 'no-store' })
                 if (!res.ok) {
                     const data = await res.json().catch(() => ({}))
-                    setError(data.error || "لا يوجد فيديو لهذا الدرس")
+                    setError(data.error || "لا يوجد فيديو متاح حالياً")
+                    setIsLoading(false)
                     return
                 }
                 const data = await res.json()
@@ -165,7 +169,7 @@ export function SecureVideoPlayer({
                         ytVideoIdRef.current = decoded
                         setVideoType("youtube")
                     } else {
-                        setError("فشل معالجة بيانات الفيديو")
+                        setError("خطأ في فك تشفير بيانات يوتيوب")
                         setIsLoading(false)
                     }
                 } else if (data.type === "drive") {
@@ -173,7 +177,6 @@ export function SecureVideoPlayer({
                     setVideoType("drive")
                     setIsLoading(false)
                 } else if (data.type === "direct") {
-                    // ★ تقنية Blob URL للفيديو المباشر ★
                     try {
                         const videoRes = await fetch(data.url)
                         const blob = await videoRes.blob()
@@ -183,22 +186,18 @@ export function SecureVideoPlayer({
                         setVideoType("direct")
                         setIsLoading(false)
                     } catch (err) {
-                        console.error("Blob conversion error:", err)
-                        // Fallback to direct URL if blob fails
                         setDirectVideoUrl(data.url)
                         setVideoType("direct")
                         setIsLoading(false)
                     }
                 } else {
-                    setError("نوع الفيديو غير مدعوم")
+                    setError("تنسيق الفيديو غير مدعوم")
                     setIsLoading(false)
                 }
             } catch (err) {
-                console.error("Fetch token error:", err)
-                setError("فشل تحميل الفيديو. يرجى المحاولة لاحقاً.")
+                console.error("Token error:", err)
+                setError("فشل الاتصال بخادم المحتوى. تأكد من اتصالك بالإنترنت.")
                 setIsLoading(false)
-            } finally {
-                // isLoading يُوقف في onReady لـ YouTube أو في الفروع أعلاه
             }
         }
         fetchToken()
@@ -447,10 +446,14 @@ export function SecureVideoPlayer({
         }
 
         document.addEventListener("visibilitychange", onVisibility)
+        window.addEventListener("blur", onWindowBlur)
+        window.addEventListener("resize", onWindowBlur) // اكتشاف أدوات التسجيل التي تغير الأبعاد
         window.addEventListener("keydown", onKey, { capture: true })
 
         return () => {
             document.removeEventListener("visibilitychange", onVisibility)
+            window.removeEventListener("blur", onWindowBlur)
+            window.removeEventListener("resize", onWindowBlur)
             window.removeEventListener("keydown", onKey, { capture: true })
         }
     }, [pauseAny])
@@ -844,19 +847,24 @@ export function SecureVideoPlayer({
              * ══════════════════════════════════════════════════════════════ */}
             {!isLoading && !error && (
                 <>
-                    {/* Watermark متحرك */}
+                    {/* Watermark متحرك عشوائي */}
                     <motion.div
                         initial={false}
                         animate={{
-                            top: ["8%", "8%", "75%", "75%", "8%"],
-                            left: ["8%", "80%", "80%", "8%", "8%"],
+                            x: ["0%", "70%", "20%", "75%", "0%"],
+                            y: ["0%", "85%", "10%", "75%", "0%"],
                         }}
-                        transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
-                        className="absolute pointer-events-none z-[100] select-none"
+                        transition={{
+                            duration: 25,
+                            repeat: Infinity,
+                            ease: "easeInOut",
+                            times: [0, 0.25, 0.5, 0.75, 1]
+                        }}
+                        className="absolute top-6 left-6 pointer-events-none z-[100] select-none"
                     >
-                        <div className="bg-black/10 backdrop-blur-[1px] px-2 py-1 rounded text-[10px] md:text-xs font-bold text-white/25 border border-white/5 whitespace-nowrap -rotate-12 flex flex-col items-center">
-                            <span>{userEmail}</span>
-                            <span className="opacity-60">{studentId}</span>
+                        <div className="bg-black/40 backdrop-blur-[3px] px-3 py-1.5 rounded-xl text-[10px] md:text-sm font-black text-white/40 border border-white/10 whitespace-nowrap -rotate-12 flex flex-col items-center shadow-[0_0_20px_rgba(0,0,0,0.5)]">
+                            <span className="tracking-tight select-none">{userEmail}</span>
+                            <span className="opacity-50 text-[8px] md:text-[9px] select-none font-mono">ID: {studentId}</span>
                         </div>
                     </motion.div>
 

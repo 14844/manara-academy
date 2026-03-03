@@ -2,9 +2,9 @@ import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-// استخراج YouTube Video ID من أي صيغة رابط
+// استخراج YouTube Video ID من أي صيغة رابط (بما في ذلك Shorts)
 function extractYouTubeId(url: string): string | null {
-    const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]{11}).*/;
+    const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?]{11}).*/;
     const match = url.match(regExp);
     return match && match[2].length === 11 ? match[2] : null;
 }
