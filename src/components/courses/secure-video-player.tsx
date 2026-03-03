@@ -847,24 +847,23 @@ export function SecureVideoPlayer({
              * ══════════════════════════════════════════════════════════════ */}
             {!isLoading && !error && (
                 <>
-                    {/* Watermark متحرك عشوائي */}
+                    {/* Watermark متحرك بطيء جداً في الاتجاهات الأربعة */}
                     <motion.div
                         initial={false}
                         animate={{
-                            x: ["0%", "70%", "20%", "75%", "0%"],
-                            y: ["0%", "85%", "10%", "75%", "0%"],
+                            left: ["5%", "50%", "95%", "95%", "95%", "50%", "5%", "5%", "5%"],
+                            top: ["5%", "5%", "5%", "50%", "95%", "95%", "95%", "50%", "5%"],
                         }}
                         transition={{
-                            duration: 25,
+                            duration: 120, // أبطأ بكثير (دقيقتين لكل دورة)
                             repeat: Infinity,
-                            ease: "easeInOut",
-                            times: [0, 0.25, 0.5, 0.75, 1]
+                            ease: "linear"
                         }}
-                        className="absolute top-6 left-6 pointer-events-none z-[100] select-none"
+                        className="absolute pointer-events-none z-[100] select-none"
                     >
-                        <div className="bg-black/40 backdrop-blur-[3px] px-3 py-1.5 rounded-xl text-[10px] md:text-sm font-black text-white/40 border border-white/10 whitespace-nowrap -rotate-12 flex flex-col items-center shadow-[0_0_20px_rgba(0,0,0,0.5)]">
-                            <span className="tracking-tight select-none">{userEmail}</span>
-                            <span className="opacity-50 text-[8px] md:text-[9px] select-none font-mono">ID: {studentId}</span>
+                        <div className="bg-black/5 backdrop-blur-[1px] px-2 py-1 rounded-lg text-[10px] md:text-xs font-bold text-white/[0.08] border border-white/[0.03] whitespace-nowrap -rotate-12 flex flex-col items-center shadow-lg">
+                            <span className="tracking-tighter select-none">{userEmail}</span>
+                            <span className="opacity-40 text-[7px] md:text-[8px] select-none font-mono">ID: {studentId}</span>
                         </div>
                     </motion.div>
 

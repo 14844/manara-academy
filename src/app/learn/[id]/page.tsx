@@ -358,7 +358,7 @@ export default function LearnPage() {
                                 courseId={course.id}
                                 lessonId={currentLesson?.id}
                                 userEmail={user?.email}
-                                studentId={user?.uid}
+                                studentId={profile?.student_id || user?.uid}
                                 startTime={videoStartTime}
                             />
                         )}
