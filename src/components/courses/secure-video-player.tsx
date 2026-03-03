@@ -849,17 +849,18 @@ export function SecureVideoPlayer({
                 <>
                     {/* Watermark متحرك بطيء جداً في الاتجاهات الأربعة */}
                     <motion.div
-                        initial={false}
+                        initial={{ left: "5%", top: "5%" }}
                         animate={{
-                            left: ["5%", "50%", "95%", "95%", "95%", "50%", "5%", "5%", "5%"],
-                            top: ["5%", "5%", "5%", "50%", "95%", "95%", "95%", "50%", "5%"],
+                            left: ["5%", "95%", "95%", "5%", "5%"],
+                            top: ["5%", "5%", "95%", "95%", "5%"],
                         }}
                         transition={{
-                            duration: 120, // أبطأ بكثير (دقيقتين لكل دورة)
+                            duration: 90, // أسرع قليلاً من السابق (90 ثانية) ليتم ملاحظة الحركة، لكنها لا تزال بطيئة جداً
                             repeat: Infinity,
                             ease: "linear"
                         }}
-                        className="absolute pointer-events-none z-[100] select-none"
+                        style={{ position: 'absolute' }}
+                        className="pointer-events-none z-[100] select-none"
                     >
                         <div className="bg-black/5 backdrop-blur-[1px] px-2 py-1 rounded-lg text-[10px] md:text-xs font-bold text-white/[0.08] border border-white/[0.03] whitespace-nowrap -rotate-12 flex flex-col items-center shadow-lg">
                             <span className="tracking-tighter select-none">{userEmail}</span>
