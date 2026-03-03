@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Timer, AlertCircle, CheckCircle2, XCircle, Trophy, Loader2, ArrowLeft, ArrowRight, HelpCircle } from "lucide-react"
+import { Timer, AlertCircle, CheckCircle2, XCircle, Trophy, Loader2, ArrowLeft, ArrowRight, HelpCircle, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
@@ -12,6 +12,8 @@ import { toast } from "sonner"
 import { db, auth } from "@/lib/firebase/config"
 import { doc, setDoc, collection, serverTimestamp } from "firebase/firestore"
 
+import { Textarea } from "@/components/ui/textarea"
+
 interface Question {
     id: string
     text: string
@@ -20,6 +22,7 @@ interface Question {
     options: string[]
     correctAnswer: number
     points?: number
+    type?: 'mcq' | 'essay'
 }
 
 interface InternalExamProps {
@@ -41,7 +44,7 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
     const durationInMinutes = parseInt(examData.duration) || 30 // Default to 30 if data is missing or invalid
     const [timeLeft, setTimeLeft] = useState(durationInMinutes * 60)
     const [currentQuestion, setCurrentQuestion] = useState(0)
-    const [answers, setAnswers] = useState<Record<string, number>>(initialSubmission?.answers || {})
+    const [answers, setAnswers] = useState<Record<string, any>>(initialSubmission?.answers || {})
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [isFinished, setIsFinished] = useState(!!initialSubmission)
     const [score, setScore] = useState(initialSubmission?.score || 0)
@@ -49,19 +52,45 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
     const [tabSwitchCount, setTabSwitchCount] = useState(0)
     const MAX_TAB_SWITCHES = 3
 
+    useEffect(() => {
+        if (initialSubmission) {
+            setScore(initialSubmission.score || 0)
+            setIsFinished(true)
+            setShowReview(true)
+            setStarted(true)
+            setAnswers(initialSubmission.answers || {})
+        }
+    }, [initialSubmission])
+
+    const hasEssayQuestions = examData.questions.some(q => q.type === 'essay')
+
     const finishExam = useCallback(async () => {
         if (isFinished) return
         setIsSubmitting(true)
 
-        let totalPoints = 0
-        let earnedPoints = 0
+        let mcqTotalPoints = 0
+        let mcqEarnedPoints = 0
+        let fullTotalPoints = 0
+        let fullEarnedPoints = 0
+
         examData.questions.forEach((q) => {
             const qPts = q.points || 1
-            totalPoints += qPts
-            if (answers[q.id] === q.correctAnswer) earnedPoints += qPts
+            fullTotalPoints += qPts
+            if (q.type !== 'essay') {
+                mcqTotalPoints += qPts
+                if (answers[q.id] === q.correctAnswer) {
+                    mcqEarnedPoints += qPts
+                    fullEarnedPoints += qPts
+                }
+            }
         })
 
-        const finalScore = totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0
+        // If it has essay questions, the INITIAL score shown is based ONLY on MCQs
+        // This is to avoid student confusion (e.g. seeing 50% when they got all MCQs right)
+        const finalScore = hasEssayQuestions
+            ? (mcqTotalPoints > 0 ? Math.round((mcqEarnedPoints / mcqTotalPoints) * 100) : 100)
+            : (fullTotalPoints > 0 ? Math.round((fullEarnedPoints / fullTotalPoints) * 100) : 0)
+
         setScore(finalScore)
 
         try {
@@ -77,12 +106,17 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                     type: type,
                     score: finalScore,
                     answers: answers,
+                    needs_grading: hasEssayQuestions,
                     submitted_at: serverTimestamp(),
                 })
             }
 
             setIsFinished(true)
-            toast.success(`تم تسليم الاختبار بنجاح! درجتك: ${finalScore}%`)
+            if (hasEssayQuestions) {
+                toast.success("تم تسليم إجاباتك بنجاح! بانتظار تصحيح المدرس للأسئلة المقالية.")
+            } else {
+                toast.success(`تم تسليم الاختبار بنجاح! درجتك: ${finalScore}%`)
+            }
             onComplete(finalScore)
         } catch (error) {
             console.error("Error submitting exam:", error)
@@ -90,7 +124,7 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
         } finally {
             setIsSubmitting(false)
         }
-    }, [answers, examData.questions, courseId, lessonId, onComplete, isFinished])
+    }, [answers, examData.questions, courseId, lessonId, onComplete, isFinished, hasEssayQuestions])
 
     useEffect(() => {
         if (started && timeLeft > 0 && !isFinished) {
@@ -153,6 +187,8 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
     }
 
     if (isFinished) {
+        const needsGrading = initialSubmission?.needs_grading ?? hasEssayQuestions;
+
         return (
             <div className="animate-in fade-in zoom-in duration-500">
                 <Card className="max-w-xl mx-auto border-2 border-primary/20 shadow-2xl">
@@ -162,34 +198,60 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                                 <Trophy className="h-10 w-10" />
                             </div>
                         </div>
-                        <CardTitle className="text-3xl font-bold">ملخص النتيجة</CardTitle>
-                        <CardDescription>انتهى وقت الاختبار وتم تقييم إجاباتك</CardDescription>
+                        <CardTitle className="text-3xl font-bold">
+                            {needsGrading ? "تم التسليم" : "ملخص النتيجة"}
+                        </CardTitle>
+                        <CardDescription>
+                            {needsGrading
+                                ? "تم استلام إجاباتك بنجاح، سيقوم المدرس بتصحيحها قريباً"
+                                : "انتهى وقت الاختبار وتم تقييم إجاباتك"}
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6 pt-0">
-                        <div className="text-center space-y-2">
-                            <div className="text-5xl font-black text-primary">{score}%</div>
-                            <p className="font-bold text-muted-foreground">الدرجة النهائية</p>
-                        </div>
-                        <div className="space-y-2">
-                            <div className="flex justify-between text-xs font-bold">
-                                <span>التقدم في الإنجاز</span>
-                                <span>{score}%</span>
+                        {needsGrading ? (
+                            <div className="p-6 bg-blue-50 border border-blue-100 rounded-2xl text-center space-y-3">
+                                <HelpCircle className="h-10 w-10 text-blue-500 mx-auto" />
+                                <p className="font-bold text-blue-800">جاري انتظار التصحيح اليدوي</p>
+                                <div className="space-y-1">
+                                    <p className="text-sm text-blue-600 font-bold">نسبة نجاحك الحالية: {score}%</p>
+                                    <p className="text-[10px] text-blue-500">هذه هي نتيجتك من الأسئلة الاختيارية فقط. تم رصد نقاطك الحالية من إجمالي نقاط الاختبار، وستتغير النتيجة فور قيام المدرس بتصحيح إجاباتك المقالية.</p>
+                                </div>
                             </div>
-                            <Progress value={score} className="h-3" />
-                        </div>
+                        ) : (
+                            <>
+                                <div className="text-center space-y-2">
+                                    <div className="text-5xl font-black text-primary">{score}%</div>
+                                    <p className="font-bold text-muted-foreground">الدرجة النهائية المستحقة</p>
+                                    {hasEssayQuestions && (
+                                        <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200">
+                                            تم التصحيح يدوياً
+                                        </Badge>
+                                    )}
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-xs font-bold">
+                                        <span>التقدم في الإنجاز</span>
+                                        <span>{score}%</span>
+                                    </div>
+                                    <Progress value={score} className="h-3" />
+                                </div>
+                            </>
+                        )}
                     </CardContent>
                     <CardFooter className="flex flex-col gap-3 border-t pt-6 bg-muted/10">
-                        <Button className="w-full gap-2" variant="outline" onClick={() => setShowReview(!showReview)}>
-                            <HelpCircle className="h-4 w-4" />
-                            {showReview ? "إخفاء المراجعة" : "راجع إجاباتك وأخطاءك"}
-                        </Button>
+                        {(!needsGrading) && (
+                            <Button className="w-full gap-2" variant="outline" onClick={() => setShowReview(!showReview)}>
+                                <HelpCircle className="h-4 w-4" />
+                                {showReview ? "إخفاء المراجعة" : "راجع إجاباتك والتعليقات"}
+                            </Button>
+                        )}
                         <Button className="w-full" asChild>
                             <label className="cursor-pointer">العودة للدرس التالي</label>
                         </Button>
                     </CardFooter>
                 </Card>
 
-                {showReview && (
+                {(showReview && !needsGrading) && (
                     <div className="mt-8 space-y-6 animate-in slide-in-from-bottom-4 duration-500 pb-12">
                         <h3 className="text-xl font-bold flex items-center gap-2 px-2">
                             <span className="h-8 w-1 bg-primary rounded-full" />
@@ -197,15 +259,18 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                         </h3>
                         {examData.questions.map((q, qIdx) => {
                             const studentAnswer = answers[q.id]
-                            const isCorrect = studentAnswer === q.correctAnswer
+                            const isEssay = q.type === 'essay'
+                            const isCorrect = isEssay ? ((initialSubmission?.grading_details?.[q.id] || 0) > 0) : (studentAnswer === q.correctAnswer)
+                            const earnedPoints = isEssay ? (initialSubmission?.grading_details?.[q.id] || 0) : (isCorrect ? (q.points || 1) : 0)
 
                             return (
                                 <Card key={q.id} className={`overflow-hidden border-2 ${isCorrect ? 'border-green-100' : 'border-red-100'}`}>
                                     <CardHeader className="pb-3 bg-muted/30">
                                         <div className="flex items-start justify-between gap-4">
                                             <div className="space-y-1">
-                                                <Badge variant="outline" className="mb-2">السؤال {qIdx + 1}</Badge>
+                                                <Badge variant="outline" className="mb-2">السؤال {qIdx + 1} ({isEssay ? 'سؤال مقالي' : 'اختيار من متعدد'})</Badge>
                                                 <h4 className="font-bold text-lg leading-relaxed">{q.text}</h4>
+                                                <p className="text-xs font-bold text-muted-foreground">الدرجة: {earnedPoints} من {q.points || 1}</p>
                                             </div>
                                             {isCorrect ? (
                                                 <div className="shrink-0 h-10 w-10 rounded-full bg-green-100 text-green-600 flex items-center justify-center">
@@ -224,39 +289,53 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                                         )}
                                     </CardHeader>
                                     <CardContent className="pt-4 space-y-3">
-                                        {q.options.map((option, oIdx) => {
-                                            const isSelected = studentAnswer === oIdx
-                                            const isCorrectOption = q.correctAnswer === oIdx
-
-                                            let bgColor = "bg-muted/50"
-                                            let borderColor = "border-transparent"
-                                            let textColor = "text-foreground"
-
-                                            if (isCorrectOption) {
-                                                bgColor = "bg-green-50"
-                                                borderColor = "border-green-500"
-                                                textColor = "text-green-700 font-bold"
-                                            } else if (isSelected && !isCorrect) {
-                                                bgColor = "bg-red-50"
-                                                borderColor = "border-red-500"
-                                                textColor = "text-red-700 font-bold"
-                                            }
-
-                                            return (
-                                                <div
-                                                    key={oIdx}
-                                                    className={`p-4 rounded-xl border-2 transition-all flex items-center gap-3 ${bgColor} ${borderColor} ${textColor}`}
-                                                >
-                                                    <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center text-xs ${isCorrectOption ? 'border-green-500 bg-green-500 text-white' : isSelected ? 'border-red-500 bg-red-500 text-white' : 'border-muted-foreground/30'}`}>
-                                                        {oIdx + 1}
-                                                    </div>
-                                                    <span className="flex-1">{option}</span>
-                                                    {isCorrectOption && <CheckCircle2 className="h-4 w-4 shrink-0" />}
-                                                    {isSelected && !isCorrect && <XCircle className="h-4 w-4 shrink-0" />}
+                                        {isEssay ? (
+                                            <div className="space-y-2">
+                                                <p className="text-xs font-bold text-muted-foreground">إجابتك:</p>
+                                                <div className="p-4 bg-muted/30 rounded-lg border italic text-sm">
+                                                    {studentAnswer || "لا توجد إجابة"}
                                                 </div>
-                                            )
-                                        })}
-                                        {!isCorrect && studentAnswer === undefined && (
+                                                {!needsGrading && (
+                                                    <div className="mt-2 text-xs font-bold text-primary">
+                                                        تم التقييم بواسطة المدرس.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            q.options.map((option, oIdx) => {
+                                                const isSelected = studentAnswer === oIdx
+                                                const isCorrectOption = q.correctAnswer === oIdx
+
+                                                let bgColor = "bg-muted/50"
+                                                let borderColor = "border-transparent"
+                                                let textColor = "text-foreground"
+
+                                                if (isCorrectOption) {
+                                                    bgColor = "bg-green-50"
+                                                    borderColor = "border-green-500"
+                                                    textColor = "text-green-700 font-bold"
+                                                } else if (isSelected && !isCorrect) {
+                                                    bgColor = "bg-red-50"
+                                                    borderColor = "border-red-500"
+                                                    textColor = "text-red-700 font-bold"
+                                                }
+
+                                                return (
+                                                    <div
+                                                        key={oIdx}
+                                                        className={`p-4 rounded-xl border-2 transition-all flex items-center gap-3 ${bgColor} ${borderColor} ${textColor}`}
+                                                    >
+                                                        <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center text-xs ${isCorrectOption ? 'border-green-500 bg-green-500 text-white' : isSelected ? 'border-red-500 bg-red-500 text-white' : 'border-muted-foreground/30'}`}>
+                                                            {oIdx + 1}
+                                                        </div>
+                                                        <span className="flex-1">{option}</span>
+                                                        {isCorrectOption && <CheckCircle2 className="h-4 w-4 shrink-0" />}
+                                                        {isSelected && !isCorrect && <XCircle className="h-4 w-4 shrink-0" />}
+                                                    </div>
+                                                )
+                                            })
+                                        )}
+                                        {!isEssay && !isCorrect && studentAnswer === undefined && (
                                             <p className="text-xs text-red-500 italic mt-2">عذراً، لم تقم بالإجابة على هذا السؤال.</p>
                                         )}
                                     </CardContent>
@@ -293,6 +372,15 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                             </div>
                         </div>
                     </div>
+                    {hasEssayQuestions && (
+                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl flex items-start gap-3">
+                            <HelpCircle className="h-5 w-5 text-blue-600 mt-0.5" />
+                            <div className="text-xs text-blue-800 space-y-1">
+                                <p className="font-bold">ملاحظة حول التصحيح:</p>
+                                <p>هذا الاختبار يحتوي على أسئلة مقالية، سيقوم المدرس بمراجعة إجاباتك وتصحيحها يدوياً لعرض درجتك النهائية.</p>
+                            </div>
+                        </div>
+                    )}
                 </CardContent>
                 <CardFooter className="flex flex-col gap-4">
                     <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl text-xs text-orange-800 space-y-2">
@@ -366,24 +454,40 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                             {currentQ.text || "انظر للصورة المرفقة للإجابة على السؤال"}
                         </h2>
                     </div>
-                    <RadioGroup
-                        value={answers[currentQ.id]?.toString()}
-                        onValueChange={(val) => setAnswers({ ...answers, [currentQ.id]: parseInt(val) })}
-                        className="space-y-4"
-                    >
-                        {currentQ.options.map((opt, idx) => (
-                            <div
-                                key={idx}
-                                className={`flex items-center space-x-2 space-x-reverse border-2 rounded-xl p-4 transition-all cursor-pointer hover:bg-muted ${answers[currentQ.id] === idx ? 'border-primary bg-primary/5 shadow-inner' : 'border-transparent bg-zinc-50'}`}
-                                onClick={() => setAnswers({ ...answers, [currentQ.id]: idx })}
-                            >
-                                <RadioGroupItem value={idx.toString()} id={`q-${currentQ.id}-opt-${idx}`} />
-                                <Label htmlFor={`q-${currentQ.id}-opt-${idx}`} className="flex-1 cursor-pointer font-bold text-base leading-relaxed pr-2">
-                                    {opt}
-                                </Label>
-                            </div>
-                        ))}
-                    </RadioGroup>
+
+                    {currentQ.type === 'essay' ? (
+                        <div className="space-y-4">
+                            <Label className="font-bold flex items-center gap-2">
+                                <FileText className="h-4 w-4 text-primary" />
+                                اكتب إجابتك هنا:
+                            </Label>
+                            <Textarea
+                                value={answers[currentQ.id] || ""}
+                                onChange={(e) => setAnswers({ ...answers, [currentQ.id]: e.target.value })}
+                                placeholder="اكتب إجابتك بشكل مفصل..."
+                                className="min-h-[200px] text-lg leading-relaxed border-2 focus:border-primary transition-all p-4 rounded-xl"
+                            />
+                        </div>
+                    ) : (
+                        <RadioGroup
+                            value={answers[currentQ.id]?.toString()}
+                            onValueChange={(val) => setAnswers({ ...answers, [currentQ.id]: parseInt(val) })}
+                            className="space-y-4"
+                        >
+                            {currentQ.options.map((opt, idx) => (
+                                <div
+                                    key={idx}
+                                    className={`flex items-center space-x-2 space-x-reverse border-2 rounded-xl p-4 transition-all cursor-pointer hover:bg-muted ${answers[currentQ.id] === idx ? 'border-primary bg-primary/5 shadow-inner' : 'border-transparent bg-zinc-50'}`}
+                                    onClick={() => setAnswers({ ...answers, [currentQ.id]: idx })}
+                                >
+                                    <RadioGroupItem value={idx.toString()} id={`q-${currentQ.id}-opt-${idx}`} />
+                                    <Label htmlFor={`q-${currentQ.id}-opt-${idx}`} className="flex-1 cursor-pointer font-bold text-base leading-relaxed pr-2">
+                                        {opt}
+                                    </Label>
+                                </div>
+                            ))}
+                        </RadioGroup>
+                    )}
                 </CardContent>
                 <CardFooter className="flex justify-between items-center p-6 bg-muted/20 border-t">
                     <Button
