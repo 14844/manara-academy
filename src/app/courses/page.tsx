@@ -57,7 +57,17 @@ export default function CoursesPage() {
                     id: doc.id,
                     ...doc.data()
                 }))
-                setCourses(fetchedCourses)
+
+                // Fetch all enrollments to calculate real counts
+                const enrollmentsSnap = await getDocs(collection(db, "enrollments"))
+                const enrollments = enrollmentsSnap.docs.map(doc => doc.data())
+
+                const updatedCourses = fetchedCourses.map(course => ({
+                    ...course,
+                    students_count: enrollments.filter(e => e.course_id === course.id).length
+                }))
+
+                setCourses(updatedCourses)
             } catch (error) {
                 console.error("Error fetching courses:", error)
             } finally {

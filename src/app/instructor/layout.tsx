@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -11,7 +12,8 @@ import {
     PlusCircle,
     GraduationCap,
     LogOut,
-    Wallet
+    Wallet,
+    ClipboardList
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -29,6 +31,7 @@ const sidebarItems = [
     { name: "لوحة التحكم", href: "/instructor", icon: LayoutDashboard },
     { name: "كورساتي", href: "/instructor/courses", icon: BookOpen },
     { name: "الطلاب", href: "/instructor/students", icon: Users },
+    { name: "تصحيح الإجابات", href: "/instructor/grading", icon: ClipboardList },
     { name: "الإحصائيات", href: "/instructor/analytics", icon: BarChart3 },
     { name: "المحفظة والأرباح", href: "/instructor/withdrawals", icon: Wallet },
     { name: "الإعدادات", href: "/instructor/settings", icon: Settings },
@@ -42,6 +45,8 @@ export default function InstructorLayout({
     children: React.ReactNode
 }) {
     const pathname = usePathname()
+
+    const [isSheetOpen, setIsSheetOpen] = useState(false)
 
     return (
         <StatusGuard>
@@ -85,7 +90,7 @@ export default function InstructorLayout({
                 <div className="flex-1 flex flex-col">
                     <header className="flex h-16 items-center justify-between border-b bg-background px-6">
                         <div className="flex items-center gap-4">
-                            <Sheet>
+                            <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
                                 <SheetTrigger asChild>
                                     <Button variant="ghost" size="icon" className="md:hidden">
                                         <Menu className="h-5 w-5" />
@@ -105,6 +110,7 @@ export default function InstructorLayout({
                                                     <Link
                                                         key={item.href}
                                                         href={item.href}
+                                                        onClick={() => setIsSheetOpen(false)}
                                                         className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-muted ${pathname === item.href ? "bg-muted text-primary" : "text-muted-foreground"
                                                             }`}
                                                     >
@@ -115,7 +121,7 @@ export default function InstructorLayout({
                                             </nav>
                                         </div>
                                         <div className="mt-auto border-t p-4">
-                                            <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" asChild>
+                                            <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" asChild onClick={() => setIsSheetOpen(false)}>
                                                 <Link href="/logout">
                                                     <LogOut className="h-4 w-4" />
                                                     تسجيل الخروج
