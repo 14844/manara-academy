@@ -59,25 +59,71 @@ const signupSchema = z.object({
     countryCode: z.string(),
     role: z.enum(["student", "instructor"]),
     gradeLevel: z.string().optional(),
-    parentPhone: z.string().optional(), // Logic handled in refine
+    parentPhone: z.string().optional(),
     specialty: z.string().optional(),
     bio: z.string().optional(),
-}).refine((data: any) => {
-    // Egypt phone length check
-    if (data.countryCode === "+20" && data.phone.length !== 11) {
-        return false
+}).superRefine((data, ctx) => {
+    // Helper to clean phone numbers (handles Arabic numerals and spaces)
+    const cleanPhone = (str: string) => {
+        const arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+        return (str || "").replace(/[٠-٩]/g, w => arabicNumbers.indexOf(w).toString()).replace(/\D/g, "");
+    };
+
+    const cleanedUserPhone = cleanPhone(data.phone);
+
+    if (data.countryCode === "+20") {
+        if (cleanedUserPhone.length !== 11 && cleanedUserPhone.length !== 10) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "رقم الهاتف المصري يجب أن يكون ١٠ أو ١١ رقماً",
+                path: ["phone"]
+            });
+        }
+    } else {
+        if (cleanedUserPhone.length < 8) {
+             ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "رقم الهاتف غير صحيح",
+                path: ["phone"]
+            });
+        }
     }
-    // Role based checks
+
     if (data.role === "student") {
-        return !!data.gradeLevel && !!data.parentPhone && data.parentPhone.length >= 10
+        if (!data.gradeLevel) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "يرجى اختيار المرحلة الدراسية",
+                path: ["gradeLevel"]
+            });
+        }
+        
+        const cleanedParentPhone = cleanPhone(data.parentPhone || "");
+        if (cleanedParentPhone.length < 10) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "رقم هاتف ولي الأمر يجب أن يكون ١٠ أرقام على الأقل",
+                path: ["parentPhone"]
+            });
+        }
     }
+
     if (data.role === "instructor") {
-        return !!data.specialty && !!data.bio
+        if (!data.specialty) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "يرجى إدخال التخصص",
+                path: ["specialty"]
+            });
+        }
+        if (!data.bio) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "يرجى إدخال نبذة عنك",
+                path: ["bio"]
+            });
+        }
     }
-    return true
-}, {
-    message: "يرجى إكمال جميع البيانات المطلوبة، ورقم الهاتف المصري يجب أن يكون ١١ رقماً",
-    path: ["phone"]
 })
 
 export function SignupForm() {
@@ -103,7 +149,22 @@ export function SignupForm() {
     async function onSubmit(values: z.infer<typeof signupSchema>) {
         setIsLoading(true)
         const email = values.email.trim().toLowerCase()
-        const fullPhone = values.countryCode + values.phone
+
+        // Sanitize phone numbers to handle spaces, Arabic numerals, and missing leading zeros
+        const cleanPhone = (str: string) => {
+            const arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+            return (str || "").replace(/[٠-٩]/g, w => arabicNumbers.indexOf(w).toString()).replace(/\D/g, "");
+        };
+
+        let cleanedUserPhone = cleanPhone(values.phone);
+        // Normalize Egypt phone to start with 01 if they entered 10 digits
+        if (values.countryCode === "+20" && cleanedUserPhone.length === 10 && cleanedUserPhone.startsWith("1")) {
+            cleanedUserPhone = "0" + cleanedUserPhone;
+        }
+        const fullPhone = values.countryCode + cleanedUserPhone;
+
+        const cleanedParentPhone = values.role === 'student' ? cleanPhone(values.parentPhone || "") : null;
+        const formattedParentPhone = cleanedParentPhone ? values.countryCode + cleanedParentPhone : null;
 
         try {
             // Check for existing email or phone in Firestore first
@@ -153,7 +214,7 @@ export function SignupForm() {
                 full_name: values.fullName,
                 role: values.role,
                 phone: fullPhone,
-                parent_phone: values.role === 'student' ? values.parentPhone : null,
+                parent_phone: formattedParentPhone,
                 grade_level: values.gradeLevel || null,
                 specialty: values.specialty || null,
                 bio: values.bio || null,
