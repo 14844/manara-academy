@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
-import { Loader2 } from "lucide-react"
+import { Loader2, Eye, EyeOff, ShieldAlert, ShieldCheck, Shield } from "lucide-react"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
     Select,
@@ -69,13 +69,16 @@ const signupSchema = z.object({
         return (str || "").replace(/[٠-٩]/g, w => arabicNumbers.indexOf(w).toString()).replace(/\D/g, "");
     };
 
-    const cleanedUserPhone = cleanPhone(data.phone);
+    let cleanedUserPhone = cleanPhone(data.phone);
 
     if (data.countryCode === "+20") {
-        if (cleanedUserPhone.length !== 11 && cleanedUserPhone.length !== 10) {
+        if (cleanedUserPhone.length === 10 && cleanedUserPhone.startsWith("1")) {
+            cleanedUserPhone = "0" + cleanedUserPhone;
+        }
+        if (cleanedUserPhone.length !== 11) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
-                message: "رقم الهاتف المصري يجب أن يكون ١٠ أو ١١ رقماً",
+                message: "رقم الهاتف غير صحيح",
                 path: ["phone"]
             });
         }
@@ -98,11 +101,14 @@ const signupSchema = z.object({
             });
         }
         
-        const cleanedParentPhone = cleanPhone(data.parentPhone || "");
+        let cleanedParentPhone = cleanPhone(data.parentPhone || "");
+        if (data.countryCode === "+20" && cleanedParentPhone.length === 10 && cleanedParentPhone.startsWith("1")) {
+            cleanedParentPhone = "0" + cleanedParentPhone;
+        }
         if (cleanedParentPhone.length < 10) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
-                message: "رقم هاتف ولي الأمر يجب أن يكون ١٠ أرقام على الأقل",
+                message: "رقم هاتف ولي الأمر غير صحيح",
                 path: ["parentPhone"]
             });
         }
@@ -129,6 +135,33 @@ const signupSchema = z.object({
 export function SignupForm() {
     const router = useRouter()
     const [isLoading, setIsLoading] = useState(false)
+    const [showPassword, setShowPassword] = useState(false)
+    
+    // Password strength logic: 20 points each for:
+    // 1. Length >= 8
+    // 2. Has Uppercase
+    // 3. Has Lowercase
+    // 4. Has Number
+    // 5. Has Special Character
+    const calculateStrength = (password: string) => {
+        let strength = 0;
+        if (!password) return 0;
+        if (password.length >= 8) strength += 20;
+        if (/[A-Z]/.test(password)) strength += 20;
+        if (/[a-z]/.test(password)) strength += 20;
+        if (/[0-9]/.test(password)) strength += 20;
+        if (/[^A-Za-z0-9]/.test(password)) strength += 20;
+        return strength;
+    };
+
+    const getStrengthLabels = (strength: number) => {
+        if (strength === 0) return { label: "أدخل كلمة المرور", color: "bg-muted" };
+        if (strength <= 20) return { label: "ضعيفة جداً - أضف أرقاماً ورموزاً", color: "bg-red-500" };
+        if (strength <= 40) return { label: "ضعيفة - استخدم أحرفاً كبيرة وصغيرة", color: "bg-orange-500" };
+        if (strength <= 60) return { label: "متوسطة - اجعلها أطول قليلاً", color: "bg-yellow-500" };
+        if (strength <= 80) return { label: "جيدة - أضف رمزاً خاصاً (#@!)", color: "bg-blue-500" };
+        return { label: "قوية جداً ومؤمنة تماماً ✅", color: "bg-green-500" };
+    };
 
     const form = useForm<z.infer<typeof signupSchema>>({
         resolver: zodResolver(signupSchema),
@@ -242,13 +275,12 @@ export function SignupForm() {
             router.push("/pending-approval")
         } catch (error: any) {
             console.error("Signup error:", error)
-            let message = "حدث خطأ في إنشاء الحساب"
-            if (error.code === 'auth/email-already-in-use') message = "البريد الإلكتروني مستخدم بالفعل"
-            if (error.code === 'auth/weak-password') message = "كلمة المرور ضعيفة جداً"
+            let message = "حدث خطأ في إنشاء الحساب، يرجى المحاولة مرة أخرى."
+            if (error.code === 'auth/email-already-in-use') message = "البريد الإلكتروني مستخدم بالفعل."
+            else if (error.code === 'auth/weak-password') message = "كلمة المرور ضعيفة جداً."
+            else if (error.code === 'auth/network-request-failed') message = "لا يوجد اتصال بالإنترنت، يرجى التحقق من الشبكة."
 
-            toast.error(message, {
-                description: error.message,
-            })
+            toast.error(message)
         } finally {
             setIsLoading(false)
         }
@@ -290,7 +322,39 @@ export function SignupForm() {
                         <FormItem>
                             <FormLabel>كلمة المرور</FormLabel>
                             <FormControl>
-                                <Input type="password" placeholder="••••••••" {...field} dir="ltr" />
+                                <div className="space-y-2">
+                                    <div className="relative">
+                                        <Input 
+                                            type={showPassword ? "text" : "password"} 
+                                            placeholder="••••••••" 
+                                            {...field} 
+                                            dir="ltr" 
+                                            className="pr-10"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                        >
+                                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        </button>
+                                    </div>
+                                    {/* Strength Indicator */}
+                                    <div className="space-y-1.5">
+                                        <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                                            <div 
+                                                className={`h-full transition-all duration-300 ${getStrengthLabels(calculateStrength(field.value)).color}`}
+                                                style={{ width: `${calculateStrength(field.value)}%` }}
+                                            />
+                                        </div>
+                                        <div className="flex justify-between items-center text-[10px] font-bold">
+                                            <span className="text-muted-foreground">قوة كلمة المرور:</span>
+                                            <span className={calculateStrength(field.value) > 40 ? "text-primary" : "text-muted-foreground"}>
+                                                {getStrengthLabels(calculateStrength(field.value)).label}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
                             </FormControl>
                             <FormMessage />
                         </FormItem>

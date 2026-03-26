@@ -116,6 +116,26 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+@layer utilities {
+  .animate-float {
+    animation: float 25s ease-in-out infinite;
+  }
+  .animate-float-delayed {
+    animation: float-delayed 35s ease-in-out infinite;
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) translateX(0) scale(1); }
+  33% { transform: translateY(-40px) translateX(30px) scale(1.05); }
+  66% { transform: translateY(30px) translateX(-20px) scale(0.95); }
+}
+
+@keyframes float-delayed {
+  0%, 100% { transform: translateY(0) translateX(0) scale(1); }
+  50% { transform: translateY(-70px) translateX(-50px) scale(1.1); }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
-import { Loader2 } from "lucide-react"
+import { Loader2, Eye, EyeOff } from "lucide-react"
 
 const loginSchema = z.object({
     email: z.string().email({ message: "البريد الإلكتروني غير صحيح" }),
@@ -29,6 +29,7 @@ const loginSchema = z.object({
 export function LoginForm() {
     const router = useRouter()
     const [isLoading, setIsLoading] = useState(false)
+    const [showPassword, setShowPassword] = useState(false)
 
     const form = useForm<z.infer<typeof loginSchema>>({
         resolver: zodResolver(loginSchema),
@@ -93,13 +94,15 @@ export function LoginForm() {
             }
         } catch (error: any) {
             console.error("LoginForm: Root Error:", error)
-            let message = "خطأ في تسجيل الدخول"
-            if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+            let message = "حدث خطأ أثناء تسجيل الدخول، يرجى المحاولة مرة أخرى."
+            if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
                 message = "البريد الإلكتروني أو كلمة المرور غير صحيحة"
+            } else if (error.code === 'auth/network-request-failed') {
+                message = "لا يوجد اتصال بالإنترنت، يرجى التحقق من الشبكة."
+            } else if (error.code === 'auth/too-many-requests') {
+                message = "محاولات كثيرة خاطئة، يرجى الانتظار قليلاً ثم المحاولة."
             }
-            toast.error(message, {
-                description: error.message,
-            })
+            toast.error(message)
         } finally {
             setIsLoading(false)
         }
@@ -128,7 +131,22 @@ export function LoginForm() {
                         <FormItem>
                             <FormLabel>كلمة المرور</FormLabel>
                             <FormControl>
-                                <Input type="password" placeholder="••••••••" {...field} dir="ltr" />
+                                <div className="relative">
+                                    <Input 
+                                        type={showPassword ? "text" : "password"} 
+                                        placeholder="••••••••" 
+                                        {...field} 
+                                        dir="ltr" 
+                                        className="pr-10"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                    >
+                                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                    </button>
+                                </div>
                             </FormControl>
                             <FormMessage />
                         </FormItem>
