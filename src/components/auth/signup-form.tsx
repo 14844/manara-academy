@@ -200,30 +200,8 @@ export function SignupForm() {
         const formattedParentPhone = cleanedParentPhone ? values.countryCode + cleanedParentPhone : null;
 
         try {
-            // Check for existing email or phone in Firestore first
-            const profilesRef = collection(db, "profiles")
-
-            const qEmail = query(profilesRef, where("email", "==", email))
-            const qPhone = query(profilesRef, where("phone", "==", fullPhone))
-
-            const [emailSnap, phoneSnap] = await Promise.all([
-                getDocs(qEmail),
-                getDocs(qPhone)
-            ])
-
-            if (!emailSnap.empty) {
-                toast.error("هذا البريد الإلكتروني مسجل بالفعل")
-                setIsLoading(false)
-                return
-            }
-
-            if (!phoneSnap.empty) {
-                toast.error("رقم الهاتف هذا مسجل بالفعل")
-                setIsLoading(false)
-                return
-            }
-
-            // 1. Create User in Firebase Auth
+            // 1. Create User in Firebase Auth first to become "authenticated"
+            // (Firebase Auth handles duplicate emails automatically)
             const userCredential = await createUserWithEmailAndPassword(
                 auth,
                 email,
@@ -231,7 +209,20 @@ export function SignupForm() {
             )
             const user = userCredential.user
 
-            // 2. Update Display Name
+            // 2. Now that we are authenticated, we can check Firestore for existing phone
+            const profilesRef = collection(db, "profiles")
+            const qPhone = query(profilesRef, where("phone", "==", fullPhone))
+            const phoneSnap = await getDocs(qPhone)
+
+            if (!phoneSnap.empty) {
+                // Phone is taken - delete the auth account we just made and show error
+                await user.delete()
+                toast.error("رقم الهاتف هذا مسجل بالفعل بحساب آخر")
+                setIsLoading(false)
+                return
+            }
+
+            // 3. Update Display Name
             await updateProfile(user, {
                 displayName: values.fullName
             })
