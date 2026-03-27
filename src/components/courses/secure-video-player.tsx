@@ -113,7 +113,7 @@ export function SecureVideoPlayer({
     const [playbackRate, setPlaybackRate] = useState(1)
     const [isFullscreen, setIsFullscreen] = useState(false)
     const [showControls, setShowControls] = useState(true)
-    const [videoType, setVideoType] = useState<"youtube" | "drive" | "direct" | null>(null)
+    const [videoType, setVideoType] = useState<"youtube" | "drive" | "direct" | "stream" | null>(null)
     const [directVideoUrl, setDirectVideoUrl] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [blobUrl, setBlobUrl] = useState<string | null>(null)
@@ -124,6 +124,7 @@ export function SecureVideoPlayer({
     const [isInitialized, setIsInitialized] = useState(false)
     const [ytReady, setYtReady] = useState(false)
     const [ytPlayerReady, setYtPlayerReady] = useState(false)
+    const [diagInfo, setDiagInfo] = useState<string>("")
 
     // ── Derived ───────────────────────────────────────────────────────────────
     const youtubeId = ytVideoIdRef.current
@@ -172,24 +173,10 @@ export function SecureVideoPlayer({
                         setError("خطأ في فك تشفير بيانات يوتيوب")
                         setIsLoading(false)
                     }
-                } else if (data.type === "drive") {
+                } else if (data.type === "direct" || data.type === "drive" || data.type === "stream") {
                     setDirectVideoUrl(data.url)
-                    setVideoType("drive")
+                    setVideoType(data.type as any)
                     setIsLoading(false)
-                } else if (data.type === "direct") {
-                    try {
-                        const videoRes = await fetch(data.url)
-                        const blob = await videoRes.blob()
-                        const bUrl = URL.createObjectURL(blob)
-                        setBlobUrl(bUrl)
-                        setDirectVideoUrl(data.url)
-                        setVideoType("direct")
-                        setIsLoading(false)
-                    } catch (err) {
-                        setDirectVideoUrl(data.url)
-                        setVideoType("direct")
-                        setIsLoading(false)
-                    }
                 } else {
                     setError("تنسيق الفيديو غير مدعوم")
                     setIsLoading(false)
@@ -355,12 +342,15 @@ export function SecureVideoPlayer({
     // 4. Resume – native video
     // ══════════════════════════════════════════════════════════════════════════
     useEffect(() => {
-        if (videoRef.current && startTime > 0 && !isInitialized && !isLoading) {
-            videoRef.current.currentTime = startTime
-            setCurrentTime(startTime)
-            setIsInitialized(true)
+        if (!videoRef.current || !directVideoUrl || isLoading || videoType === "stream") return;
+
+        // فيديوهات تقليدية (Direct/Drive)
+        videoRef.current.src = directVideoUrl;
+        if (startTime > 0 && !isInitialized) {
+            videoRef.current.currentTime = startTime;
+            setIsInitialized(true);
         }
-    }, [startTime, isLoading, isInitialized])
+    }, [directVideoUrl, isLoading, videoType, startTime, isInitialized]);
 
     // ══════════════════════════════════════════════════════════════════════════
     // 5. حفظ التقدم
@@ -447,7 +437,7 @@ export function SecureVideoPlayer({
 
         document.addEventListener("visibilitychange", onVisibility)
         window.addEventListener("blur", onWindowBlur)
-        window.addEventListener("resize", onWindowBlur) // اكتشاف أدوات التسجيل التي تغير الأبعاد
+        // window.removeEventListener("resize", onWindowBlur) // REMOVED PERMANENTLY: Causes false positives on landscape/fullscreen
         window.addEventListener("keydown", onKey, { capture: true })
 
         return () => {
@@ -463,18 +453,20 @@ export function SecureVideoPlayer({
     // ══════════════════════════════════════════════════════════════════════════
     useEffect(() => {
         let devtoolsOpen = false
-        const threshold = 160
+        const threshold = 250 // Increased from 160 to allow for Windows scaling/sidebars
 
         const checkDevTools = () => {
-            const widthDiff = window.outerWidth - window.innerWidth > threshold
-            const heightDiff = window.outerHeight - window.innerHeight > threshold
-            const opened = widthDiff || heightDiff
+            if (document.fullscreenElement) return
+
+            const widthDiffNum = window.outerWidth - window.innerWidth
+            const heightDiffNum = window.outerHeight - window.innerHeight
+            const opened = widthDiffNum > threshold || heightDiffNum > threshold
 
             if (opened && !devtoolsOpen) {
                 devtoolsOpen = true
                 pauseAny()
                 setIsBlocked(true)
-                setBlockReason("تم إيقاف الفيديو. أدوات المطور مفتوحة. أغلقها للمتابعة.")
+                setBlockReason("تم إيقاف الفيديو. أدوات المطور (DevTools) مفتوحة. أغلقها للمتابعة.")
             } else if (!opened && devtoolsOpen) {
                 devtoolsOpen = false
                 setIsBlocked(false)
@@ -493,8 +485,18 @@ export function SecureVideoPlayer({
             if (isPlaying) ytPlayerRef.current.pauseVideo()
             else ytPlayerRef.current.playVideo()
         } else if (videoRef.current) {
-            if (isPlaying) videoRef.current.pause()
-            else videoRef.current.play()
+            if (isPlaying) {
+                videoRef.current.pause()
+            } else {
+                const playPromise = videoRef.current.play()
+                if (playPromise !== undefined) {
+                    playPromise.catch((error) => {
+                        if (error.name !== "AbortError") {
+                            console.error("Video play failed:", error)
+                        }
+                    })
+                }
+            }
         }
     }, [isPlaying, youtubeId])
 
@@ -623,10 +625,22 @@ export function SecureVideoPlayer({
             {/* ── Error ───────────────────────────────────────────────────── */}
             {!isLoading && error && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-zinc-900 text-white p-6 text-center z-50">
-                    <p className="text-sm opacity-80 font-arabic">{error}</p>
-                    <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="font-arabic">
-                        إعادة المحاولة
-                    </Button>
+                    <ShieldAlert className="h-12 w-12 text-destructive animate-pulse" />
+                    <div className="space-y-1">
+                        <p className="text-sm font-bold font-arabic">{error}</p>
+                        {diagInfo && <p className="text-[9px] text-zinc-400 font-mono mt-1">{diagInfo}</p>}
+                        <p className="text-[10px] opacity-60 font-mono break-all max-w-xs">{directVideoUrl}</p>
+                    </div>
+                    <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="font-arabic h-9 px-4">
+                            إعادة المحاولة
+                        </Button>
+                        {directVideoUrl && (
+                            <Button variant="secondary" size="sm" asChild className="font-arabic h-9 px-4">
+                                <a href={directVideoUrl} target="_blank" rel="noopener noreferrer">فتح الرابط المباشر</a>
+                            </Button>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -672,25 +686,30 @@ export function SecureVideoPlayer({
                 </>
             )}
 
-            {/* ── Native Video ─────────────────────────────────────────────── */}
+            {/* ── Bunny Stream Iframe ───────────────────────────────────────── */}
+            {videoType === "stream" && !isLoading && !error && (
+                <div className="relative w-full h-full">
+                    {!isBlocked ? (
+                        <iframe
+                            src={directVideoUrl || ""}
+                            loading="lazy"
+                            className="w-full h-full border-none"
+                            allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+                            allowFullScreen
+                        />
+                    ) : (
+                        <div className="w-full h-full bg-black flex items-center justify-center">
+                            <ShieldAlert className="h-12 w-12 text-destructive animate-pulse" />
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ── Native Direct Video ─────────────────────────────────────────── */}
             {isNativeVideo && !isLoading && !error && (
                 <div className="relative w-full h-full">
                     <video
-                        ref={(el) => {
-                            // @ts-ignore
-                            videoRef.current = el
-                            if (el && blobUrl && !srcSetRef.current) {
-                                // تعيين المصدر برمجياً ومسحه فوراً من الـ DOM للتمويه
-                                if (!el.src || el.src === "") {
-                                    el.src = blobUrl
-                                    srcSetRef.current = true
-                                    // مسح السمة من الـ HTML لكي لا تظهر في الـ Inspect
-                                    setTimeout(() => {
-                                        if (el) el.removeAttribute("src")
-                                    }, 100)
-                                }
-                            }
-                        }}
+                        ref={videoRef}
                         className={`w-full h-full object-contain transition-all duration-75 ${isBlocked ? "opacity-0 blur-3xl scale-110 pointer-events-none" : "opacity-100"}`}
                         onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}
                         onLoadedMetadata={() => videoRef.current && setDuration(videoRef.current.duration)}
@@ -698,9 +717,17 @@ export function SecureVideoPlayer({
                         onPause={() => setIsPlaying(false)}
                         onClick={togglePlay}
                         onDoubleClick={toggleFullscreen}
+                        onError={(e) => {
+                            const video = e.currentTarget;
+                            const diag = `C:${video.error?.code || 'X'} | NS:${video.networkState} | RS:${video.readyState}`;
+                            setDiagInfo(diag);
+                            setError("فشل في تحميل الفيديو المباشر.");
+                            setIsLoading(false);
+                        }}
                         controlsList="nodownload nofullscreen noremoteplayback"
                         disablePictureInPicture
                         playsInline
+                        preload="auto"
                         onContextMenu={(e) => e.preventDefault()}
                     />
                 </div>

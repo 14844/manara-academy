@@ -90,7 +90,7 @@ export function FileUploader({
         // Use searchParams to pass metadata to the API route
         const uploadUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
 
-        xhr.open('PUT', uploadUrl, true)
+        xhr.open('POST', uploadUrl, true)
         xhr.setRequestHeader('Content-Type', file.type)
 
         xhr.upload.onprogress = (event) => {

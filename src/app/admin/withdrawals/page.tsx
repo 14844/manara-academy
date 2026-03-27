@@ -338,7 +338,7 @@ export default function AdminWithdrawalsPage() {
                                     <span>{selectedRequest?.amount?.toLocaleString()} ج.م</span>
                                 </div>
                                 <div className="row text-red-600">
-                                    <span>عمولة المنصة (20%):</span>
+                                    <span>عمولة المنصة:</span>
                                     <span>-{selectedRequest?.commission?.toLocaleString()} ج.م</span>
                                 </div>
                                 <div className="total">

@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react"
 import { auth, db } from "@/lib/firebase/config"
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore"
-import { calculateEnrollmentCommission } from "@/lib/commission-utils"
+import { calculateEnrollmentCommission, getSpecialOfferProgress } from "@/lib/commission-utils"
 import { onAuthStateChanged } from "firebase/auth"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { PartyPopper, Sparkles } from "lucide-react"
 import {
     Users,
     BookOpen,
@@ -35,10 +36,14 @@ export default function InstructorAnalyticsPage() {
     const [courseBreakdown, setCourseBreakdown] = useState<any[]>([])
     const [recentEnrollments, setRecentEnrollments] = useState<any[]>([])
 
+    const [user, setUser] = useState<any>(null)
+    const [specialOffer, setSpecialOffer] = useState<any>(null)
+
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                fetchAnalytics(user.uid)
+        const unsubscribe = onAuthStateChanged(auth, async (u) => {
+            setUser(u)
+            if (u) {
+                fetchAnalytics(u.uid)
             }
         })
         return () => unsubscribe()
@@ -138,6 +143,52 @@ export default function InstructorAnalyticsPage() {
                 <p className="text-muted-foreground mt-1 italic">شفافية كاملة لأرباحك وتفاعل طلابك خطوة بخطوة</p>
             </div>
 
+            {user && getSpecialOfferProgress(user.uid, stats.totalStudents) && (
+                <Card className="border-2 border-primary/20 bg-primary/5 overflow-hidden relative group">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <Sparkles className="h-24 w-24 text-primary" />
+                    </div>
+                    <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-xl font-black flex items-center gap-2">
+                                <PartyPopper className="h-6 w-6 text-primary" />
+                                مسار العرض الخاص (15% عمولة)
+                            </CardTitle>
+                            <Badge variant="outline" className="bg-background font-bold">
+                                {getSpecialOfferProgress(user.uid, stats.totalStudents)?.current} / {getSpecialOfferProgress(user.uid, stats.totalStudents)?.limit} طالب
+                            </Badge>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <div className="flex justify-between text-sm font-bold">
+                                <span>حالة العرض الحالي</span>
+                                <span className="text-primary">{Math.round(getSpecialOfferProgress(user.uid, stats.totalStudents)?.percentage || 0)}%</span>
+                            </div>
+                            <Progress value={getSpecialOfferProgress(user.uid, stats.totalStudents)?.percentage} className="h-3 rounded-full" />
+                            <div className="grid grid-cols-10 gap-1 mt-1">
+                                {[...Array(10)].map((_, i) => (
+                                    <div 
+                                        key={i} 
+                                        className={`h-1.5 rounded-full transition-all duration-500 ${
+                                            i < (getSpecialOfferProgress(user.uid, stats.totalStudents)?.current || 0) 
+                                            ? "bg-primary shadow-[0_0_8px_rgba(var(--primary),0.5)]" 
+                                            : "bg-muted"
+                                        }`}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                        <p className="text-sm font-medium text-muted-foreground">
+                            {getSpecialOfferProgress(user.uid, stats.totalStudents)?.isCompleted 
+                                ? "أحسنت! لقد استفدت من العرض كاملاً لجميع الطلاب العشرة الأوائل. استمر في التألق!"
+                                : `باقي لك ${10 - (getSpecialOfferProgress(user.uid, stats.totalStudents)?.current || 0)} طلاب حتى تكتمل قائمة الـ 10 طلاب المستفيدين من العمولة المخفضة.`
+                            }
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <AnalyticsCard
                     title="الطلاب الجدد"
@@ -154,9 +205,9 @@ export default function InstructorAnalyticsPage() {
                     icon={<DollarSign className="h-5 w-5" />}
                 />
                 <AnalyticsCard
-                    title="عمولة المنصة (20%)"
+                    title="عمولة المنصة"
                     value={`${stats.platformCommission.toLocaleString()} ج.م`}
-                    trend={"قد تشمل عروض خاصة"}
+                    trend={"تحسب تلقائياً حسب العرض"}
                     color="bg-red-50 text-red-600"
                     icon={<TrendingUp className="h-5 w-5" />}
                 />

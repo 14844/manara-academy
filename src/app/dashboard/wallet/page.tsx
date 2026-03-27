@@ -22,7 +22,6 @@ import {
     AlertCircle
 } from "lucide-react"
 import { toast } from "sonner"
-import { supabase, SUPABASE_BUCKET } from "@/lib/supabase/config"
 import { Badge } from "@/components/ui/badge"
 
 export default function WalletPage() {
@@ -92,20 +91,25 @@ export default function WalletPage() {
 
         setSubmitting(true)
         try {
-            // 1. Upload screenshot to Supabase
+            // 1. Upload screenshot to Bunny.net via our API
             const fileExt = file.name.split('.').pop()
             const fileName = `${user.uid}_${Date.now()}.${fileExt}`
-            const filePath = `payment_proofs/${fileName}`
+            const folder = "payment_proofs"
 
-            const { data: uploadData, error: uploadError } = await supabase.storage
-                .from(SUPABASE_BUCKET)
-                .upload(filePath, file)
+            const uploadRes = await fetch(`/api/upload/bunny?fileName=${fileName}&folder=${folder}`, {
+                method: 'PUT',
+                body: file,
+                headers: {
+                    'Content-Type': file.type || 'application/octet-stream'
+                }
+            })
 
-            if (uploadError) throw uploadError
+            if (!uploadRes.ok) {
+                const err = await uploadRes.json()
+                throw new Error(err.error || "فشل رفع الصورة")
+            }
 
-            const { data: { publicUrl } } = supabase.storage
-                .from(SUPABASE_BUCKET)
-                .getPublicUrl(filePath)
+            const { url: publicUrl } = await uploadRes.json()
 
             // 2. Create request in Firestore
             await addDoc(collection(db, "wallet_requests"), {

@@ -1,6 +1,9 @@
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { signBunnyUrl } from "@/lib/bunny/utils";
+import { BUNNY_CONFIG } from "@/lib/bunny/config";
+import crypto from "crypto";
 
 // استخراج YouTube Video ID من أي صيغة رابط (بما في ذلك Shorts)
 function extractYouTubeId(url: string): string | null {
@@ -104,9 +107,33 @@ export async function GET(request: Request) {
         } else if (videoPath.includes("drive.google.com")) {
             // جوجل درايف
             return NextResponse.json({ type: "drive", url: videoPath });
+        } else if (videoPath.startsWith("bunny_stream://")) {
+            // Bunny Stream (Secure Iframe Embed)
+            const guid = videoPath.split("://")[1];
+            
+            // ── EBEMD TOKEN GENERATION ─────────────────────────────────────────
+            // Algorithm: HEX(SHA256(token_security_key + video_id + expiration))
+            const expiration = Math.floor(Date.now() / 1000) + 86400; // 24 hours
+            const securityKey = BUNNY_CONFIG.SECURITY_KEY;
+            
+            const tokenInput = securityKey + guid + expiration.toString();
+            const token = crypto.createHash('sha256').update(tokenInput).digest('hex');
+            
+            // رابط الـ Embed المؤمن
+            const embedUrl = `https://iframe.mediadelivery.net/embed/${BUNNY_CONFIG.VIDEO_LIBRARY_ID}/${guid}?token=${token}&expires=${expiration}&autoplay=true`;
+            
+            return NextResponse.json({ 
+                type: "stream", 
+                url: embedUrl,
+                guid: guid
+            });
         } else if (videoPath.startsWith("http")) {
-            // رابط مباشر - نولّد signed URL من Firebase Storage إذا أردنا
-            return NextResponse.json({ type: "direct", url: videoPath });
+            // رابط مباشر - تشفير Bunny.net بـ V2 SHA256 وصلاحية 24 ساعة
+            let finalUrl = videoPath;
+            if (videoPath.includes("b-cdn.net")) {
+                finalUrl = signBunnyUrl(videoPath, BUNNY_CONFIG.SECURITY_KEY, 86400); 
+            }
+            return NextResponse.json({ type: "direct", url: finalUrl });
         } else {
             return NextResponse.json({ error: "Unknown video type" }, { status: 422 });
         }

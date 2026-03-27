@@ -5,10 +5,14 @@
  * BASE RATE: 20% commission for everyone else.
  */
 
-const SPECIAL_OFFER_INSTRUCTORS = ["MANARA-1017", "MANARA-1016"];
-const SPECIAL_RATE = 0.15;
-const BASE_RATE = 0.20;
-const SPECIAL_LIMIT = 10;
+export const SPECIAL_OFFER_INSTRUCTORS = [
+    "BVCgMEavBzR4KBeS3D067PWOHT42", // MANARA-1017
+    "isIFTwb9nBNDoGGv0jKi0wVCj4Z2", // MANARA-1016
+    "REaBWoKEpZazJI08uJVhXxYMfMK2", // MANARA-1004
+];
+export const SPECIAL_RATE = 0.15;
+export const BASE_RATE = 0.20;
+export const SPECIAL_LIMIT = 10;
 
 export interface CommissionResult {
     commissionAmount: number;
@@ -65,4 +69,23 @@ export function calculateTotalCommission(
     });
 
     return { totalCommission, totalNet };
+}
+
+/**
+ * Returns the progress status for a special offer instructor.
+ */
+export function getSpecialOfferProgress(instructorId: string, totalStudents: number) {
+    const isSpecial = SPECIAL_OFFER_INSTRUCTORS.includes(instructorId);
+    if (!isSpecial) return null;
+
+    const progress = Math.min(totalStudents, SPECIAL_LIMIT);
+    const percentage = (progress / SPECIAL_LIMIT) * 100;
+
+    return {
+        isSpecial: true,
+        current: progress,
+        limit: SPECIAL_LIMIT,
+        percentage,
+        isCompleted: progress >= SPECIAL_LIMIT
+    };
 }
