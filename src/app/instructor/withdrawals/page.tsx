@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { auth, db } from "@/lib/firebase/config"
-import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore"
+import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, getDoc, orderBy } from "firebase/firestore"
+import { calculateTotalCommission } from "@/lib/commission-utils"
 import { onAuthStateChanged } from "firebase/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -72,27 +73,36 @@ export default function InstructorWithdrawalsPage() {
                 new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime()
             ))
 
-            // 3. Calculate current balance (Gross - Already Requested)
-            let totalGross = 0
-            enrollmentsSnap.docs.forEach(doc => {
-                totalGross += doc.data().paid_amount || 0
-            })
+            // 3. Calculate current balance using the utility for accuracy
+            // Fetch ALL enrollments sorted by date to know which are in the first 10
+            const sortedEnrollments = enrollmentsSnap.docs
+                .map(doc => doc.data())
+                .sort((a: any, b: any) => {
+                    const dateA = a.enrolled_at ? new Date(a.enrolled_at).getTime() : 0
+                    const dateB = b.enrolled_at ? new Date(b.enrolled_at).getTime() : 0
+                    return dateA - dateB
+                }) as { paid_amount: number }[]
 
-            let totalRequested = 0
+            const { totalCommission: allTimeComm, totalNet: allTimeNet } = calculateTotalCommission(sortedEnrollments, instructorId)
+            const allTimeGross = sortedEnrollments.reduce((acc, e) => acc + (Number(e.paid_amount) || 0), 0)
+
+            let netAlreadyRequested = 0
+            let grossAlreadyRequested = 0
             allRequests.forEach((req: any) => {
                 if (req.status !== 'rejected') {
-                    totalRequested += req.amount || 0
+                    netAlreadyRequested += req.net_amount || 0
+                    grossAlreadyRequested += req.amount || 0
                 }
             })
 
-            const currentGross = totalGross - totalRequested
-            const currentCommission = currentGross * 0.15
-            const currentNet = currentGross - currentCommission
+            const currentGross = allTimeGross - grossAlreadyRequested
+            const currentNet = allTimeNet - netAlreadyRequested
+            const currentCommission = currentGross - currentNet
 
             setBalance({
-                gross: currentGross,
-                commission: currentCommission,
-                net: currentNet
+                gross: Math.max(0, currentGross),
+                commission: Math.max(0, currentCommission),
+                net: Math.max(0, currentNet)
             })
 
         } catch (error) {

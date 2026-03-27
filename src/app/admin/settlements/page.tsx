@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase/config"
-import { collection, query, where, getDocs, orderBy, doc, getDoc } from "firebase/firestore"
+import { collection, query, where, getDocs, orderBy, doc, getDoc, count as getCount } from "firebase/firestore"
+import { calculateEnrollmentCommission } from "@/lib/commission-utils"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -125,19 +126,42 @@ export default function AdminSettlementsPage() {
                 })
             })
 
-            // Calculate commissions and net
-            Object.values(instructorGroups).forEach((group: any) => {
-                group.commission = group.grossRevenue * 0.15
-                group.netPayout = group.grossRevenue - group.commission
-            })
+            // Calculate commissions and net accurately using the utility
+            for (const group of Object.values(instructorGroups) as any[]) {
+                const instId = group.instructorId;
+                
+                // We need to know the enrollment index for each student to apply the special rate correctly
+                // Fetch previous enrollments count before this month range
+                const prevEnrollmentsQ = query(
+                    collection(db, "enrollments"),
+                    where("instructor_id", "==", instId),
+                    where("enrolled_at", "<", startDate)
+                );
+                const prevSnap = await getDocs(prevEnrollmentsQ);
+                let currentTotalIndex = prevSnap.size;
+
+                // Sum up commissions for this month's enrollments
+                group.commission = 0;
+                group.netPayout = 0;
+
+                // Sort details by date to ensure proper index tracking
+                group.details.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+                group.details.forEach((enr: any) => {
+                    const result = calculateEnrollmentCommission(enr.amount, instId, currentTotalIndex);
+                    group.commission += result.commissionAmount;
+                    group.netPayout += result.netAmount;
+                    currentTotalIndex++;
+                });
+            }
 
             const sortedSettlements = Object.values(instructorGroups).sort((a, b) => b.grossRevenue - a.grossRevenue)
             setSettlements(sortedSettlements)
 
-            // Calculate grand totals
+            // Calculate grand totals based on actual group calculations
             const totalGross = sortedSettlements.reduce((acc, s) => acc + s.grossRevenue, 0)
-            const totalComm = totalGross * 0.15
-            const totalNet = totalGross - totalComm
+            const totalComm = sortedSettlements.reduce((acc, s) => acc + s.commission, 0)
+            const totalNet = sortedSettlements.reduce((acc, s) => acc + s.netPayout, 0)
 
             setTotals({
                 gross: totalGross,
@@ -248,7 +272,7 @@ export default function AdminSettlementsPage() {
                     <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                             <div>
-                                <p className="text-xs font-bold text-muted-foreground mb-1 uppercase">عمولة المنصة (15%)</p>
+                                <p className="text-xs font-bold text-muted-foreground mb-1 uppercase">عمولة المنصة</p>
                                 <h3 className="text-2xl font-black text-red-600">{totals.commission.toLocaleString()} ج.م</h3>
                             </div>
                             <div className="p-3 rounded-xl bg-red-50 text-red-600">
@@ -297,7 +321,7 @@ export default function AdminSettlementsPage() {
                                         <TableHead className="text-right">المحاضر</TableHead>
                                         <TableHead className="text-center">عدد الطلاب</TableHead>
                                         <TableHead className="text-center">إجمالي المبيعات</TableHead>
-                                        <TableHead className="text-center">عمولة المنصة (15%)</TableHead>
+                                        <TableHead className="text-center">عمولة المنصة</TableHead>
                                         <TableHead className="text-center">المبلغ المستحق للتحويل</TableHead>
                                     </TableRow>
                                 </TableHeader>

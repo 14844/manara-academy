@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { auth, db } from "@/lib/firebase/config"
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore"
+import { calculateEnrollmentCommission } from "@/lib/commission-utils"
 import { onAuthStateChanged } from "firebase/auth"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import {
@@ -62,10 +63,28 @@ export default function InstructorAnalyticsPage() {
                     return dateB - dateA
                 }) as any[]
 
-            // 3. Process Stats
+            // 3. Process Stats (Commission logic)
+            // Sort chronicological to apply special offer to first 10
+            const sortedChronic = [...enrollments].sort((a: any, b: any) => {
+                const dateA = a.enrolled_at ? new Date(a.enrolled_at).getTime() : 0
+                const dateB = b.enrolled_at ? new Date(b.enrolled_at).getTime() : 0
+                return dateA - dateB
+            })
+
+            let totalCommission = 0
+            let totalNet = 0
+            
+            sortedChronic.forEach((enr: any, index: number) => {
+                const { commissionAmount, netAmount } = calculateEnrollmentCommission(
+                    Number(enr.paid_amount) || 0,
+                    instructorId,
+                    index
+                )
+                totalCommission += commissionAmount
+                totalNet += netAmount
+            })
+
             const grossRevenue = enrollments.reduce((acc, e: any) => acc + (Number(e.paid_amount) || 0), 0)
-            const commission = grossRevenue * 0.15
-            const net = grossRevenue - commission
 
             const breakdown = courses.map((c: any) => {
                 const courseEnrollments = enrollments.filter(e => e.course_id === c.id)
@@ -86,8 +105,8 @@ export default function InstructorAnalyticsPage() {
                 totalStudents: enrollments.length,
                 activeCourses: courses.filter((c: any) => c.status === 'approved').length,
                 totalRevenue: grossRevenue,
-                platformCommission: commission,
-                netRevenue: net,
+                platformCommission: totalCommission,
+                netRevenue: totalNet,
                 avgCompletion: enrollments.length > 0
                     ? Math.round(enrollments.reduce((acc, e: any) => acc + (e.progress || 0), 0) / enrollments.length)
                     : 0,
@@ -137,7 +156,7 @@ export default function InstructorAnalyticsPage() {
                 <AnalyticsCard
                     title="عمولة المنصة (20%)"
                     value={`${stats.platformCommission.toLocaleString()} ج.م`}
-                    trend={"دعم فني واستضافة"}
+                    trend={"قد تشمل عروض خاصة"}
                     color="bg-red-50 text-red-600"
                     icon={<TrendingUp className="h-5 w-5" />}
                 />
