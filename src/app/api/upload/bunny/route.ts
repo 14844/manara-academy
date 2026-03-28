@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { BUNNY_CONFIG } from "@/lib/bunny/config"
+import crypto from "crypto"
 
 export const runtime = 'nodejs'
 
@@ -24,7 +25,10 @@ export async function POST(request: NextRequest) {
                     'Content-Type': 'application/json',
                     'accept': 'application/json'
                 },
-                body: JSON.stringify({ title: fileName })
+                body: JSON.stringify({ 
+                    title: fileName,
+                    tags: [folder, 'instructor_upload']
+                })
             })
 
             if (!createRes.ok) {
@@ -35,30 +39,21 @@ export async function POST(request: NextRequest) {
             
             const { guid } = await createRes.json()
 
-            // 2. Upload content
-            const uploadUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.VIDEO_LIBRARY_ID}/videos/${guid}`
+            // 2. Generate Signature for Direct Browser Upload
+            // Algorithm: HEX(SHA256(libraryId + apiKey + expiration + videoId))
+            const expiration = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+            const libId = BUNNY_CONFIG.VIDEO_LIBRARY_ID.trim();
+            const apiKey = BUNNY_CONFIG.STREAM_API_KEY.trim();
+            const signatureInput = `${libId}${apiKey}${expiration}${guid}`;
             
-            // NOTE: We do NOT manually set Content-Length as it can cause issues in Node.js fetch with streams
-            const uploadRes = await fetch(uploadUrl, {
-                method: 'PUT',
-                headers: { 
-                    'AccessKey': BUNNY_CONFIG.STREAM_API_KEY,
-                    'Content-Type': contentType,
-                },
-                body: request.body,
-                // @ts-ignore
-                duplex: 'half'
-            })
-
-            if (!uploadRes.ok) {
-                const errText = await uploadRes.text();
-                console.error("Bunny Stream Upload Error:", errText);
-                return NextResponse.json({ error: `فشل رفع محتوى الفيديو: ${errText}` }, { status: uploadRes.status });
-            }
+            const signature = crypto.createHash('sha256').update(signatureInput).digest('hex');
 
             return NextResponse.json({ 
                 success: true, 
-                url: `bunny_stream://${guid}`,
+                guid,
+                libraryId: libId,
+                signature,
+                expiration,
                 type: 'stream'
             })
         } else {

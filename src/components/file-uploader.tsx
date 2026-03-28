@@ -1,10 +1,11 @@
 "use client"
 
 import { useState, useRef } from "react"
-import { Upload, X, CheckCircle2, Loader2, AlertTriangle } from "lucide-react"
+import { Upload, X, CheckCircle2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { toast } from "sonner"
+import * as tus from "tus-js-client"
 
 interface FileUploaderProps {
     onUploadComplete: (url: string) => void
@@ -73,7 +74,7 @@ export function FileUploader({
         setProgress(0)
     }
 
-    const startUpload = () => {
+    const startUpload = async () => {
         if (!file) {
             toast.error("يرجى اختيار ملف أولاً")
             return
@@ -82,50 +83,91 @@ export function FileUploader({
         setIsUploading(true)
         setProgress(0)
 
-        const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
-        const fileName = `${Date.now()}_${sanitizedName}`
+        try {
+            const isVideo = file.type.startsWith('video/')
+            const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
+            const fileName = `${Date.now()}_${sanitizedName}`
 
-        const xhr = new XMLHttpRequest()
+            // ── STEP 1: Get Upload Signature/Metadata from our API ──
+            const authUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
+            const authRes = await fetch(authUrl, { 
+                method: 'POST',
+                headers: { 'Content-Type': file.type }
+                // For videos, we do NOT send the body here anymore
+            })
 
-        // Use searchParams to pass metadata to the API route
-        const uploadUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
-
-        xhr.open('POST', uploadUrl, true)
-        xhr.setRequestHeader('Content-Type', file.type)
-
-        xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-                const percentComplete = (event.loaded / event.total) * 100
-                setProgress(percentComplete)
+            const authData = await authRes.json()
+            if (!authRes.ok || !authData.success) {
+                throw new Error(authData.error || "فشل الحصول على تصريح الرفع")
             }
-        }
 
-        xhr.onload = () => {
-            setIsUploading(false)
-            if (xhr.status >= 200 && xhr.status < 300) {
-                try {
-                    const response = JSON.parse(xhr.responseText)
-                    if (response.success) {
+            // ── STEP 2: Execute Upload via TUS (Professional) ──
+            if (authData.type === 'stream') {
+                const upload = new tus.Upload(file, {
+                    endpoint: "https://video.bunnycdn.com/tusupload",
+                    retryDelays: [0, 3000, 5000, 10000, 20000],
+                    headers: {
+                        AuthorizationSignature: authData.signature,
+                        AuthorizationExpire: authData.expiration.toString(),
+                        VideoId: authData.guid,
+                        LibraryId: authData.libraryId.toString(),
+                    },
+                    metadata: {
+                        filename: file.name,
+                        filetype: file.type,
+                    },
+                    onError: (error) => {
+                        setIsUploading(false)
+                        console.error("TUS Upload Error:", error)
+                        toast.error(`خطأ في الرفع: ${error.message}`)
+                    },
+                    onProgress: (bytesUploaded, bytesTotal) => {
+                        const percentage = (bytesUploaded / bytesTotal) * 100
+                        setProgress(percentage)
+                    },
+                    onSuccess: () => {
+                        setIsUploading(false)
+                        setIsComplete(true)
+                        onUploadComplete(`bunny_stream://${authData.guid}`)
+                        toast.success("تم الرفع الاحترافي لـ Bunny Stream بنجاح")
+                    },
+                })
+
+                // Start the upload
+                upload.start()
+            } else {
+                // Legacy Proxy Upload for Storage (Images/Docs)
+                // In this case, we need to RE-DO the POST with the body
+                const xhr = new XMLHttpRequest()
+                const proxyUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
+                
+                xhr.open('POST', proxyUrl, true)
+                xhr.setRequestHeader('Content-Type', file.type)
+
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        setProgress((event.loaded / event.total) * 100)
+                    }
+                }
+
+                xhr.onload = () => {
+                    setIsUploading(false)
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        const response = JSON.parse(xhr.responseText)
                         setIsComplete(true)
                         onUploadComplete(response.url)
-                        toast.success("تم الرفع بنجاح إلى Bunny.net")
+                        toast.success("تم الرفع (تخزين) بنجاح")
                     } else {
-                        toast.error(`فشل الرفع: ${response.error}`)
+                        toast.error(`فشل رفع التخزين: ${xhr.status}`)
                     }
-                } catch (e) {
-                    toast.error("خطأ في قراءة استجابة السيرفر")
                 }
-            } else {
-                toast.error(`فشل الرفع: خطأ ${xhr.status}`)
+                
+                xhr.send(file)
             }
-        }
-
-        xhr.onerror = () => {
+        } catch (err: any) {
             setIsUploading(false)
-            toast.error("حدث خطأ في الاتصال أثناء الرفع")
+            toast.error(err.message || "حدث خطأ غير متوقع")
         }
-
-        xhr.send(file)
     }
 
     return (

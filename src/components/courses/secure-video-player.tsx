@@ -404,10 +404,25 @@ export function SecureVideoPlayer({
 
         // ج) حماية الهواتف عند سحب القائمة العلوية أو فتح نافذة أخرى
         const onWindowBlur = () => {
-            // في الموبايل، سحب قائمة الإشعارات أو الـ Control Center يطلق حدث blur
+            if (document.activeElement instanceof HTMLIFrameElement) {
+                return
+            }
+            
             pauseAny()
             setIsBlocked(true)
-            setBlockReason("تم حجب المحتوى مؤقتاً لحماية حقوق النشر. يرجى العودة لصفحة الدرس.")
+            setBlockReason("تم حجب المحتوى مؤقتاً لخروجك من نافذة الدرس. سيعود الفيديو بمجرد عودتك.")
+        }
+
+        const onWindowFocus = () => {
+            // فك الحجب تلقائياً فقط إذا كان السبب هو مغادرة النافذة (وليس محاولة تصوير)
+            setIsBlocked((prev) => {
+                if (prev) {
+                    // إذا كان السبب البدء بكلمة "تم حجب المحتوى مؤقتاً" (الخاصة بالـ blur و visibility)
+                    // سنقوم بفك الحجب تلقائياً عند العودة
+                    return false 
+                }
+                return prev
+            })
         }
 
         // ب) اختصارات لقطة الشاشة وتسجيلها
@@ -437,13 +452,13 @@ export function SecureVideoPlayer({
 
         document.addEventListener("visibilitychange", onVisibility)
         window.addEventListener("blur", onWindowBlur)
-        // window.removeEventListener("resize", onWindowBlur) // REMOVED PERMANENTLY: Causes false positives on landscape/fullscreen
+        window.addEventListener("focus", onWindowFocus)
         window.addEventListener("keydown", onKey, { capture: true })
 
         return () => {
             document.removeEventListener("visibilitychange", onVisibility)
             window.removeEventListener("blur", onWindowBlur)
-            window.removeEventListener("resize", onWindowBlur)
+            window.removeEventListener("focus", onWindowFocus)
             window.removeEventListener("keydown", onKey, { capture: true })
         }
     }, [pauseAny])
@@ -694,7 +709,8 @@ export function SecureVideoPlayer({
                             src={directVideoUrl || ""}
                             loading="lazy"
                             className="w-full h-full border-none"
-                            allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+                            allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen;"
+                            sandbox="allow-forms allow-scripts allow-same-origin allow-presentation"
                             allowFullScreen
                         />
                     ) : (
@@ -719,9 +735,19 @@ export function SecureVideoPlayer({
                         onDoubleClick={toggleFullscreen}
                         onError={(e) => {
                             const video = e.currentTarget;
-                            const diag = `C:${video.error?.code || 'X'} | NS:${video.networkState} | RS:${video.readyState}`;
+                            const hvcSupport = video.canPlayType('video/mp4; codecs="hvc1"');
+                            const avcSupport = video.canPlayType('video/mp4; codecs="avc1"');
+                            
+                            const diag = `C:${video.error?.code || 'X'} | NS:${video.networkState} | RS:${video.readyState} | HEVC:${hvcSupport || 'no'} | H264:${avcSupport || 'no'}`;
                             setDiagInfo(diag);
-                            setError("فشل في تحميل الفيديو المباشر.");
+                            
+                            let msg = "فشل في تحميل الفيديو المباشر. يرجى التأكد من اتصالك.";
+                            if (video.error) {
+                                const code = video.error.code;
+                                if (code === 3) msg = "خطأ في معالجة الفيديو (Codec)؛ جهازك لا يدعم هذا التنسيق.";
+                                if (code === 4) msg = "الرابط غير صالح أو انتهت صلاحيته.";
+                            }
+                            setError(msg);
                             setIsLoading(false);
                         }}
                         controlsList="nodownload nofullscreen noremoteplayback"
@@ -773,97 +799,110 @@ export function SecureVideoPlayer({
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 flex flex-col justify-end p-4 gap-2 z-30"
-                            style={{ pointerEvents: "none" }}
+                            className={`absolute inset-0 z-30 ${videoType === "stream" ? "pointer-events-none" : "bg-gradient-to-t from-black/80 via-transparent to-black/20 flex flex-col justify-end p-4 gap-2"}`}
+                            style={videoType !== "stream" ? { pointerEvents: "none" } : undefined}
                         >
-                            {/* Center Play Button */}
-                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                {!isPlaying && (
-                                    <motion.div
-                                        initial={{ scale: 0.8, opacity: 0 }}
-                                        animate={{ scale: 1, opacity: 1 }}
-                                        className="h-16 w-16 bg-primary/30 backdrop-blur-md rounded-full flex items-center justify-center border border-white/30"
+                            {videoType === "stream" ? (
+                                // مشغل Bunny: نعرض فقط زر ملء الشاشة الآمن في الركن
+                                <div className="absolute bottom-2 right-2 flex items-center justify-end p-2 pointer-events-none">
+                                    <Button 
+                                        variant="ghost" 
+                                        size="icon" 
+                                        className="text-white/60 hover:text-white hover:bg-white/10 h-10 w-10 transition-colors pointer-events-auto" 
+                                        onClick={toggleFullscreen} 
+                                        title="ملء الشاشة الآمن"
                                     >
-                                        <Play className="h-8 w-8 text-white fill-white ml-1" />
-                                    </motion.div>
-                                )}
-                            </div>
-
-                            {/* Progress Bar */}
-                            <div className="w-full" style={{ pointerEvents: "all" }}>
-                                <Slider
-                                    value={[currentTime]}
-                                    max={duration || 100}
-                                    step={0.1}
-                                    onValueChange={handleSeek}
-                                    className="cursor-pointer"
-                                />
-                            </div>
-
-                            {/* Bottom Controls */}
-                            <div className="flex items-center justify-between gap-4" style={{ pointerEvents: "all" }}>
-                                {/* Left controls */}
-                                <div className="flex items-center gap-2">
-                                    <Button variant="ghost" size="icon" className="text-white hover:bg-white/20" onClick={togglePlay}>
-                                        {isPlaying
-                                            ? <Pause className="h-5 w-5 fill-current" />
-                                            : <Play className="h-5 w-5 fill-current ml-0.5" />}
+                                        {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
                                     </Button>
-
-                                    <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-8 w-8" onClick={() => skip(-10)}>
-                                        <RotateCcw className="h-4 w-4" />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-8 w-8" onClick={() => skip(10)}>
-                                        <RotateCw className="h-4 w-4" />
-                                    </Button>
-
-                                    <div className="flex items-center group/volume ml-2">
-                                        <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-8 w-8" onClick={toggleMute}>
-                                            {isMuted || volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                                        </Button>
-                                        <div className="w-0 group-hover/volume:w-20 transition-all duration-300 overflow-hidden ml-1">
-                                            <Slider
-                                                value={[isMuted ? 0 : volume]}
-                                                max={1}
-                                                step={0.01}
-                                                onValueChange={handleVolumeChange}
-                                                className="w-20"
-                                            />
-                                        </div>
+                                </div>
+                            ) : (
+                                // المشغلات الأخرى: نعرض كامل واجهة التحكم
+                                <>
+                                    {/* Center Play Button */}
+                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                        {!isPlaying && (
+                                            <motion.div
+                                                initial={{ scale: 0.8, opacity: 0 }}
+                                                animate={{ scale: 1, opacity: 1 }}
+                                                className="h-16 w-16 bg-primary/30 backdrop-blur-md rounded-full flex items-center justify-center border border-white/30"
+                                            >
+                                                <Play className="h-8 w-8 text-white fill-white ml-1" />
+                                            </motion.div>
+                                        )}
                                     </div>
 
-                                    <span className="text-[10px] text-white/80 font-mono hidden sm:inline-block">
-                                        {formatTime(currentTime)} / {formatTime(duration)}
-                                    </span>
-                                </div>
+                                    {/* Progress Bar */}
+                                    <div className="w-full" style={{ pointerEvents: "all" }}>
+                                        <Slider
+                                            value={[currentTime]}
+                                            max={duration || 100}
+                                            step={0.1}
+                                            onValueChange={handleSeek}
+                                            className="cursor-pointer"
+                                        />
+                                    </div>
 
-                                {/* Right controls */}
-                                <div className="flex items-center gap-2">
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button variant="ghost" size="sm" className="text-white hover:bg-white/20 h-8 gap-1 px-2">
-                                                <Settings className="h-4 w-4" />
-                                                <span className="text-xs">{playbackRate}x</span>
+                                    {/* Bottom Controls */}
+                                    <div className="flex items-center justify-between gap-4" style={{ pointerEvents: "all" }}>
+                                        <div className="flex items-center gap-2">
+                                            <Button variant="ghost" size="icon" className="text-white hover:bg-white/20" onClick={togglePlay}>
+                                                {isPlaying
+                                                    ? <Pause className="h-5 w-5 fill-current" />
+                                                    : <Play className="h-5 w-5 fill-current ml-0.5" />}
                                             </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end" className="bg-zinc-900 border-white/10 text-white">
-                                            {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
-                                                <DropdownMenuItem
-                                                    key={rate}
-                                                    onClick={() => handlePlaybackRateChange(rate)}
-                                                    className={`hover:bg-white/10 ${playbackRate === rate ? "bg-primary/20 text-primary" : ""}`}
-                                                >
-                                                    {rate}x
-                                                </DropdownMenuItem>
-                                            ))}
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
+                                            <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-8 w-8" onClick={() => skip(-10)}>
+                                                <RotateCcw className="h-4 w-4" />
+                                            </Button>
+                                            <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-8 w-8" onClick={() => skip(10)}>
+                                                <RotateCw className="h-4 w-4" />
+                                            </Button>
+                                            <div className="flex items-center group/volume ml-2">
+                                                <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-8 w-8" onClick={toggleMute}>
+                                                    {isMuted || volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                                                </Button>
+                                                <div className="w-0 group-hover/volume:w-20 transition-all duration-300 overflow-hidden ml-1">
+                                                    <Slider
+                                                        value={[isMuted ? 0 : volume]}
+                                                        max={1}
+                                                        step={0.01}
+                                                        onValueChange={handleVolumeChange}
+                                                        className="w-20"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <span className="text-[10px] text-white/80 font-mono hidden sm:inline-block">
+                                                {formatTime(currentTime)} / {formatTime(duration)}
+                                            </span>
+                                        </div>
 
-                                    <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-8 w-8" onClick={toggleFullscreen}>
-                                        {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-                                    </Button>
-                                </div>
-                            </div>
+                                        <div className="flex items-center gap-2">
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="sm" className="text-white hover:bg-white/20 h-8 gap-1 px-2">
+                                                        <Settings className="h-4 w-4" />
+                                                        <span className="text-xs">{playbackRate}x</span>
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end" className="bg-zinc-900 border-white/10 text-white">
+                                                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                                                        <DropdownMenuItem
+                                                            key={rate}
+                                                            onClick={() => handlePlaybackRateChange(rate)}
+                                                            className={`hover:bg-white/10 ${playbackRate === rate ? "bg-primary/20 text-primary" : ""}`}
+                                                        >
+                                                            {rate}x
+                                                        </DropdownMenuItem>
+                                                    ))}
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+
+                                            <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-10 w-10" onClick={toggleFullscreen}>
+                                                {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </motion.div>
                     )}
                 </AnimatePresence>
@@ -876,30 +915,37 @@ export function SecureVideoPlayer({
                 <>
                     {/* Watermark متحرك بطيء جداً في الاتجاهات الأربعة */}
                     <motion.div
-                        initial={{ left: "5%", top: "5%" }}
+                        initial={{ left: "10%", top: "10%" }}
                         animate={{
-                            left: ["5%", "95%", "95%", "5%", "5%"],
-                            top: ["5%", "5%", "95%", "95%", "5%"],
+                            left: ["10%", "85%", "85%", "10%", "10%"],
+                            top: ["10%", "10%", "85%", "85%", "10%"],
                         }}
                         transition={{
-                            duration: 90, // أسرع قليلاً من السابق (90 ثانية) ليتم ملاحظة الحركة، لكنها لا تزال بطيئة جداً
+                            duration: 120, // أبطأ قليلاً لتقليل التشتيت مع الحفاظ على الحماية
                             repeat: Infinity,
                             ease: "linear"
                         }}
                         style={{ position: 'absolute' }}
                         className="pointer-events-none z-[100] select-none"
                     >
-                        <div className="bg-black/5 backdrop-blur-[1px] px-2 py-1 rounded-lg text-[10px] md:text-xs font-bold text-white/[0.08] border border-white/[0.03] whitespace-nowrap -rotate-12 flex flex-col items-center shadow-lg">
-                            <span className="tracking-tighter select-none">{userEmail}</span>
-                            <span className="opacity-40 text-[7px] md:text-[8px] select-none font-mono">ID: {studentId}</span>
+                        <div className="bg-black/20 backdrop-blur-[1px] px-3 py-1.5 rounded-lg border border-white/20 flex flex-col items-center shadow-2xl">
+                            <span className="text-[12px] md:text-sm font-black text-white/50 tracking-widest drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] select-none font-mono">
+                                ID: {studentId}
+                            </span>
+                            <span className="text-[9px] text-white/30 select-none font-medium">
+                                {userEmail}
+                            </span>
                         </div>
                     </motion.div>
 
-                    {/* Watermark ثابت خافت */}
-                    <div className="absolute inset-0 pointer-events-none z-[90] select-none overflow-hidden opacity-[0.025]">
-                        <div className="absolute top-[10%] left-[10%] -rotate-45 text-white font-black text-4xl whitespace-nowrap">MANARA ACADEMY</div>
-                        <div className="absolute bottom-[20%] right-[10%] -rotate-45 text-white font-black text-4xl whitespace-nowrap">MANARA ACADEMY</div>
-                        <div className="absolute top-[45%] left-[35%] -rotate-45 text-white font-black text-2xl whitespace-nowrap opacity-70">{userEmail}</div>
+                    {/* Watermark ثابت خافت جداً في الخلفية */}
+                    <div className="absolute inset-0 pointer-events-none z-[90] select-none overflow-hidden opacity-[0.08]">
+                        <div className="absolute top-[15%] left-[10%] -rotate-12 text-white/40 font-bold text-lg md:text-xl whitespace-nowrap">
+                            MANARA ACADEMY - {studentId}
+                        </div>
+                        <div className="absolute bottom-[15%] right-[10%] -rotate-12 text-white/40 font-bold text-lg md:text-xl whitespace-nowrap">
+                            PROPERTY OF: {userEmail}
+                        </div>
                     </div>
                 </>
             )}
