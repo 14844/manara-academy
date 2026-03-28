@@ -96,8 +96,8 @@ export default function WalletPage() {
             const fileName = `${user.uid}_${Date.now()}.${fileExt}`
             const folder = "payment_proofs"
 
-            const uploadRes = await fetch(`/api/upload/bunny?fileName=${fileName}&folder=${folder}`, {
-                method: 'PUT',
+            const uploadRes = await fetch(`/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`, {
+                method: 'POST',
                 body: file,
                 headers: {
                     'Content-Type': file.type || 'application/octet-stream'
@@ -105,8 +105,15 @@ export default function WalletPage() {
             })
 
             if (!uploadRes.ok) {
-                const err = await uploadRes.json()
-                throw new Error(err.error || "فشل رفع الصورة")
+                const errText = await uploadRes.text()
+                let errorMsg = "فشل رفع الصورة"
+                try {
+                    const errJson = JSON.parse(errText)
+                    errorMsg = errJson.error || errorMsg
+                } catch (e) {
+                    errorMsg = `خطأ السيرفر: ${uploadRes.status}`
+                }
+                throw new Error(errorMsg)
             }
 
             const { url: publicUrl } = await uploadRes.json()

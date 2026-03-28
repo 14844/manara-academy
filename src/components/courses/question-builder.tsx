@@ -125,7 +125,11 @@ export function QuestionBuilder({ questions, onChange }: QuestionBuilderProps) {
                                                     />
                                                 ) : (
                                                     <div className="relative border rounded-lg overflow-hidden aspect-video bg-muted group max-w-sm">
-                                                        <img src={q.imageUrl} className="w-full h-full object-contain" alt="Question" />
+                                                        <img 
+                                                            src={`/api/storage/sign?url=${encodeURIComponent(q.imageUrl || "")}`} 
+                                                            className="w-full h-full object-contain" 
+                                                            alt="Question preview" 
+                                                        />
                                                         <Button
                                                             size="icon"
                                                             variant="destructive"

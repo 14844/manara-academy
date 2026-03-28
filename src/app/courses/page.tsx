@@ -6,12 +6,27 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Search, BookOpen, Clock, User, Filter, Loader2 } from "lucide-react"
+import { Search, BookOpen, Clock, User, Filter, Loader2, X, ArrowUpDown } from "lucide-react"
 import Link from "next/link"
 
 import { auth, db } from "@/lib/firebase/config"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import { useEffect } from "react"
+import {
+    Sheet,
+    SheetContent,
+    SheetDescription,
+    SheetHeader,
+    SheetTitle,
+    SheetTrigger,
+} from "@/components/ui/sheet"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 
 const CATEGORIES = ["الكل", "arabic", "math", "english", "science", "physics", "chemistry", "other"]
 const CATEGORY_MAP: Record<string, string> = {
@@ -37,11 +52,13 @@ const GRADE_MAP: Record<string, string> = {
     "sec_1": "أول ثانوي",
     "sec_2": "ثاني ثانوي",
     "sec_3": "ثالث ثانوي",
-    "other": "كورس عام / غير مرتبط بصف"
+    "other": "كورس عام"
 }
 
 export default function CoursesPage() {
     const [selectedCategory, setSelectedCategory] = useState("الكل")
+    const [selectedGrade, setSelectedGrade] = useState("الكل")
+    const [sortOrder, setSortOrder] = useState("latest")
     const [searchQuery, setSearchQuery] = useState("")
     const [courses, setCourses] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
@@ -50,15 +67,12 @@ export default function CoursesPage() {
         async function fetchCourses() {
             try {
                 let q = collection(db, "courses")
-                // Only show approved courses (we'll implement status later, but status: "approved" is the goal)
-                // For now, let's just get all courses to see if it works
                 const querySnapshot = await getDocs(q)
                 const fetchedCourses = querySnapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data()
                 }))
 
-                // Fetch all enrollments to calculate real counts
                 const enrollmentsSnap = await getDocs(collection(db, "enrollments"))
                 const enrollments = enrollmentsSnap.docs.map(doc => doc.data())
 
@@ -77,11 +91,25 @@ export default function CoursesPage() {
         fetchCourses()
     }, [])
 
-    const filteredCourses = courses.filter(course => {
-        const matchesCategory = selectedCategory === "الكل" || course.category === selectedCategory
-        const matchesSearch = course.title.toLowerCase().includes(searchQuery.toLowerCase())
-        return matchesCategory && matchesSearch
-    })
+    const filteredAndSortedCourses = courses
+        .filter(course => {
+            const matchesCategory = selectedCategory === "الكل" || course.category === selectedCategory
+            const matchesGrade = selectedGrade === "الكل" || course.grade_level === selectedGrade
+            const matchesSearch = course.title.toLowerCase().includes(searchQuery.toLowerCase())
+            return matchesCategory && matchesGrade && matchesSearch
+        })
+        .sort((a, b) => {
+            if (sortOrder === "price-asc") return a.price - b.price
+            if (sortOrder === "price-desc") return b.price - a.price
+            return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+        })
+
+    const resetFilters = () => {
+        setSelectedCategory("الكل")
+        setSelectedGrade("الكل")
+        setSortOrder("latest")
+        setSearchQuery("")
+    }
 
     return (
         <div className="flex min-h-screen flex-col">
@@ -90,57 +118,130 @@ export default function CoursesPage() {
                 <div className="flex flex-col space-y-8">
                     {/* Header & Search */}
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div>
-                            <h1 className="text-3xl font-bold">تصفح الكورسات</h1>
-                            <p className="text-muted-foreground mt-2">اكتشف أفضل الكورسات لتعزيز مهاراتك اليوم</p>
+                        <div className="space-y-1">
+                            <h1 className="text-4xl font-black tracking-tight">تصفح الكورسات</h1>
+                            <p className="text-muted-foreground font-medium">اكتشف أفضل الكورسات لتعزيز مهاراتك اليوم</p>
                         </div>
-                        <div className="relative w-full md:w-96">
-                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <div className="relative w-full md:w-96 group">
+                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                             <Input
-                                placeholder="ابحث عن كورس..."
-                                className="pr-10"
+                                placeholder="ابحث عن كورس، مدرس أو مادة..."
+                                className="pr-10 h-12 rounded-xl border-muted-foreground/20 focus:border-primary transition-all"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                             />
                         </div>
                     </div>
 
-                    {/* Filters */}
-                    <div className="flex flex-wrap gap-2">
-                        {CATEGORIES.map((category) => (
-                            <Button
-                                key={category}
-                                variant={selectedCategory === category ? "default" : "outline"}
-                                size="sm"
-                                onClick={() => setSelectedCategory(category)}
-                                className="rounded-full"
-                            >
-                                {category}
-                            </Button>
-                        ))}
-                        <Button variant="ghost" size="sm" className="hidden sm:flex gap-2 mr-auto">
-                            <Filter className="h-4 w-4" />
-                            تصفية متقدمة
-                        </Button>
+                    {/* Filters Bar */}
+                    <div className="flex flex-wrap items-center gap-3 bg-muted/30 p-2 rounded-2xl border border-muted">
+                        <div className="flex flex-wrap gap-2 flex-1">
+                            {CATEGORIES.map((category) => (
+                                <Button
+                                    key={category}
+                                    variant={selectedCategory === category ? "default" : "ghost"}
+                                    size="sm"
+                                    onClick={() => setSelectedCategory(category)}
+                                    className={`rounded-xl px-4 font-bold transition-all ${selectedCategory === category ? "shadow-md shadow-primary/20" : "hover:bg-background"}`}
+                                >
+                                    {category === "الكل" ? "الكل" : (CATEGORY_MAP[category] || category)}
+                                </Button>
+                            ))}
+                        </div>
+
+                        <div className="h-8 w-px bg-muted mx-2 hidden md:block" />
+
+                        <Sheet>
+                            <SheetTrigger asChild>
+                                <Button variant="outline" size="sm" className="gap-2 rounded-xl font-bold border-primary/20 hover:bg-primary/5 hover:text-primary">
+                                    <Filter className="h-4 w-4" />
+                                    تصفية متقدمة
+                                    {(selectedGrade !== "الكل" || sortOrder !== "latest") && (
+                                        <Badge variant="default" className="h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px]">
+                                            !
+                                        </Badge>
+                                    )}
+                                </Button>
+                            </SheetTrigger>
+                            <SheetContent side="right" className="w-[300px] sm:w-[400px]">
+                                <SheetHeader>
+                                    <SheetTitle className="text-right font-black text-2xl">تصفية متقدمة</SheetTitle>
+                                    <SheetDescription className="text-right font-medium">قم بتخصيص نتائج البحث بدقة</SheetDescription>
+                                </SheetHeader>
+                                
+                                <div className="space-y-8 py-8" dir="rtl">
+                                    {/* Grade Filter */}
+                                    <div className="space-y-3">
+                                        <label className="text-sm font-black flex items-center gap-2">
+                                            <BookOpen className="h-4 w-4 text-primary" />
+                                            الصف الدراسي
+                                        </label>
+                                        <Select value={selectedGrade} onValueChange={setSelectedGrade}>
+                                            <SelectTrigger className="w-full rounded-xl">
+                                                <SelectValue placeholder="اختر الصف الدراسي" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="الكل">كل المراحل</SelectItem>
+                                                {Object.entries(GRADE_MAP).map(([val, label]) => (
+                                                    <SelectItem key={val} value={val}>{label}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    {/* Sorting */}
+                                    <div className="space-y-3">
+                                        <label className="text-sm font-black flex items-center gap-2">
+                                            <ArrowUpDown className="h-4 w-4 text-primary" />
+                                            ترتيب حسب
+                                        </label>
+                                        <Select value={sortOrder} onValueChange={setSortOrder}>
+                                            <SelectTrigger className="w-full rounded-xl">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="latest">الأحدث أولاً</SelectItem>
+                                                <SelectItem value="price-asc">السعر: من الأقل للأعلى</SelectItem>
+                                                <SelectItem value="price-desc">السعر: من الأعلى للأقل</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <Button 
+                                        variant="outline" 
+                                        className="w-full rounded-xl gap-2 font-bold text-destructive hover:bg-destructive/5 border-destructive/20"
+                                        onClick={resetFilters}
+                                    >
+                                        <X className="h-4 w-4" />
+                                        إعادة ضبط الفلاتر
+                                    </Button>
+                                </div>
+                            </SheetContent>
+                        </Sheet>
                     </div>
 
                     {isLoading ? (
-                        <div className="col-span-full text-center py-20 flex flex-col items-center gap-4">
-                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                            <p className="text-muted-foreground italic">جاري تحميل الكورسات...</p>
+                        <div className="col-span-full text-center py-32 flex flex-col items-center gap-4">
+                            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                            <p className="text-muted-foreground font-black italic tracking-wide">جاري البحث عن أفضل الكورسات لك...</p>
                         </div>
                     ) : (
-                        <>
-                            {filteredCourses.map((course) => (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                            {filteredAndSortedCourses.map((course) => (
                                 <CourseCard key={course.id} course={course} />
                             ))}
-                        </>
+                        </div>
                     )}
                 </div>
 
-                {!isLoading && filteredCourses.length === 0 && (
-                    <div className="text-center py-20">
-                        <p className="text-xl text-muted-foreground italic">لم نجد أي كورسات تطابق بحثك</p>
+                {!isLoading && filteredAndSortedCourses.length === 0 && (
+                    <div className="text-center py-32 border-2 border-dashed rounded-3xl bg-muted/20">
+                        <div className="h-20 w-20 bg-muted rounded-full flex items-center justify-center mx-auto mb-6">
+                            <Search className="h-10 w-10 text-muted-foreground/30" />
+                        </div>
+                        <h3 className="text-xl font-black mb-2">لم نجد أي نتائج!</h3>
+                        <p className="text-muted-foreground font-medium mb-6">جرب تغيير كلمات البحث أو إزالة بعض الفلاتر المتقدمة</p>
+                        <Button variant="outline" onClick={resetFilters} className="rounded-xl font-bold">إعادة الضبط</Button>
                     </div>
                 )}
             </main>

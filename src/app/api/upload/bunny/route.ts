@@ -4,6 +4,20 @@ import crypto from "crypto"
 
 export const runtime = 'nodejs'
 
+function signUrl(path: string, securityKey: string, expirationSeconds: number = 3600 * 24) {
+    // Current time + expiration in seconds
+    const expires = Math.floor(Date.now() / 1000) + expirationSeconds;
+    
+    // BunnyCDN Token Authentication: md5(securityKey + path + expires)
+    // IMPORTANT: path must start with / for the signature to match Bunny's expectation
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    const hash = crypto.createHash('md5')
+        .update(securityKey + normalizedPath + expires)
+        .digest('hex');
+    
+    return `${normalizedPath}?token=${hash}&expires=${expires}`;
+}
+
 export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const fileName = searchParams.get('fileName') || 'Untitled'
@@ -61,11 +75,12 @@ export async function POST(request: NextRequest) {
             const filePath = `${folder}/${fileName}`
             const bunnyUrl = `https://${BUNNY_CONFIG.STORAGE_ENDPOINT}/${BUNNY_CONFIG.STORAGE_ZONE_NAME}/${filePath}`
             
+            // Proxy to Bunny Storage
             const response = await fetch(bunnyUrl, {
                 method: 'PUT',
                 headers: {
                     'AccessKey': BUNNY_CONFIG.ACCESS_KEY,
-                    'Content-Type': contentType,
+                    'Content-Type': contentType || 'application/octet-stream',
                 },
                 body: request.body,
                 // @ts-ignore
@@ -73,14 +88,18 @@ export async function POST(request: NextRequest) {
             })
 
             if (!response.ok) {
-                const errText = await response.text();
-                return NextResponse.json({ error: `خطأ التخزين: ${errText}` }, { status: response.status });
+                const errText = await response.text().catch(() => "Unknown error");
+                console.error("Bunny Storage Error:", errText)
+                return NextResponse.json({ success: false, error: `فشل الرفع لمساحة التخزين: ${errText}` }, { status: response.status })
             }
 
-            const publicUrl = `${BUNNY_CONFIG.PULL_ZONE_URL}/${filePath}`
+            // Create a clean public URL using our Ultimate Proxy
+            // This ensures the image is fetched via the server with full permissions
+            const proxyUrl = `/api/storage/sign?url=${encodeURIComponent(filePath)}`
+
             return NextResponse.json({ 
                 success: true, 
-                url: publicUrl,
+                url: proxyUrl,
                 type: 'storage'
             })
         }

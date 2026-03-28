@@ -49,6 +49,7 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
     const [isFinished, setIsFinished] = useState(!!initialSubmission)
     const [score, setScore] = useState(initialSubmission?.score || 0)
     const [showReview, setShowReview] = useState(!!initialSubmission)
+    const [resultsFilter, setResultsFilter] = useState<'all' | 'correct' | 'wrong' | 'skipped'>('all')
     const [tabSwitchCount, setTabSwitchCount] = useState(0)
     const MAX_TAB_SWITCHES = 3
 
@@ -112,6 +113,7 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
             }
 
             setIsFinished(true)
+            setShowReview(true) // Open review automatically
             if (hasEssayQuestions) {
                 toast.success("تم تسليم إجاباتك بنجاح! بانتظار تصحيح المدرس للأسئلة المقالية.")
             } else {
@@ -189,6 +191,23 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
     if (isFinished) {
         const needsGrading = initialSubmission?.needs_grading ?? hasEssayQuestions;
 
+        // Calculate Stats
+        const stats = examData.questions.reduce((acc, q) => {
+            const answer = answers[q.id];
+            const isEssay = q.type === 'essay';
+            const isCorrect = isEssay && !needsGrading ? ((initialSubmission?.grading_details?.[q.id] || 0) > 0) : (answer === q.correctAnswer);
+            
+            acc.total++;
+            if (answer === undefined || (isEssay && !answer)) {
+                acc.skipped++;
+            } else if (isCorrect) {
+                acc.correct++;
+            } else if (!isEssay || !needsGrading) {
+                acc.wrong++;
+            }
+            return acc;
+        }, { total: 0, correct: 0, wrong: 0, skipped: 0 });
+
         return (
             <div className="animate-in fade-in zoom-in duration-500">
                 <Card className="max-w-xl mx-auto border-2 border-primary/20 shadow-2xl">
@@ -219,22 +238,63 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                             </div>
                         ) : (
                             <>
-                                <div className="text-center space-y-2">
-                                    <div className="text-5xl font-black text-primary">{score}%</div>
-                                    <p className="font-bold text-muted-foreground">الدرجة النهائية المستحقة</p>
-                                    {hasEssayQuestions && (
-                                        <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200">
-                                            تم التصحيح يدوياً
-                                        </Badge>
-                                    )}
-                                </div>
-                                <div className="space-y-2">
-                                    <div className="flex justify-between text-xs font-bold">
-                                        <span>التقدم في الإنجاز</span>
-                                        <span>{score}%</span>
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                    <button 
+                                        onClick={() => setResultsFilter('all')}
+                                        className={`p-3 rounded-2xl border-2 transition-all flex flex-col items-center gap-1 ${resultsFilter === 'all' ? 'border-primary bg-primary/5 shadow-sm' : 'border-transparent bg-muted/30 hover:bg-muted/50'}`}
+                                    >
+                                        <FileText className="h-4 w-4 text-primary" />
+                                        <span className="text-[10px] font-bold">الكل</span>
+                                        <span className="text-xl font-black">{stats.total}</span>
+                                    </button>
+                                    <button 
+                                        onClick={() => setResultsFilter('correct')}
+                                        className={`p-3 rounded-2xl border-2 transition-all flex flex-col items-center gap-1 ${resultsFilter === 'correct' ? 'border-green-500 bg-green-50 shadow-sm' : 'border-transparent bg-muted/30 hover:bg-muted/50'}`}
+                                    >
+                                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                        <span className="text-[10px] font-bold">صحيح</span>
+                                        <span className="text-xl font-black text-green-700">{stats.correct}</span>
+                                    </button>
+                                    <button 
+                                        onClick={() => setResultsFilter('wrong')}
+                                        className={`p-3 rounded-2xl border-2 transition-all flex flex-col items-center gap-1 ${resultsFilter === 'wrong' ? 'border-red-500 bg-red-50 shadow-sm' : 'border-transparent bg-muted/30 hover:bg-muted/50'}`}
+                                    >
+                                        <XCircle className="h-4 w-4 text-red-600" />
+                                        <span className="text-[10px] font-bold">خطأ</span>
+                                        <span className="text-xl font-black text-red-700">{stats.wrong}</span>
+                                    </button>
+                                    <button 
+                                        onClick={() => setResultsFilter('skipped')}
+                                        className={`p-3 rounded-2xl border-2 transition-all flex flex-col items-center gap-1 ${resultsFilter === 'skipped' ? 'border-orange-500 bg-orange-50 shadow-sm' : 'border-transparent bg-muted/30 hover:bg-muted/50'}`}
+                                    >
+                                        <HelpCircle className="h-4 w-4 text-orange-600" />
+                                        <span className="text-[10px] font-bold">تخطيت</span>
+                                        <span className="text-xl font-black text-orange-700">{stats.skipped}</span>
+                                    </button>
+                                    <div className="p-3 rounded-2xl border-2 border-primary/20 bg-primary/10 shadow-sm flex flex-col items-center gap-1 col-span-2 md:col-span-1">
+                                        <Trophy className="h-4 w-4 text-orange-500" />
+                                        <span className="text-[10px] font-bold">النسبة</span>
+                                        <span className="text-xl font-black text-primary">{score}%</span>
                                     </div>
-                                    <Progress value={score} className="h-3" />
                                 </div>
+
+                                <div className="space-y-2 pt-2 text-center text-[10px] text-muted-foreground font-bold italic">
+                                    <p>اضغط على الكروت بالأعلى لفلترة مراجعة الأسئلة بالأسفل 👆</p>
+                                </div>
+
+                                {needsGrading && (
+                                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-start gap-3 animate-pulse">
+                                        <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                                            <AlertCircle className="h-5 w-5 text-blue-600" />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-sm font-bold text-blue-900">ملاحظة: هذه درجة أولية</p>
+                                            <p className="text-[10px] text-blue-700 leading-relaxed font-bold">
+                                                الدرجة المعروضة حالياً تشمل الأسئلة الاختيارية فقط. ستتغير هذه النسبة وتزداد فور قيام المدرس بتصحيح إجاباتك المقالية يدوياً.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
                             </>
                         )}
                     </CardContent>
@@ -260,8 +320,15 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                         {examData.questions.map((q, qIdx) => {
                             const studentAnswer = answers[q.id]
                             const isEssay = q.type === 'essay'
-                            const isCorrect = isEssay ? ((initialSubmission?.grading_details?.[q.id] || 0) > 0) : (studentAnswer === q.correctAnswer)
+                            const isCorrect = isEssay && !needsGrading ? ((initialSubmission?.grading_details?.[q.id] || 0) > 0) : (studentAnswer === q.correctAnswer)
                             const earnedPoints = isEssay ? (initialSubmission?.grading_details?.[q.id] || 0) : (isCorrect ? (q.points || 1) : 0)
+                            const isSkipped = studentAnswer === undefined || (isEssay && !studentAnswer);
+
+                            // Filtering Logic
+                            if (resultsFilter === 'correct' && !isCorrect) return null;
+                            if (resultsFilter === 'wrong' && (isCorrect || isSkipped)) return null;
+                            if (resultsFilter === 'skipped' && !isSkipped) return null;
+                            if (resultsFilter === 'wrong' && isEssay && needsGrading) return null; // Can't mark essay as wrong until graded
 
                             return (
                                 <Card key={q.id} className={`overflow-hidden border-2 ${isCorrect ? 'border-green-100' : 'border-red-100'}`}>
@@ -284,7 +351,7 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                                         </div>
                                         {(q.imageUrl || q.image_url) && (
                                             <div className="mt-4 border rounded-lg overflow-hidden max-w-md bg-white">
-                                                <img src={q.imageUrl || q.image_url} alt="Question" className="w-full h-auto" />
+                                                <img src={`/api/storage/sign?url=${encodeURIComponent(q.imageUrl || q.image_url || "")}`} alt="Question" className="w-full h-auto" />
                                             </div>
                                         )}
                                     </CardHeader>
@@ -436,13 +503,13 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                         {(currentQ.imageUrl || currentQ.image_url) && (
                             <div className="w-full border rounded-2xl overflow-hidden bg-muted/30 aspect-video flex items-center justify-center relative group">
                                 <img
-                                    src={currentQ.imageUrl || currentQ.image_url}
+                                    src={`/api/storage/sign?url=${encodeURIComponent(currentQ.imageUrl || currentQ.image_url || "")}`}
                                     className="w-full h-full object-contain transition-opacity duration-300"
                                     alt="Question content"
                                     onLoad={(e) => (e.currentTarget.style.opacity = '1')}
                                     onError={(e) => {
                                         console.error("Exam Image Failed to load:", currentQ.imageUrl || currentQ.image_url)
-                                        e.currentTarget.src = "/placeholder-image.png" // Fallback if available
+                                        e.currentTarget.src = "/placeholder-image.png" 
                                     }}
                                 />
                                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/5 pointer-events-none">

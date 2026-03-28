@@ -20,6 +20,10 @@ import {
 } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
+import { useRef } from "react"
+import { Button } from "@/components/ui/button"
+import { Printer, Download } from "lucide-react"
+import { toast } from "sonner"
 
 export default function InstructorAnalyticsPage() {
     const [isLoading, setIsLoading] = useState(true)
@@ -128,6 +132,90 @@ export default function InstructorAnalyticsPage() {
         }
     }
 
+    const printRef = useRef<HTMLDivElement>(null)
+
+    const handlePrint = () => {
+        const printContent = printRef.current;
+        if (!printContent) return;
+
+        const windowUrl = 'about:blank';
+        const uniqueName = new Date().getTime();
+        const windowName = 'Print' + uniqueName;
+        const printWindow = window.open(windowUrl, windowName, 'left=50000,top=50000,width=0,height=0');
+
+        if (!printWindow) return;
+
+        printWindow.document.write(`
+            <html>
+                <head>
+                    <title>تقرير الأداء المالي - ${user?.displayName || "محاضر"}</title>
+                    <style>
+                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl; padding: 40px; color: #333; }
+                        .header { text-align: center; border-bottom: 3px solid #f0f0f0; margin-bottom: 30px; padding-bottom: 20px; }
+                        .stats-grid { display: grid; grid-cols: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+                        .stat-box { border: 1px solid #eee; padding: 15px; border-radius: 10px; text-align: center; }
+                        .stat-label { font-size: 0.8em; color: #666; font-weight: bold; }
+                        .stat-value { font-size: 1.5em; font-weight: 800; color: #d9410e; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                        th, td { padding: 12px; border: 1px solid #eee; text-align: right; }
+                        th { background: #f9f9f9; font-weight: bold; }
+                        .footer { margin-top: 50px; text-align: center; font-size: 0.8em; color: #999; border-top: 1px solid #eee; padding-top: 20px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <h1>تقرير الأداء والتحليلات المالية</h1>
+                        <p>اسم المحاضر: ${user?.displayName || "غير متوفر"}</p>
+                        <p>تاريخ استخراج التقرير: ${new Date().toLocaleDateString('ar-EG')}</p>
+                    </div>
+
+                    <div style="display: flex; gap: 20px; margin-bottom: 30px;">
+                        <div class="stat-box" style="flex: 1;">
+                            <div class="stat-label">إجمالي الطلاب</div>
+                            <div class="stat-value">${stats.totalStudents}</div>
+                        </div>
+                        <div class="stat-box" style="flex: 1;">
+                            <div class="stat-label">صافي الأرباح</div>
+                            <div class="stat-value">${stats.netRevenue.toLocaleString()} ج.م</div>
+                        </div>
+                    </div>
+
+                    <h3>تفاصيل أداء الكورسات</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>اسم الكورس</th>
+                                <th>عدد الطلاب</th>
+                                <th>إجمالي المبيعات</th>
+                                <th>متوسط التقدم</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${courseBreakdown.map(c => `
+                                <tr>
+                                    <td>${c.title}</td>
+                                    <td>${c.students}</td>
+                                    <td>${c.revenue.toLocaleString()} ج.م</td>
+                                    <td>${c.progress}%</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+
+                    <div class="footer">
+                        <p>تم استخراج هذا التقرير آلياً من منصة منارة أكاديمي للتعليم الإلكتروني.</p>
+                    </div>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 250);
+    };
+
     if (isLoading) {
         return (
             <div className="flex min-h-[400px] items-center justify-center">
@@ -138,9 +226,21 @@ export default function InstructorAnalyticsPage() {
 
     return (
         <div className="space-y-8 font-arabic animate-in fade-in duration-500">
-            <div>
-                <h1 className="text-3xl font-black italic">لوحة التميز المالي والأداء 📈</h1>
-                <p className="text-muted-foreground mt-1 italic">شفافية كاملة لأرباحك وتفاعل طلابك خطوة بخطوة</p>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-black italic">لوحة التميز المالي والأداء 📈</h1>
+                    <p className="text-muted-foreground mt-1 italic">شفافية كاملة لأرباحك وتفاعل طلابك خطوة بخطوة</p>
+                </div>
+                <Button variant="outline" className="gap-2 font-bold bg-white" onClick={handlePrint}>
+                    <Printer className="h-4 w-4" />
+                    استخراج تقرير مالي
+                </Button>
+            </div>
+
+            <div style={{ display: 'none' }}>
+                <div ref={printRef}>
+                    {/* Ghost element for print logic */}
+                </div>
             </div>
 
             {user && getSpecialOfferProgress(user.uid, stats.totalStudents) && (

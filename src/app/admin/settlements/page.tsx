@@ -75,17 +75,25 @@ export default function AdminSettlementsPage() {
         setIsLoading(true)
         try {
             // Calculate date range for the month
-            const startDate = new Date(selectedYear, selectedMonth - 1, 1).toISOString()
-            const endDate = new Date(selectedYear, selectedMonth, 1).toISOString()
-
-            // Fetch all enrollments in range
-            const enrollmentsQ = query(
-                collection(db, "enrollments"),
-                where("enrolled_at", ">=", startDate),
-                where("enrolled_at", "<", endDate)
-            )
-            const snap = await getDocs(enrollmentsQ)
-            const enrollments = snap.docs.map(doc => doc.data())
+            const start = new Date(selectedYear, selectedMonth - 1, 1)
+            const end = new Date(selectedYear, selectedMonth, 1)
+            
+            // Fetch all enrollments once to filter and calculate in-memory
+            // This avoids "Query requires an index" errors in Firestore
+            const enrollmentsSnap = await getDocs(collection(db, "enrollments"))
+            const allEnrollmentsRaw = enrollmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }))
+            
+            const enrollments = allEnrollmentsRaw.filter(enr => {
+                    const date = enr.enrolled_at;
+                    if (!date) return false;
+                    
+                    // Handle both ISO strings and Firestore Timestamps
+                    const enrDate = (typeof date === 'string') 
+                        ? new Date(date) 
+                        : (date.toDate ? date.toDate() : new Date(date));
+                    
+                    return enrDate >= start && enrDate < end;
+                })
 
             // Group by instructor
             const instructorGroups: Record<string, any> = {}
@@ -130,15 +138,22 @@ export default function AdminSettlementsPage() {
             for (const group of Object.values(instructorGroups) as any[]) {
                 const instId = group.instructorId;
                 
-                // We need to know the enrollment index for each student to apply the special rate correctly
-                // Fetch previous enrollments count before this month range
-                const prevEnrollmentsQ = query(
-                    collection(db, "enrollments"),
-                    where("instructor_id", "==", instId),
-                    where("enrolled_at", "<", startDate)
-                );
-                const prevSnap = await getDocs(prevEnrollmentsQ);
-                let currentTotalIndex = prevSnap.size;
+                // Calculate the enrollment index for each student in-memory to avoid Firestore Index errors
+                // We count how many enrollments this instructor has BEFORE the current month's start date
+                let currentTotalIndex = 0;
+                allEnrollmentsRaw.forEach(enr => {
+                    if (enr.instructor_id === instId) {
+                        const date = enr.enrolled_at;
+                        const enrDate = (typeof date === 'string') 
+                            ? new Date(date) 
+                            : (date.toDate ? date.toDate() : new Date(date));
+                        
+                        if (enrDate < start) {
+                            currentTotalIndex++;
+                        }
+                    }
+                });
+
 
                 // Sum up commissions for this month's enrollments
                 group.commission = 0;
