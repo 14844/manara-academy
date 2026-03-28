@@ -88,21 +88,21 @@ export function FileUploader({
             const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
             const fileName = `${Date.now()}_${sanitizedName}`
 
-            // ── STEP 1: Get Upload Signature/Metadata from our API ──
-            const authUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
-            const authRes = await fetch(authUrl, { 
-                method: 'POST',
-                headers: { 'Content-Type': file.type }
-                // For videos, we do NOT send the body here anymore
-            })
+            if (isVideo) {
+                // ── STEP 1: Get Upload Signature/Metadata from our API ──
+                const authUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
+                const authRes = await fetch(authUrl, { 
+                    method: 'POST',
+                    headers: { 'Content-Type': file.type }
+                    // For videos, we do NOT send the body here - we just get the signature
+                })
 
-            const authData = await authRes.json()
-            if (!authRes.ok || !authData.success) {
-                throw new Error(authData.error || "فشل الحصول على تصريح الرفع")
-            }
+                const authData = await authRes.json()
+                if (!authRes.ok || !authData.success) {
+                    throw new Error(authData.error || "فشل الحصول على تصريح الرفع")
+                }
 
-            // ── STEP 2: Execute Upload via TUS (Professional) ──
-            if (authData.type === 'stream') {
+                // ── STEP 2: Execute Video Upload via TUS (Professional) ──
                 const upload = new tus.Upload(file, {
                     endpoint: "https://video.bunnycdn.com/tusupload",
                     retryDelays: [0, 3000, 5000, 10000, 20000],
@@ -136,12 +136,12 @@ export function FileUploader({
                 // Start the upload
                 upload.start()
             } else {
-                // Legacy Proxy Upload for Storage (Images/Docs)
-                // In this case, we need to RE-DO the POST with the body
+                // ── DIRECT PROXIED UPLOAD (Images/Docs) ───────────────────────
+                // For non-videos, we send the file body in a single POST request
                 const xhr = new XMLHttpRequest()
-                const proxyUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
+                const uploadUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
                 
-                xhr.open('POST', proxyUrl, true)
+                xhr.open('POST', uploadUrl, true)
                 xhr.setRequestHeader('Content-Type', file.type)
 
                 xhr.upload.onprogress = (event) => {
@@ -153,13 +153,22 @@ export function FileUploader({
                 xhr.onload = () => {
                     setIsUploading(false)
                     if (xhr.status >= 200 && xhr.status < 300) {
-                        const response = JSON.parse(xhr.responseText)
-                        setIsComplete(true)
-                        onUploadComplete(response.url)
-                        toast.success("تم الرفع (تخزين) بنجاح")
+                        try {
+                            const response = JSON.parse(xhr.responseText)
+                            setIsComplete(true)
+                            onUploadComplete(response.url)
+                            toast.success("تم الرفع (تخزين) بنجاح")
+                        } catch (e) {
+                            toast.error("خطأ في معالجة رد السيرفر")
+                        }
                     } else {
-                        toast.error(`فشل رفع التخزين: ${xhr.status}`)
+                        toast.error(`فشل الرفع: ${xhr.status}`)
                     }
+                }
+                
+                xhr.onerror = () => {
+                    setIsUploading(false)
+                    toast.error("خطأ في الاتصال بالسيرفر")
                 }
                 
                 xhr.send(file)
