@@ -210,11 +210,15 @@ export default function InstructorGradingPage() {
                                 <CardContent className="p-6">
                                     <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                                         <div className="flex items-center gap-4 flex-1">
-                                            <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary font-bold text-xl border-2 border-primary/20">
-                                                {student?.avatar_url ? (
-                                                    <img src={student.avatar_url} className="w-full h-full object-cover rounded-2xl" alt="" />
+                                            <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary font-bold text-xl border-2 border-primary/20 overflow-hidden">
+                                                {student?.photoURL || student?.avatar_url ? (
+                                                    <img src={student.photoURL || student.avatar_url} className="w-full h-full object-cover" alt="" />
                                                 ) : (
-                                                    <User className="h-6 w-6" />
+                                                    <img 
+                                                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${student?.full_name || sub.student_id}`} 
+                                                        className="w-full h-full object-cover" 
+                                                        alt="Avatar" 
+                                                    />
                                                 )}
                                             </div>
                                             <div className="space-y-1">

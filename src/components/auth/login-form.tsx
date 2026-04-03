@@ -26,10 +26,21 @@ const loginSchema = z.object({
     password: z.string().min(6, { message: "كلمة المرور يجب أن تكون ٦ أحرف على الأقل" }),
 })
 
+import { useSearchParams } from "next/navigation"
+import { useEffect } from "react"
+
 export function LoginForm() {
     const router = useRouter()
+    const searchParams = useSearchParams()
     const [isLoading, setIsLoading] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
+
+    useEffect(() => {
+        const error = searchParams.get('error')
+        if (error === 'session_conflict') {
+            toast.error("تنبيه: تم تسجيل الدخول من جهاز آخر. تم تسجيل خروجك من الجلسة السابقة لضمان أمان حسابك.")
+        }
+    }, [searchParams])
 
     const form = useForm<z.infer<typeof loginSchema>>({
         resolver: zodResolver(loginSchema),
@@ -79,35 +90,57 @@ export function LoginForm() {
             console.log("LoginForm: Profile retrieved, role:", profile?.role)
 
             // --- DEVICE LIMIT LOGIC ---
-            // 1. Get or Generate Device ID
-            let deviceId = localStorage.getItem('manara_device_id')
-            if (!deviceId) {
-                deviceId = crypto.randomUUID()
-                localStorage.setItem('manara_device_id', deviceId)
-            }
-
-            const activeDevices = profile?.active_devices || []
-            const isKnownDevice = activeDevices.includes(deviceId)
-
-            if (!isKnownDevice) {
-                if (activeDevices.length >= 2) {
-                    console.warn("LoginForm: Max devices reached for UID:", userCredential.user.uid)
-                    toast.error("عذراً، لقد وصلت للحد الأقصى للأجهزة (جهازين فقط). يرجى تسجيل الخروج من أجهزتك الأخرى أولاً.")
-                    setIsLoading(false)
-                    // Sign out from Firebase Auth since the device is blocked
-                    await auth.signOut()
-                    return
+            // Skip device limit for admin and instructor roles
+            if (profile?.role !== 'admin' && profile?.role !== 'instructor') {
+                // 1. Get or Generate Device ID
+                let deviceId = localStorage.getItem('manara_device_id')
+                if (!deviceId) {
+                    deviceId = crypto.randomUUID()
+                    localStorage.setItem('manara_device_id', deviceId)
                 }
 
-                // Register this device
-                const { arrayUnion, updateDoc } = await import("firebase/firestore")
-                await updateDoc(profileRef, {
-                    active_devices: arrayUnion(deviceId),
-                    last_login: new Date().toISOString()
-                })
-                console.log("LoginForm: Device registered:", deviceId)
+                const activeDevices = profile?.active_devices || []
+                const isKnownDevice = activeDevices.includes(deviceId)
+
+                if (!isKnownDevice) {
+                    if (activeDevices.length >= 2) {
+                        console.warn("LoginForm: Max devices reached for UID:", userCredential.user.uid)
+                        toast.error("عذراً، لقد وصلت للحد الأقصى للأجهزة (جهازين فقط). يرجى التواصل مع إدارة الأكاديمية لفك حظر الأجهزة.")
+                        setIsLoading(false)
+                        // Sign out from Firebase Auth since the device is blocked
+                        await auth.signOut()
+                        return
+                    }
+
+                    // Register this device
+                    const { arrayUnion, updateDoc } = await import("firebase/firestore")
+                    
+                    // Generate a unique session ID for single session enforcement
+                    const sessionId = Date.now().toString()
+                    localStorage.setItem('manara_active_session_id', sessionId)
+
+                    await updateDoc(profileRef, {
+                        active_devices: arrayUnion(deviceId),
+                        active_session_id: sessionId,
+                        last_login: new Date().toISOString()
+                    })
+                    console.log("LoginForm: Device registered and session set:", deviceId, sessionId)
+                } else {
+                    // Just update last login and set a new session ID
+                    const { updateDoc } = await import("firebase/firestore")
+                    
+                    // Generate a unique session ID even for known devices
+                    const sessionId = Date.now().toString()
+                    localStorage.setItem('manara_active_session_id', sessionId)
+
+                    await updateDoc(profileRef, {
+                        active_session_id: sessionId,
+                        last_login: new Date().toISOString()
+                    })
+                    console.log("LoginForm: Session updated for known device:", sessionId)
+                }
             } else {
-                // Just update last login
+                // For admin/instructor, just update last login
                 const { updateDoc } = await import("firebase/firestore")
                 await updateDoc(profileRef, {
                     last_login: new Date().toISOString()

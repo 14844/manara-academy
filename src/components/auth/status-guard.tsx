@@ -14,10 +14,13 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = useState(true)
 
     useEffect(() => {
+        let profileUnsubscribe: (() => void) | undefined;
+
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
             console.log("StatusGuard: Check for path:", pathname, "| User UID:", user?.uid)
 
             if (!user) {
+                if (profileUnsubscribe) profileUnsubscribe();
                 // If we are on a protected route but auth is missing, we MUST clear any stale session
                 const isPublicRoute = [
                     '/', '/login', '/signup', '/about', '/faq', '/terms', '/privacy', '/refund'
@@ -38,46 +41,64 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
             }
 
             try {
-                const docRef = doc(db, "profiles", user.uid)
-                const docSnap = await getDoc(docRef)
+                // Real-time Session Monitoring
+                const { onSnapshot } = await import("firebase/firestore")
+                profileUnsubscribe = onSnapshot(doc(db, "profiles", user.uid), async (docSnap) => {
+                    if (docSnap.exists()) {
+                        const profile = docSnap.data()
+                        
+                        // Single Session Enforcement (Students only)
+                        if (profile.role === 'student') {
+                            const localSessionId = localStorage.getItem('manara_active_session_id')
+                            if (profile.active_session_id && localSessionId && profile.active_session_id !== localSessionId) {
+                                console.warn("StatusGuard: Session mismatch detected! Taking hard action...")
+                                
+                                // Perform logout cleanup
+                                try {
+                                    await auth.signOut()
+                                    await fetch('/api/auth/session', { method: 'DELETE' })
+                                } catch (err) {
+                                    console.error("Logout error:", err)
+                                }
+                                
+                                localStorage.removeItem('manara_active_session_id')
+                                
+                                // FORCE hard redirect to login to kill all states
+                                window.location.replace("/login?error=session_conflict")
+                                return
+                            }
+                        }
 
-                if (docSnap.exists()) {
-                    const profile = docSnap.data()
-                    console.log("StatusGuard: Profile role:", profile.role, "status:", profile.status)
-
-                    // 1. Handle Pending
-                    if ((profile.status === 'pending' || !profile.status) && profile.role !== 'admin') {
-                        if (pathname !== '/pending-approval') {
-                            router.push("/pending-approval")
-                            return
+                        // Handle Status Redirects
+                        if ((profile.status === 'pending' || !profile.status) && profile.role !== 'admin') {
+                            if (pathname !== '/pending-approval') {
+                                router.push("/pending-approval")
+                            }
                         }
-                    }
-                    // 2. Handle Blocked/Rejected
-                    else if (profile.status === 'rejected' || profile.status === 'blocked') {
-                        if (pathname !== '/restricted-access') {
-                            router.push("/restricted-access?reason=account")
-                            return
+                        else if (profile.status === 'rejected' || profile.status === 'blocked') {
+                            if (pathname !== '/restricted-access') {
+                                router.push("/restricted-access?reason=account")
+                            }
                         }
-                    }
-                    // 3. Handle Approved
-                    else {
-                        if (pathname === '/pending-approval' || pathname === '/restricted-access' || pathname === '/login' || pathname === '/signup') {
-                            const target = profile.role === 'instructor' ? "/instructor" : "/dashboard"
-                            router.push(target)
-                            return
+                        else {
+                            if (pathname === '/pending-approval' || pathname === '/restricted-access' || pathname === '/login' || pathname === '/signup') {
+                                const target = profile.role === 'instructor' ? "/instructor" : "/dashboard"
+                                router.push(target)
+                            }
                         }
+                        setIsLoading(false)
                     }
-                } else {
-                    console.warn("StatusGuard: Profile missing for user:", user.uid)
-                }
+                })
             } catch (error) {
-                console.error("StatusGuard: Error fetching profile:", error)
-            } finally {
+                console.error("StatusGuard: Error setting up profile listener:", error)
                 setIsLoading(false)
             }
         })
 
-        return () => unsubscribe()
+        return () => {
+            unsubscribe()
+            if (profileUnsubscribe) profileUnsubscribe()
+        }
     }, [router, pathname])
 
     if (isLoading) {

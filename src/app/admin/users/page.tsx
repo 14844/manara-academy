@@ -144,6 +144,21 @@ export default function AdminUsersPage() {
         }
     }
 
+    const handleResetDevices = async (userId: string) => {
+        try {
+            const userRef = doc(db, "profiles", userId)
+            await updateDoc(userRef, {
+                active_devices: [],
+                updated_at: new Date().toISOString()
+            })
+            setUsers(users.map(u => u.id === userId ? { ...u, active_devices: [] } : u))
+            toast.success("تم تصفير الأجهزة المسجلة بنجاح")
+        } catch (error) {
+            console.error("Reset devices error:", error)
+            toast.error("حدث خطأ أثناء تصفير الأجهزة")
+        }
+    }
+
     const filteredUsers = users.filter(u =>
         u.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -203,14 +218,15 @@ export default function AdminUsersPage() {
                     <div className="grid gap-6">
                         {PendingUsers.length > 0 ? (
                             PendingUsers.map((user) => (
-                                <UserCard
-                                    key={user.id}
-                                    user={user}
-                                    onApprove={() => handleUpdateStatus(user.id, 'approved')}
-                                    onReject={() => handleUpdateStatus(user.id, 'rejected')}
-                                    onRecharge={(u: any) => setSelectedUserForRecharge(u)}
-                                    onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
-                                />
+                                    <UserCard
+                                        key={user.id}
+                                        user={user}
+                                        onApprove={() => handleUpdateStatus(user.id, 'approved')}
+                                        onReject={() => handleUpdateStatus(user.id, 'rejected')}
+                                        onRecharge={(u: any) => setSelectedUserForRecharge(u)}
+                                        onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
+                                        onResetDevices={() => handleResetDevices(user.id)}
+                                    />
                             ))
                         ) : (
                             <div className="text-center py-12 border-2 border-dashed rounded-2xl text-muted-foreground">
@@ -229,25 +245,27 @@ export default function AdminUsersPage() {
                                 onReject={() => handleUpdateStatus(user.id, 'rejected')}
                                 onRecharge={(u: any) => setSelectedUserForRecharge(u)}
                                 onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
+                                onResetDevices={() => handleResetDevices(user.id)}
                             />
                         ))}
                     </div>
                 </TabsContent>
 
-                <TabsContent value="all" className="pt-6">
-                    <div className="grid gap-6">
-                        {filteredUsers.map((user) => (
-                            <UserCard
-                                key={user.id}
-                                user={user}
-                                onApprove={user.status !== 'approved' ? () => handleUpdateStatus(user.id, 'approved') : undefined}
-                                onReject={user.status !== 'rejected' ? () => handleUpdateStatus(user.id, 'rejected') : undefined}
-                                onRecharge={(u: any) => setSelectedUserForRecharge(u)}
-                                onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
-                            />
-                        ))}
-                    </div>
-                </TabsContent>
+                        <TabsContent value="all" className="pt-6">
+                            <div className="grid gap-6">
+                                {filteredUsers.map((user) => (
+                                    <UserCard
+                                        key={user.id}
+                                        user={user}
+                                        onApprove={user.status !== 'approved' ? () => handleUpdateStatus(user.id, 'approved') : undefined}
+                                        onReject={user.status !== 'rejected' ? () => handleUpdateStatus(user.id, 'rejected') : undefined}
+                                        onRecharge={(u: any) => setSelectedUserForRecharge(u)}
+                                        onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
+                                        onResetDevices={() => handleResetDevices(user.id)}
+                                    />
+                                ))}
+                            </div>
+                        </TabsContent>
             </Tabs>
 
             {/* Recharge Dialog */}
@@ -344,16 +362,18 @@ function StatCard({ title, value, icon: Icon, color }: any) {
     )
 }
 
-function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw }: any) {
+function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices }: any) {
+    const avatarUrl = user.photoURL || user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.full_name || user.id}`
+
     return (
         <Card className="hover:shadow-md transition-shadow">
             <CardContent className="p-6">
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
                     <div className="flex items-start gap-4">
-                        <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 relative">
-                            {user.role === 'instructor' ? <ShieldCheck className="h-7 w-7" /> : <GraduationCap className="h-7 w-7" />}
+                        <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 relative overflow-hidden border-2 border-primary/10">
+                            <img src={avatarUrl} className="w-full h-full object-cover" alt="User Avatar" />
                             {user.status === 'approved' && (
-                                <div className="absolute -bottom-1 -right-1 bg-background rounded-full p-0.5 shadow-sm">
+                                <div className="absolute -bottom-1 -right-1 bg-background rounded-full p-0.5 shadow-sm z-10">
                                     <CheckCircle2 className="h-5 w-5 text-green-500 fill-green-50" />
                                 </div>
                             )}
@@ -425,16 +445,31 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw }: any) {
                                 {user.status === 'approved' ? 'حظر الحساب' : 'رفض الطلب'}
                             </Button>
                         )}
-                        {user.role === 'student' && onRecharge && (
-                            <Button
-                                variant="outline"
-                                className="w-full gap-2 border-primary/20 text-primary hover:bg-primary/5 h-9"
-                                size="sm"
-                                onClick={() => onRecharge(user)}
-                            >
-                                <PlusCircle className="h-4 w-4" />
-                                شحن المحفظة
-                            </Button>
+                        {user.role === 'student' && (
+                            <>
+                                {onRecharge && (
+                                    <Button
+                                        variant="outline"
+                                        className="w-full gap-2 border-primary/20 text-primary hover:bg-primary/5 h-9"
+                                        size="sm"
+                                        onClick={() => onRecharge(user)}
+                                    >
+                                        <PlusCircle className="h-4 w-4" />
+                                        شحن المحفظة
+                                    </Button>
+                                )}
+                                {onResetDevices && user.active_devices && user.active_devices.length > 0 && (
+                                    <Button
+                                        variant="outline"
+                                        className="w-full gap-2 border-blue-200 text-blue-600 hover:bg-blue-50 h-9"
+                                        size="sm"
+                                        onClick={onResetDevices}
+                                    >
+                                        <Fingerprint className="h-4 w-4" />
+                                        تصفير الأجهزة ({user.active_devices.length})
+                                    </Button>
+                                )}
+                            </>
                         )}
                         {user.role === 'student' && onWithdraw && user.status === 'approved' && (
                             <Button
