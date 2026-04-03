@@ -75,8 +75,45 @@ export function LoginForm() {
             }
 
             const profile = profileSnap.data()
-            console.log("LoginForm: Profile data:", profile); // Added log for profile data
+            console.log("LoginForm: Profile data:", profile);
             console.log("LoginForm: Profile retrieved, role:", profile?.role)
+
+            // --- DEVICE LIMIT LOGIC ---
+            // 1. Get or Generate Device ID
+            let deviceId = localStorage.getItem('manara_device_id')
+            if (!deviceId) {
+                deviceId = crypto.randomUUID()
+                localStorage.setItem('manara_device_id', deviceId)
+            }
+
+            const activeDevices = profile?.active_devices || []
+            const isKnownDevice = activeDevices.includes(deviceId)
+
+            if (!isKnownDevice) {
+                if (activeDevices.length >= 2) {
+                    console.warn("LoginForm: Max devices reached for UID:", userCredential.user.uid)
+                    toast.error("عذراً، لقد وصلت للحد الأقصى للأجهزة (جهازين فقط). يرجى تسجيل الخروج من أجهزتك الأخرى أولاً.")
+                    setIsLoading(false)
+                    // Sign out from Firebase Auth since the device is blocked
+                    await auth.signOut()
+                    return
+                }
+
+                // Register this device
+                const { arrayUnion, updateDoc } = await import("firebase/firestore")
+                await updateDoc(profileRef, {
+                    active_devices: arrayUnion(deviceId),
+                    last_login: new Date().toISOString()
+                })
+                console.log("LoginForm: Device registered:", deviceId)
+            } else {
+                // Just update last login
+                const { updateDoc } = await import("firebase/firestore")
+                await updateDoc(profileRef, {
+                    last_login: new Date().toISOString()
+                })
+            }
+            // --- END DEVICE LIMIT LOGIC ---
 
             toast.success("تم تسجيل الدخول بنجاح")
 

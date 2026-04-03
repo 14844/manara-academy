@@ -22,6 +22,7 @@ const navItems = [
     { name: "الرئيسية", href: "/" },
     { name: "تصفح الكورسات", href: "/courses" },
     { name: "عن المنصة", href: "/about" },
+    { name: "مركز المساعدة", href: "/help" },
 ]
 
 export function Navbar() {

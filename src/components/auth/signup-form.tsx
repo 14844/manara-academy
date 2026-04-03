@@ -10,6 +10,7 @@ import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth"
 import { doc, setDoc, collection, query, where, getDocs } from "firebase/firestore"
 import { generateUniqueStudentId } from "@/lib/profile-utils"
 import { Button } from "@/components/ui/button"
+import Link from "next/link"
 import {
     Form,
     FormControl,
@@ -30,6 +31,7 @@ import {
     SelectTrigger,
     SelectValue
 } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 
 const ARAB_COUNTRIES = [
     { name: "مصر", code: "+20", flag: "🇪🇬" },
@@ -62,8 +64,11 @@ const signupSchema = z.object({
     parentPhone: z.string().optional(),
     specialty: z.string().optional(),
     bio: z.string().optional(),
+    acceptPolicies: z.boolean().refine(val => val === true, {
+        message: "يجب الموافقة على الشروط والأحكام وسياسة الخصوصية للمتابعة",
+    }),
 }).superRefine((data, ctx) => {
-    // Helper to clean phone numbers (handles Arabic numerals and spaces)
+    // ... rest of refine logic ...
     const cleanPhone = (str: string) => {
         const arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
         return (str || "").replace(/[٠-٩]/g, w => arabicNumbers.indexOf(w).toString()).replace(/\D/g, "");
@@ -137,12 +142,7 @@ export function SignupForm() {
     const [isLoading, setIsLoading] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
     
-    // Password strength logic: 20 points each for:
-    // 1. Length >= 8
-    // 2. Has Uppercase
-    // 3. Has Lowercase
-    // 4. Has Number
-    // 5. Has Special Character
+    // ... helper functions ...
     const calculateStrength = (password: string) => {
         let strength = 0;
         if (!password) return 0;
@@ -176,6 +176,7 @@ export function SignupForm() {
             parentPhone: "",
             specialty: "",
             bio: "",
+            acceptPolicies: false,
         },
     })
 
@@ -183,14 +184,20 @@ export function SignupForm() {
         setIsLoading(true)
         const email = values.email.trim().toLowerCase()
 
-        // Sanitize phone numbers to handle spaces, Arabic numerals, and missing leading zeros
+        // Get or Generate Device ID for new registration
+        let deviceId = localStorage.getItem('manara_device_id')
+        if (!deviceId) {
+            deviceId = crypto.randomUUID()
+            localStorage.setItem('manara_device_id', deviceId)
+        }
+
+        // Sanitize phone numbers ...
         const cleanPhone = (str: string) => {
             const arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
             return (str || "").replace(/[٠-٩]/g, w => arabicNumbers.indexOf(w).toString()).replace(/\D/g, "");
         };
 
         let cleanedUserPhone = cleanPhone(values.phone);
-        // Normalize Egypt phone to start with 01 if they entered 10 digits
         if (values.countryCode === "+20" && cleanedUserPhone.length === 10 && cleanedUserPhone.startsWith("1")) {
             cleanedUserPhone = "0" + cleanedUserPhone;
         }
@@ -200,8 +207,6 @@ export function SignupForm() {
         const formattedParentPhone = cleanedParentPhone ? values.countryCode + cleanedParentPhone : null;
 
         try {
-            // 1. Create User in Firebase Auth first to become "authenticated"
-            // (Firebase Auth handles duplicate emails automatically)
             const userCredential = await createUserWithEmailAndPassword(
                 auth,
                 email,
@@ -209,28 +214,23 @@ export function SignupForm() {
             )
             const user = userCredential.user
 
-            // 2. Now that we are authenticated, we can check Firestore for existing phone
             const profilesRef = collection(db, "profiles")
             const qPhone = query(profilesRef, where("phone", "==", fullPhone))
             const phoneSnap = await getDocs(qPhone)
 
             if (!phoneSnap.empty) {
-                // Phone is taken - delete the auth account we just made and show error
                 await user.delete()
                 toast.error("رقم الهاتف هذا مسجل بالفعل بحساب آخر")
                 setIsLoading(false)
                 return
             }
 
-            // 3. Update Display Name
             await updateProfile(user, {
                 displayName: values.fullName
             })
 
-            // 3. Generate Unique Student ID
             const studentId = await generateUniqueStudentId()
 
-            // 4. Create User Profile in Firestore
             await setDoc(doc(db, "profiles", user.uid), {
                 id: user.uid,
                 student_id: studentId,
@@ -244,6 +244,7 @@ export function SignupForm() {
                 bio: values.bio || null,
                 status: "pending",
                 wallet_balance: 0,
+                active_devices: [deviceId], // Register first device
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             })
@@ -505,6 +506,27 @@ export function SignupForm() {
                         />
                     </>
                 )}
+                <FormField
+                    control={form.control}
+                    name="acceptPolicies"
+                    render={({ field }) => (
+                        <FormItem className="flex flex-row items-start space-x-3 space-x-reverse space-y-0 rounded-md border p-4 bg-muted/20">
+                            <FormControl>
+                                <Checkbox
+                                    checked={field.value}
+                                    onCheckedChange={field.onChange}
+                                />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                                <FormLabel className="text-sm font-medium cursor-pointer">
+                                    أوافق على <Link href="/terms" className="text-primary hover:underline">شروط الاستخدام</Link> و <Link href="/privacy" className="text-primary hover:underline">سياسة الخصوصية</Link>
+                                </FormLabel>
+                                <FormMessage />
+                            </div>
+                        </FormItem>
+                    )}
+                />
+
                 <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
                     إنشاء حساب

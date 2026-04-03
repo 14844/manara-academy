@@ -19,7 +19,8 @@ import {
     Shield,
     FileText,
     ClipboardList,
-    HelpCircle
+    HelpCircle,
+    AlertCircle
 } from "lucide-react"
 import { auth, db } from "@/lib/firebase/config"
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, runTransaction } from "firebase/firestore"
@@ -317,6 +318,16 @@ export default function CourseDetailsPage() {
                                         {isEnrolling ? "جاري المعالجة..." : "الالتحاق بالكورس الآن"}
                                     </Button>
                                 )}
+
+                                <div className="p-3 bg-red-500/5 border border-red-500/10 rounded-lg space-y-2">
+                                    <p className="text-[10px] font-bold text-red-600 flex items-center gap-1">
+                                        <AlertCircle className="h-3 w-3" />
+                                        تنبيه حول الاسترجاع:
+                                    </p>
+                                    <p className="text-[10px] text-red-800/70 leading-relaxed font-bold">
+                                        لا يمكن استرجاع قيمة الكورس أو سحب الرصيد من المحفظة بعد بدء مشاهدة المحتوى التعليمي.
+                                    </p>
+                                </div>
 
                                 <ul className="space-y-3 text-sm">
                                     <li className="flex items-center gap-2">

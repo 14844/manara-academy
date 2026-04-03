@@ -79,11 +79,19 @@ export default function LoginPage() {
                             </div>
                         </div>
 
-                        <div className="text-center text-sm">
-                            <span className="text-muted-foreground">ليس لديك حساب؟ </span>
-                            <Link href="/signup" className="font-bold text-primary hover:underline underline-offset-4">
-                                إنشاء حساب جديد مجاناً
-                            </Link>
+                        <div className="text-center text-sm space-y-4">
+                            <div>
+                                <span className="text-muted-foreground">ليس لديك حساب؟ </span>
+                                <Link href="/signup" className="font-bold text-primary hover:underline underline-offset-4">
+                                    إنشاء حساب جديد مجاناً
+                                </Link>
+                            </div>
+                            <div className="pt-2 border-t mt-4">
+                                <Link href="/help" className="flex items-center justify-center gap-2 text-primary/70 hover:text-primary font-bold transition-colors">
+                                    <HelpCircle className="h-4 w-4" />
+                                    تحتاج مساعدة؟ شير لدليل الاستخدام
+                                </Link>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -91,3 +99,5 @@ export default function LoginPage() {
         </div>
     )
 }
+
+import { HelpCircle } from "lucide-react"
