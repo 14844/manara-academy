@@ -12,8 +12,10 @@ import { auth, db } from "@/lib/firebase/config"
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { Loader2 } from "lucide-react"
+import { useSupportSettings } from "@/hooks/use-support-settings"
 
 export default function StudentDashboard() {
+    const { settings: supportSettings } = useSupportSettings()
     const [user, setUser] = useState<any>(null)
     const [enrolledCourses, setEnrolledCourses] = useState<any[]>([])
     const [recommendedCourses, setRecommendedCourses] = useState<any[]>([])
@@ -304,7 +306,7 @@ export default function StudentDashboard() {
                                     <h3 className="font-bold text-lg">تحتاج للمساعدة؟</h3>
                                     <p className="text-xs text-zinc-400 leading-relaxed font-bold">فريق الدعم الفني متواجد دائماً لمساعدتك في أي استفسار عبر الواتساب.</p>
                                     <Button variant="outline" className="w-full bg-white/5 border-white/10 hover:bg-[#25D366] hover:text-white hover:border-[#25D366] text-white transition-all font-bold" asChild>
-                                        <a href="https://wa.me/201017333215" target="_blank" rel="noreferrer">تواصل معنا واتساب</a>
+                                        <a href={`https://wa.me/${supportSettings.phone}`} target="_blank" rel="noreferrer">تواصل معنا واتساب</a>
                                     </Button>
                                 </CardContent>
                             </Card>

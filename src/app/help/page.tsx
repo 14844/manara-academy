@@ -12,6 +12,10 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
+import { getSupportSettings } from "@/lib/support-settings"
+import { SupportInfo } from "@/components/support-info"
+
+export const dynamic = "force-dynamic"
 
 const GUIDES = [
     {
@@ -52,7 +56,8 @@ const GUIDES = [
     }
 ]
 
-export default function HelpCenterPage() {
+export default async function HelpCenterPage() {
+    const supportSettings = await getSupportSettings()
     return (
         <div className="flex min-h-screen flex-col bg-muted/10 font-arabic">
             <Navbar />
@@ -89,12 +94,19 @@ export default function HelpCenterPage() {
                     <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-32 -mt-32"></div>
                     <h2 className="text-3xl font-black">ما زلت بحاجة للمساعدة؟</h2>
                     <p className="opacity-90 max-w-xl mx-auto font-medium leading-relaxed">فريق الدعم الفني جاهز للرد على استفساراتكم عبر الواتساب على مدار الساعة.</p>
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-sm font-bold opacity-80">
+                        <span>واتساب: <SupportInfo type="phone" /></span>
+                        <span className="hidden sm:block">|</span>
+                        <span>ايميل: <SupportInfo type="email" /></span>
+                    </div>
                     <div className="pt-4">
-                        <Link href="https://wa.me/201017333215" target="_blank">
-                            <button className="bg-white text-primary px-8 py-4 rounded-xl font-bold text-lg hover:bg-white/90 transition-all shadow-lg active:scale-95">
-                                تواصل معنا الآن
-                            </button>
-                        </Link>
+                        <SupportInfo 
+                            type="phone" 
+                            linkType="wa" 
+                            className="bg-white text-primary px-8 py-4 rounded-xl font-bold text-lg hover:bg-white/90 transition-all shadow-lg active:scale-95 inline-block" 
+                        >
+                            تواصل معنا عبر واتساب
+                        </SupportInfo>
                     </div>
                 </div>
             </main>
