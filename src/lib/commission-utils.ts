@@ -1,18 +1,13 @@
 /**
- * Calculates the platform commission and net payout for an instructor based on their enrollment history.
+ * Calculates the platform commission and net payout for an instructor BASED ON PLATFORM POLICY.
  * 
- * SPECIAL OFFER: 15% commission for the first 10 students of specific instructors.
- * BASE RATE: 20% commission for everyone else.
+ * BASE RATE: 20% commission for everyone.
  */
 
-export const SPECIAL_OFFER_INSTRUCTORS = [
-    "BVCgMEavBzR4KBeS3D067PWOHT42", // MANARA-1017
-    "isIFTwb9nBNDoGGv0jKi0wVCj4Z2", // MANARA-1016
-    "REaBWoKEpZazJI08uJVhXxYMfMK2", // MANARA-1004
-];
-export const SPECIAL_RATE = 0.15;
+export const SPECIAL_OFFER_INSTRUCTORS: string[] = [];
+export const SPECIAL_RATE = 0.20; // Changed from 0.15 to match BASE_RATE
 export const BASE_RATE = 0.20;
-export const SPECIAL_LIMIT = 10;
+export const SPECIAL_LIMIT = 0; // Effectively disabled
 
 export interface CommissionResult {
     commissionAmount: number;

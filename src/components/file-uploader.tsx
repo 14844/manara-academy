@@ -19,7 +19,7 @@ interface FileUploaderProps {
 export function FileUploader({
     onUploadComplete,
     accept = "video/*,image/*",
-    maxSizeMB = 500,
+    maxSizeMB = 5120,
     validateDimensions,
     label = "رفع ملف",
     folder = "general"
@@ -189,7 +189,7 @@ export function FileUploader({
                     <Upload className="h-8 w-8 text-muted-foreground mb-2" />
                     <p className="text-sm font-bold">{label}</p>
                     <p className="text-[10px] text-muted-foreground mt-1">
-                        {accept.includes('video') ? "MP4, MOV (بحد أقصى ٥٠٠ ميجابايت)" : "JPG, PNG (بحد أقصى ٥ ميجابايت)"}
+                        {accept.includes('video') ? "MP4, MOV (بحد أقصى ٥ جيجابايت)" : "JPG, PNG (بحد أقصى ٥ ميجابايت)"}
                     </p>
                     <input
                         type="file"
