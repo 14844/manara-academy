@@ -26,6 +26,7 @@ export default function RootLayout({
     <html lang="ar" dir="rtl" suppressHydrationWarning>
       <body
         className={`${ibmPlexSansArabic.variable} font-sans antialiased`}
+        suppressHydrationWarning
       >
         <ThemeProvider
           attribute="class"

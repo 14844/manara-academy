@@ -116,7 +116,17 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+@keyframes subtle-shake {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  10%, 20% { transform: scale(1.05) rotate(1deg); }
+  30%, 40% { transform: scale(1.05) rotate(-1deg); }
+  50% { transform: scale(1) rotate(0deg); }
+}
+
 @layer utilities {
+  .animate-subtle-shake {
+    animation: subtle-shake 2s infinite ease-in-out;
+  }
   .animate-float {
     animation: float 25s ease-in-out infinite;
   }

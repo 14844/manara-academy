@@ -63,7 +63,16 @@ export default function CourseDetailsPage() {
                 const docRef = doc(db, "courses", id as string)
                 const docSnap = await getDoc(docRef)
                 if (docSnap.exists()) {
-                    setCourse({ id: docSnap.id, ...docSnap.data() })
+                    const courseData = { id: docSnap.id, ...docSnap.data() } as any
+                
+                // Fetch instructor verification from profiles
+                const instructorRef = doc(db, "profiles", courseData.instructor_id)
+                const instructorSnap = await getDoc(instructorRef)
+                if (instructorSnap.exists()) {
+                    courseData.instructor_verified = instructorSnap.data().is_verified
+                }
+                
+                setCourse(courseData)
                 } else {
                     toast.error("الكورس غير موجود")
                     router.push("/courses")
@@ -86,8 +95,17 @@ export default function CourseDetailsPage() {
 
         setIsEnrolling(true)
         try {
+            const currentCount = course.students_count || 0
+            let coursePrice = Number(course.price) || 0
+            
+            // Dynamic pricing logic for English or Test course
+            const isSpecial = course.id === 'JTDSmCoZerGb0WmfqjnP' || course.title === 'test only'
+            if (isSpecial) {
+                if (currentCount < 10) coursePrice = 400
+                else if (currentCount < 20) coursePrice = 450
+            }
+
             const enrollmentId = `${user.uid}_${course.id}`
-            const coursePrice = Number(course.price) || 0
 
             if (coursePrice > 0) {
                 const currentBalance = Number(profile?.wallet_balance) || 0
@@ -177,6 +195,20 @@ export default function CourseDetailsPage() {
         }
     }
 
+    const getDynamicPrice = () => {
+        if (!course) return 0
+        const isSpecial = course.id === 'JTDSmCoZerGb0WmfqjnP' || course.title === 'test only'
+        if (!isSpecial) return Number(course.price) || 0
+        const count = course.students_count || 0
+        if (count < 10) return 400
+        if (count < 20) return 450
+        return Number(course.price) || 0
+    }
+
+    const dynamicPrice = getDynamicPrice()
+    const isSpecialOffer = course?.id === 'JTDSmCoZerGb0WmfqjnP' || course?.title === 'test only'
+    const enrolledCount = course?.students_count || 0
+
     if (isLoading) {
         return (
             <div className="flex min-h-screen flex-col">
@@ -196,17 +228,27 @@ export default function CourseDetailsPage() {
                 <section className="bg-muted/30 py-12 md:py-20">
                     <div className="container grid gap-8 md:grid-cols-2 items-center">
                         <div className="space-y-6">
-                            <Badge className="text-sm px-3 py-1">{course.category}</Badge>
-                            <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold leading-tight">
+                            <div className="flex flex-wrap gap-2 items-center">
+                                {isSpecialOffer && (
+                                    <Badge className="bg-gradient-to-br from-yellow-300 via-amber-500 to-amber-700 text-white border-2 border-white/30 shadow-2xl shadow-amber-500/50 animate-subtle-shake font-black py-2 px-6 rounded-full text-[14px] tracking-tighter ring-2 ring-amber-500/20">
+                                        👑 عرض الإطلاق الأول
+                                    </Badge>
+                                )}
+                                <Badge className="text-sm px-4 py-1.5 bg-primary/10 text-primary border-primary/20 backdrop-blur-sm">{course.category}</Badge>
+                            </div>
+                            <h1 className="text-3xl md:text-4xl lg:text-5xl font-black leading-tight tracking-tight">
                                 {course.title}
                             </h1>
                             <p className="text-lg text-muted-foreground lg:max-w-[600px]">
                                 {course.description}
                             </p>
                             <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                                <div className="flex items-center">
-                                    <User className="ml-2 h-4 w-4" />
+                                <div className="flex items-center font-bold text-foreground">
+                                    <User className="ml-2 h-4 w-4 text-primary" />
                                     {course.instructor_name}
+                                    {course.instructor_verified && (
+                                        <CheckCircle2 className="mr-1.5 h-4 w-4 text-blue-500 fill-blue-50" />
+                                    )}
                                 </div>
                                 <div className="flex items-center">
                                     <Clock className="ml-2 h-4 w-4" />
@@ -292,12 +334,20 @@ export default function CourseDetailsPage() {
                     <div className="space-y-6">
                         <Card className="sticky top-24 shadow-xl border-primary/20">
                             <CardContent className="p-6 space-y-6">
-                                <div className="space-y-2">
-                                    <p className="text-sm text-muted-foreground">سعر الكورس</p>
+                                <div className="space-y-1">
+                                    <p className="text-sm text-muted-foreground">سعر الكورس الحالي</p>
                                     <div className="flex items-baseline gap-2">
-                                        <span className="text-4xl font-bold text-primary">{course.price}</span>
+                                        <span className="text-4xl font-black text-primary">{dynamicPrice}</span>
                                         <span className="text-xl font-bold text-primary">ج.م</span>
                                     </div>
+                                    {isSpecialOffer && enrolledCount < 20 && (
+                                        <div className="flex items-center gap-1.5 mt-1">
+                                            <div className="h-1.5 w-1.5 rounded-full bg-orange-600 animate-ping" />
+                                            <p className="text-[11px] text-orange-600 font-black">
+                                                {enrolledCount < 10 ? `باقي ${10 - enrolledCount} أماكن بسعر 400 ج.م!` : `باقي ${20 - enrolledCount} أماكن بسعر 450 ج.م!`}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {profile?.role === 'admin' ? (

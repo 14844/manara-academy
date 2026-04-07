@@ -159,6 +159,20 @@ export default function AdminUsersPage() {
         }
     }
 
+    const handleToggleVerify = async (userId: string, currentStatus: boolean) => {
+        try {
+            await updateDoc(doc(db, "profiles", userId), {
+                is_verified: !currentStatus,
+                updated_at: new Date().toISOString()
+            })
+            setUsers(users.map(u => u.id === userId ? { ...u, is_verified: !currentStatus } : u))
+            toast.success(!currentStatus ? "تم توثيق المدرس بنجاح" : "تم إلغاء توثيق المدرس")
+        } catch (error) {
+            console.error("Toggle verify error:", error)
+            toast.error("حدث خطأ أثناء تحديث حالة التوثيق")
+        }
+    }
+
     const filteredUsers = users.filter(u =>
         u.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -226,6 +240,7 @@ export default function AdminUsersPage() {
                                         onRecharge={(u: any) => setSelectedUserForRecharge(u)}
                                         onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
                                         onResetDevices={() => handleResetDevices(user.id)}
+                                        onToggleVerify={handleToggleVerify}
                                     />
                             ))
                         ) : (
@@ -246,6 +261,7 @@ export default function AdminUsersPage() {
                                 onRecharge={(u: any) => setSelectedUserForRecharge(u)}
                                 onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
                                 onResetDevices={() => handleResetDevices(user.id)}
+                                onToggleVerify={handleToggleVerify}
                             />
                         ))}
                     </div>
@@ -262,6 +278,7 @@ export default function AdminUsersPage() {
                                         onRecharge={(u: any) => setSelectedUserForRecharge(u)}
                                         onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
                                         onResetDevices={() => handleResetDevices(user.id)}
+                                        onToggleVerify={handleToggleVerify}
                                     />
                                 ))}
                             </div>
@@ -362,7 +379,7 @@ function StatCard({ title, value, icon: Icon, color }: any) {
     )
 }
 
-function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices }: any) {
+function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices, onToggleVerify }: any) {
     const avatarUrl = user.photoURL || user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.full_name || user.id}`
 
     return (
@@ -426,6 +443,7 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDe
                                     <div className="flex items-center gap-2">
                                         <User className="h-3.5 w-3.5" />
                                         التخصص: {user.specialty}
+                                        {user.is_verified && <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 text-[10px]">موثق</Badge>}
                                     </div>
                                 )}
                             </div>
@@ -433,6 +451,17 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDe
                     </div>
 
                     <div className="flex flex-col gap-2 shrink-0 sm:min-w-[140px]">
+                        {user.role === 'instructor' && (
+                            <Button 
+                                variant="outline" 
+                                className={`w-full gap-2 h-9 font-bold ${user.is_verified ? 'text-amber-600 border-amber-200 bg-amber-50' : 'text-blue-600 border-blue-200 bg-blue-50'}`}
+                                size="sm" 
+                                onClick={() => onToggleVerify(user.id, user.is_verified)}
+                            >
+                                <ShieldCheck className="h-4 w-4" />
+                                {user.is_verified ? 'إلغاء التوثيق' : 'توثيق المدرس'}
+                            </Button>
+                        )}
                         {onApprove && (
                             <Button className="w-full gap-2 bg-green-600 hover:bg-green-700 h-9" size="sm" onClick={onApprove}>
                                 <CheckCircle2 className="h-4 w-4" />
