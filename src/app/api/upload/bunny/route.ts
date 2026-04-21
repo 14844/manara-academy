@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
             const createRes = await fetch(createUrl, {
                 method: 'POST',
                 headers: {
-                    'AccessKey': BUNNY_CONFIG.STREAM_API_KEY,
+                    'AccessKey': BUNNY_CONFIG.STREAM_API_KEY || "",
                     'Content-Type': 'application/json',
                     'accept': 'application/json'
                 },
@@ -56,8 +56,8 @@ export async function POST(request: NextRequest) {
             // 2. Generate Signature for Direct Browser Upload
             // Algorithm: HEX(SHA256(libraryId + apiKey + expiration + videoId))
             const expiration = Math.floor(Date.now() / 1000) + 3600; // 1 hour
-            const libId = BUNNY_CONFIG.VIDEO_LIBRARY_ID.trim();
-            const apiKey = BUNNY_CONFIG.STREAM_API_KEY.trim();
+            const libId = (BUNNY_CONFIG.VIDEO_LIBRARY_ID || "").trim();
+            const apiKey = (BUNNY_CONFIG.STREAM_API_KEY || "").trim();
             const signatureInput = `${libId}${apiKey}${expiration}${guid}`;
             
             const signature = crypto.createHash('sha256').update(signatureInput).digest('hex');
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
             const response = await fetch(bunnyUrl, {
                 method: 'PUT',
                 headers: {
-                    'AccessKey': BUNNY_CONFIG.ACCESS_KEY,
+                    'AccessKey': BUNNY_CONFIG.ACCESS_KEY || "",
                     'Content-Type': contentType || 'application/octet-stream',
                 },
                 body: request.body,
