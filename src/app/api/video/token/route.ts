@@ -114,8 +114,13 @@ export async function GET(request: Request) {
             // ── EBEMD TOKEN GENERATION ─────────────────────────────────────────
             // Algorithm: HEX(SHA256(token_security_key + video_id + expiration))
             const expiration = Math.floor(Date.now() / 1000) + 86400; // 24 hours
-            const securityKey = BUNNY_CONFIG.SECURITY_KEY || "";
-            const libraryId = BUNNY_CONFIG.VIDEO_LIBRARY_ID || "";
+            const securityKey = BUNNY_CONFIG.SECURITY_KEY;
+            const libraryId = BUNNY_CONFIG.VIDEO_LIBRARY_ID;
+            
+            if (!securityKey || !libraryId) {
+                console.error("Bunny Stream configuration missing (SECURITY_KEY or LIBRARY_ID)");
+                return NextResponse.json({ error: "Video configuration missing" }, { status: 500 });
+            }
             
             const tokenInput = securityKey + guid + expiration.toString();
             const token = crypto.createHash('sha256').update(tokenInput).digest('hex');
@@ -132,7 +137,12 @@ export async function GET(request: Request) {
             // رابط مباشر - تشفير Bunny.net بـ V2 SHA256 وصلاحية 24 ساعة
             let finalUrl = videoPath;
             if (videoPath.includes("b-cdn.net")) {
-                finalUrl = signBunnyUrl(videoPath, BUNNY_CONFIG.SECURITY_KEY || "", 86400); 
+                const securityKey = BUNNY_CONFIG.SECURITY_KEY;
+                if (securityKey) {
+                    finalUrl = signBunnyUrl(videoPath, securityKey, 86400); 
+                } else {
+                    console.warn("Direct video link detected but BUNNY_SECURITY_KEY missing!");
+                }
             }
             return NextResponse.json({ type: "direct", url: finalUrl });
         } else {

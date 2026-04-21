@@ -53,11 +53,18 @@ export async function GET(request: NextRequest) {
         console.log("Ultimate Proxy Fetching from Storage:", storageUrl)
 
         // 4. Fetch from Storage using ACCESS_KEY (Full Permissions)
+        const accessKey = BUNNY_CONFIG.ACCESS_KEY;
+        
+        if (!accessKey) {
+            console.error("[Proxy] ERROR: BUNNY_ACCESS_KEY is missing from environment variables!");
+            return new NextResponse("Server Configuration Error: Missing Access Key", { status: 500 });
+        }
+
         console.log(`[Proxy] Requesting: ${storageUrl}`);
         let response = await fetch(storageUrl, {
             method: 'GET',
             headers: {
-                'AccessKey': BUNNY_CONFIG.ACCESS_KEY || '',
+                'AccessKey': accessKey,
                 'accept': '*/*'
             }
         })

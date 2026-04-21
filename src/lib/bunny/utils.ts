@@ -10,7 +10,11 @@ export function signBunnyUrl(
     expirationTimeInSeconds: number = 7200,
     tokenPath?: string
 ) {
-    if (!url || !securityKey) return url;
+    if (!url) return "";
+    if (!securityKey) {
+        console.warn("Bunny signing requested but SECURITY_KEY is missing!");
+        return url; // Still return original to avoid catastrophic crash, but warn
+    }
 
     try {
         const parsedUrl = new URL(url);
