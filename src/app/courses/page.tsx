@@ -256,20 +256,7 @@ export default function CoursesPage() {
     )
 }
 
-const getDynamicPrice = (course: any) => {
-    const isSpecial = course.id === 'JTDSmCoZerGb0WmfqjnP' || course.title === 'test only'
-    if (!isSpecial) return course.price
-    const count = course.students_count || 0
-    if (count < 10) return 400
-    if (count < 20) return 450
-    return course.price
-}
-
 function CourseCard({ course }: { course: any }) {
-    const dynamicPrice = getDynamicPrice(course)
-    const isSpecialOffer = course.id === 'JTDSmCoZerGb0WmfqjnP' || course.title === 'test only'
-    const enrolledCount = course.students_count || 0
-
     return (
         <Card className="overflow-hidden hover:shadow-lg transition-shadow border-muted/60">
             <div className="aspect-video relative overflow-hidden">
@@ -278,13 +265,6 @@ function CourseCard({ course }: { course: any }) {
                     alt={course.title}
                     className="object-cover w-full h-full hover:scale-105 transition-transform duration-300"
                 />
-                <div className="absolute top-2 left-2 flex flex-col gap-2 items-start z-10">
-                    {isSpecialOffer && (
-                        <Badge className="bg-gradient-to-br from-yellow-300 via-amber-500 to-amber-700 text-white border-2 border-white/30 shadow-2xl shadow-amber-500/50 animate-subtle-shake font-black text-[12px] py-1.5 px-4 rounded-full tracking-tighter ring-2 ring-amber-500/20">
-                            👑 عرض الإطلاق الأول
-                        </Badge>
-                    )}
-                </div>
                 <div className="absolute top-2 right-2 flex flex-col gap-2 items-end z-10">
                     <Badge className="bg-primary/95 backdrop-blur-sm shadow-md">{CATEGORY_MAP[course.category] || course.category}</Badge>
                     {course.gradeLevel && (
@@ -319,12 +299,7 @@ function CourseCard({ course }: { course: any }) {
             <CardFooter className="p-4 border-t flex flex-col gap-3">
                 <div className="w-full flex items-center justify-between">
                     <div className="flex flex-col">
-                        <span className="font-black text-xl text-primary">{dynamicPrice} ج.م</span>
-                        {isSpecialOffer && enrolledCount < 20 && (
-                            <span className="text-[10px] text-orange-600 font-bold animate-pulse">
-                                {enrolledCount < 10 ? `باقي ${10 - enrolledCount} أماكن بهذا السعر!` : `باقي ${20 - enrolledCount} أماكن بهذا السعر!`}
-                            </span>
-                        )}
+                        <span className="font-black text-xl text-primary">{course.price || 0} ج.م</span>
                     </div>
                     <Button size="sm" asChild className="rounded-xl font-bold shadow-md shadow-primary/20">
                         <Link href={`/courses/${course.id}`}>تفاصيل الكورس</Link>

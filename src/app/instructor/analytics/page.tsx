@@ -3,10 +3,9 @@
 import { useState, useEffect } from "react"
 import { auth, db } from "@/lib/firebase/config"
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore"
-import { calculateEnrollmentCommission, getSpecialOfferProgress } from "@/lib/commission-utils"
+import { calculateEnrollmentCommission } from "@/lib/commission-utils"
 import { onAuthStateChanged } from "firebase/auth"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { PartyPopper, Sparkles } from "lucide-react"
 import {
     Users,
     BookOpen,
@@ -16,7 +15,9 @@ import {
     Activity,
     Calendar,
     ArrowUpRight,
-    Loader2
+    Loader2,
+    Ticket,
+    CheckCircle
 } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
@@ -39,9 +40,9 @@ export default function InstructorAnalyticsPage() {
     })
     const [courseBreakdown, setCourseBreakdown] = useState<any[]>([])
     const [recentEnrollments, setRecentEnrollments] = useState<any[]>([])
+    const [couponUsages, setCouponUsages] = useState<any[]>([])
 
     const [user, setUser] = useState<any>(null)
-    const [specialOffer, setSpecialOffer] = useState<any>(null)
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (u) => {
@@ -72,22 +73,14 @@ export default function InstructorAnalyticsPage() {
                     return dateB - dateA
                 }) as any[]
 
-            // 3. Process Stats (Commission logic)
-            // Sort chronicological to apply special offer to first 10
-            const sortedChronic = [...enrollments].sort((a: any, b: any) => {
-                const dateA = a.enrolled_at ? new Date(a.enrolled_at).getTime() : 0
-                const dateB = b.enrolled_at ? new Date(b.enrolled_at).getTime() : 0
-                return dateA - dateB
-            })
-
+            // 3. Process Stats
             let totalCommission = 0
             let totalNet = 0
             
-            sortedChronic.forEach((enr: any, index: number) => {
+            enrollments.forEach((enr: any) => {
                 const { commissionAmount, netAmount } = calculateEnrollmentCommission(
                     Number(enr.paid_amount) || 0,
-                    instructorId,
-                    index
+                    instructorId
                 )
                 totalCommission += commissionAmount
                 totalNet += netAmount
@@ -124,6 +117,16 @@ export default function InstructorAnalyticsPage() {
             })
             setCourseBreakdown(breakdown)
             setRecentEnrollments(enrollments.slice(0, 5))
+
+            // Filter Used Coupons
+            const coupons = enrollments.filter(e => e.coupon_used).map(e => {
+                const discountVal = (e.original_price || 0) - (e.paid_amount || 0)
+                return {
+                    ...e,
+                    discountValue: discountVal > 0 ? discountVal : "N/A"
+                }
+            })
+            setCouponUsages(coupons)
 
         } catch (error) {
             console.error("Analytics error:", error)
@@ -237,58 +240,6 @@ export default function InstructorAnalyticsPage() {
                 </Button>
             </div>
 
-            <div style={{ display: 'none' }}>
-                <div ref={printRef}>
-                    {/* Ghost element for print logic */}
-                </div>
-            </div>
-
-            {user && getSpecialOfferProgress(user.uid, stats.totalStudents) && (
-                <Card className="border-2 border-primary/20 bg-primary/5 overflow-hidden relative group">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <Sparkles className="h-24 w-24 text-primary" />
-                    </div>
-                    <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between">
-                            <CardTitle className="text-xl font-black flex items-center gap-2">
-                                <PartyPopper className="h-6 w-6 text-primary" />
-                                مسار العرض الخاص (15% عمولة)
-                            </CardTitle>
-                            <Badge variant="outline" className="bg-background font-bold">
-                                {getSpecialOfferProgress(user.uid, stats.totalStudents)?.current} / {getSpecialOfferProgress(user.uid, stats.totalStudents)?.limit} طالب
-                            </Badge>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="space-y-2">
-                            <div className="flex justify-between text-sm font-bold">
-                                <span>حالة العرض الحالي</span>
-                                <span className="text-primary">{Math.round(getSpecialOfferProgress(user.uid, stats.totalStudents)?.percentage || 0)}%</span>
-                            </div>
-                            <Progress value={getSpecialOfferProgress(user.uid, stats.totalStudents)?.percentage} className="h-3 rounded-full" />
-                            <div className="grid grid-cols-10 gap-1 mt-1">
-                                {[...Array(10)].map((_, i) => (
-                                    <div 
-                                        key={i} 
-                                        className={`h-1.5 rounded-full transition-all duration-500 ${
-                                            i < (getSpecialOfferProgress(user.uid, stats.totalStudents)?.current || 0) 
-                                            ? "bg-primary shadow-[0_0_8px_rgba(var(--primary),0.5)]" 
-                                            : "bg-muted"
-                                        }`}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                        <p className="text-sm font-medium text-muted-foreground">
-                            {getSpecialOfferProgress(user.uid, stats.totalStudents)?.isCompleted 
-                                ? "أحسنت! لقد استفدت من العرض كاملاً لجميع الطلاب العشرة الأوائل. استمر في التألق!"
-                                : `باقي لك ${10 - (getSpecialOfferProgress(user.uid, stats.totalStudents)?.current || 0)} طلاب حتى تكتمل قائمة الـ 10 طلاب المستفيدين من العمولة المخفضة.`
-                            }
-                        </p>
-                    </CardContent>
-                </Card>
-            )}
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <AnalyticsCard
                     title="الطلاب الجدد"
@@ -305,9 +256,9 @@ export default function InstructorAnalyticsPage() {
                     icon={<DollarSign className="h-5 w-5" />}
                 />
                 <AnalyticsCard
-                    title="عمولة المنصة"
+                    title="عمولة المنصة (20%)"
                     value={`${stats.platformCommission.toLocaleString()} ج.م`}
-                    trend={"تحسب تلقائياً حسب العرض"}
+                    trend={"ثابتة لكافة الكورسات"}
                     color="bg-red-50 text-red-600"
                     icon={<TrendingUp className="h-5 w-5" />}
                 />
@@ -324,55 +275,66 @@ export default function InstructorAnalyticsPage() {
                 <Card className="lg:col-span-2 border-2 shadow-sm">
                     <CardHeader className="flex flex-row items-center justify-between">
                         <div>
-                            <CardTitle className="text-xl font-bold">أداء الكورسات الفردي</CardTitle>
-                            <CardDescription>نسبة تفاعل الطلاب لكل كورس تعليمي</CardDescription>
+                            <CardTitle className="text-xl font-bold">تتبع الكوبونات المستخدمة 🎫</CardTitle>
+                            <CardDescription>الطلاب الذين استخدموا أكواد الخصم للالتحاق بكورساتك</CardDescription>
                         </div>
-                        <Badge variant="outline" className="gap-1 px-3 py-1">
-                            <TrendingUp className="h-3 w-3" />
-                            الأكثر مبيعاً
-                        </Badge>
                     </CardHeader>
-                    <CardContent className="space-y-6">
-                        {courseBreakdown.map((course, i) => (
-                            <div key={i} className="space-y-2">
-                                <div className="flex justify-between items-center text-sm">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center font-black text-primary border border-primary/20">
-                                            {i + 1}
-                                        </div>
-                                        <span className="font-bold">{course.title}</span>
-                                    </div>
-                                    <div className="text-left font-mono">
-                                        <span className="text-muted-foreground mr-2">{course.students} طالب</span>
-                                        <span className="font-bold text-primary">{course.revenue.toLocaleString()} ج.م</span>
-                                    </div>
-                                </div>
-                                <div className="space-y-1 pr-13">
-                                    <div className="flex justify-between text-[10px] uppercase tracking-wider font-bold text-muted-foreground">
-                                        <span>تقدم الطلاب بالمنهج</span>
-                                        <span>{course.progress}%</span>
-                                    </div>
-                                    <Progress value={course.progress} className="h-1.5" />
-                                </div>
-                            </div>
-                        ))}
+                    <CardContent className="p-0">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-right">
+                                <thead className="bg-muted/50 text-muted-foreground font-bold italic">
+                                    <tr>
+                                        <th className="p-4">التاريخ 📅</th>
+                                        <th className="p-4">الطالب</th>
+                                        <th className="p-4 text-center">الكود</th>
+                                        <th className="p-4">الكورس</th>
+                                        <th className="p-4">الخصم</th>
+                                        <th className="p-4 text-left">الصافي المدفوع</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {couponUsages.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={6} className="p-10 text-center text-muted-foreground italic">لم يتم استخدام كوبونات بعد</td>
+                                        </tr>
+                                    ) : (
+                                        couponUsages.map((usage, i) => (
+                                            <tr key={usage.id} className="hover:bg-muted/30 transition-colors border-b last:border-0 grow">
+                                                <td className="p-4 text-xs font-medium text-muted-foreground whitespace-nowrap">
+                                                    {usage.enrolled_at ? new Date(usage.enrolled_at).toLocaleDateString('ar-EG', {
+                                                        day: 'numeric',
+                                                        month: 'short',
+                                                        year: 'numeric'
+                                                    }) : "N/A"}
+                                                </td>
+                                                <td className="p-4 font-bold text-zinc-900">{usage.student_name}</td>
+                                                <td className="p-4 text-center">
+                                                    <Badge variant="outline" className="font-mono bg-primary/5 text-primary border-primary/20 px-3 py-1">
+                                                        {usage.coupon_used}
+                                                    </Badge>
+                                                </td>
+                                                <td className="p-4 truncate max-w-[200px] text-zinc-600 font-medium">{usage.course_title}</td>
+                                                <td className="p-4">
+                                                    <Badge variant="secondary" className="bg-green-50 text-green-700 border-green-100 font-black">
+                                                        {usage.discountValue !== "N/A" ? `-${usage.discountValue?.toLocaleString()} ج.م` : "N/A"}
+                                                    </Badge>
+                                                </td>
+                                                <td className="p-4 text-left">
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="font-black text-primary text-base">{usage.paid_amount?.toLocaleString()} ج.م</span>
+                                                        <span className="text-[10px] line-through text-muted-foreground opacity-50">{usage.original_price?.toLocaleString()} ج.م</span>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </CardContent>
                 </Card>
 
                 <div className="space-y-6">
-                    <Card className="border-2 shadow-sm bg-primary/5">
-                        <CardHeader>
-                            <CardTitle className="text-lg font-bold flex items-center gap-2">
-                                <Award className="h-5 w-5 text-primary" />
-                                الكورس الأكثر تفاعلاً
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="text-center py-6">
-                            <div className="text-primary font-black text-2xl mb-2">{stats.topCourse}</div>
-                            <p className="text-sm text-muted-foreground italic">هذا الكورس يمتلك أعلى معدل إكمال من قبل الطلاب</p>
-                        </CardContent>
-                    </Card>
-
                     <Card className="border-2 shadow-sm overflow-hidden">
                         <CardHeader className="bg-muted/30">
                             <CardTitle className="text-lg font-bold flex items-center gap-2">
@@ -390,7 +352,10 @@ export default function InstructorAnalyticsPage() {
                                     recentEnrollments.map((enr, i) => (
                                         <div key={i} className="p-4 hover:bg-muted/30 transition-colors">
                                             <div className="flex justify-between items-start mb-1">
-                                                <span className="font-bold text-sm truncate max-w-[120px]">{enr.student_name}</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-sm truncate max-w-[120px]">{enr.student_name}</span>
+                                                    {enr.coupon_used && <Ticket className="h-3 w-3 text-primary" />}
+                                                </div>
                                                 <span className="font-black text-xs text-primary">{enr.paid_amount || 0} ج.م</span>
                                             </div>
                                             <div className="flex justify-between items-center text-[10px] text-muted-foreground">
@@ -409,13 +374,32 @@ export default function InstructorAnalyticsPage() {
                         <CardHeader className="pb-2">
                             <CardTitle className="text-sm font-bold text-orange-800 flex items-center gap-2">
                                 <ArrowUpRight className="h-4 w-4" />
-                                التزام المنصة
+                                إحصائيات سريعة
                             </CardTitle>
                         </CardHeader>
-                        <CardContent>
+                        <CardContent className="space-y-4">
+                            <div className="space-y-2">
+                                <div className="flex justify-between text-xs font-bold">
+                                    <span>متوسط تقدم الطلاب</span>
+                                    <span>{stats.avgCompletion}%</span>
+                                </div>
+                                <Progress value={stats.avgCompletion} className="h-2" />
+                            </div>
                             <p className="text-[10px] text-orange-900 leading-relaxed font-medium">
-                                تلتزم منصة المنارة بالشفافية المطلقة. يمكنك تتبع كل عملية التحاق وقيمتها هنا. عمولة المنصة (20%) تغطي الدعم الفني، التسويق، واستضافة المحتوى المؤمن.
+                                الكورس الأكثر تفاعلاً هو <span className="font-bold text-primary underline">{stats.topCourse}</span>. استمر في تحديث المحتوى لزيادة التفاعل!
                             </p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="border-2 shadow-sm bg-primary/5 border-primary/20">
+                        <CardContent className="p-4 flex items-center gap-4">
+                            <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                                <CheckCircle className="h-6 w-6" />
+                            </div>
+                            <div className="space-y-0.5">
+                                <p className="text-xs font-bold">نظام العمولات</p>
+                                <p className="text-[10px] text-muted-foreground font-medium">العمولة الحالية 20% ثابتة لجميع المحاضرين والطلاب.</p>
+                            </div>
                         </CardContent>
                     </Card>
                 </div>

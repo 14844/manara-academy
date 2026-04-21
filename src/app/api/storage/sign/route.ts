@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
     try {
         // 1. Extract path from full URL
-        const pullZoneHost = new URL(BUNNY_CONFIG.PULL_ZONE_URL).host
+        const pullZoneHost = new URL(BUNNY_CONFIG.PULL_ZONE_URL || "https://manara-academy.b-cdn.net").host
         let path = ""
         
         // Handle double proxying (if URL is already /api/storage/sign?url=...)
@@ -53,17 +53,35 @@ export async function GET(request: NextRequest) {
         console.log("Ultimate Proxy Fetching from Storage:", storageUrl)
 
         // 4. Fetch from Storage using ACCESS_KEY (Full Permissions)
-        const response = await fetch(storageUrl, {
+        console.log(`[Proxy] Requesting: ${storageUrl}`);
+        let response = await fetch(storageUrl, {
             method: 'GET',
             headers: {
-                'AccessKey': BUNNY_CONFIG.ACCESS_KEY,
+                'AccessKey': BUNNY_CONFIG.ACCESS_KEY || '',
                 'accept': '*/*'
             }
         })
 
+        // 4.1 Fallback to global endpoint if region-specific fails
+        if (!response.ok && BUNNY_CONFIG.STORAGE_ENDPOINT !== "storage.bunnycdn.com") {
+             const fallbackUrl = `https://storage.bunnycdn.com/${BUNNY_CONFIG.STORAGE_ZONE_NAME}/${cleanPath}`;
+             console.log(`[Proxy] Retrying with global endpoint: ${fallbackUrl}`);
+             response = await fetch(fallbackUrl, {
+                 method: 'GET',
+                 headers: {
+                     'AccessKey': BUNNY_CONFIG.ACCESS_KEY || '',
+                     'accept': '*/*'
+                 }
+             });
+        }
+
         if (!response.ok) {
-            console.error("Ultimate Proxy Failed to fetch from storage:", response.status, storageUrl)
-            return new NextResponse(`Error fetching asset: ${response.status}`, { status: response.status })
+            const errText = await response.text().catch(() => "Unknown error");
+            console.error(`[Proxy] Bunny Error (${response.status}):`, errText);
+            console.log(`[Proxy] Attempted AccessKey: ${BUNNY_CONFIG.ACCESS_KEY?.substring(0, 5)}...`);
+            console.log(`[Proxy] Attempted Zone: ${BUNNY_CONFIG.STORAGE_ZONE_NAME}`);
+            
+            return new NextResponse(`Error fetching asset: ${response.status} - ${errText}`, { status: response.status })
         }
 
         // 5. Stream response back with correct headers

@@ -13,7 +13,8 @@ import {
     GraduationCap,
     LogOut,
     Wallet,
-    ClipboardList
+    ClipboardList,
+    Ticket
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -33,6 +34,7 @@ const sidebarItems = [
     { name: "الطلاب", href: "/instructor/students", icon: Users },
     { name: "تصحيح الإجابات", href: "/instructor/grading", icon: ClipboardList },
     { name: "الإحصائيات", href: "/instructor/analytics", icon: BarChart3 },
+    { name: "إدارة الكوبونات", href: "/instructor/coupons", icon: Ticket },
     { name: "المحفظة والأرباح", href: "/instructor/withdrawals", icon: Wallet },
     { name: "الإعدادات", href: "/instructor/settings", icon: Settings },
 ]

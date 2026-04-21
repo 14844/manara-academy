@@ -2,7 +2,19 @@
 
 import { useState, useEffect, useRef } from "react"
 import { db } from "@/lib/firebase/config"
-import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, orderBy, getDoc } from "firebase/firestore"
+import { 
+    collection, 
+    query, 
+    where, 
+    getDocs, 
+    doc, 
+    updateDoc, 
+    serverTimestamp, 
+    orderBy, 
+    getDoc,
+    runTransaction,
+    increment
+} from "firebase/firestore"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -83,24 +95,35 @@ export default function AdminWithdrawalsPage() {
         }
     }
 
-    const handleReject = async (requestId: string) => {
+    const handleReject = async (request: any) => {
         const reason = prompt("يرجى ذكر سبب الرفض:")
         if (reason === null) return
 
         setIsProcessing(true)
         try {
-            const reqRef = doc(db, "withdrawal_requests", requestId)
-            await updateDoc(reqRef, {
-                status: "rejected",
-                rejection_reason: reason,
-                rejected_at: new Date().toISOString()
+            const reqRef = doc(db, "withdrawal_requests", request.id)
+            const instructorProfileRef = doc(db, "profiles", request.instructor_id)
+
+            await runTransaction(db, async (transaction) => {
+                // 1. Update request status
+                transaction.update(reqRef, {
+                    status: "rejected",
+                    rejection_reason: reason,
+                    rejected_at: new Date().toISOString()
+                })
+
+                // 2. Refund to instructor wallet
+                transaction.update(instructorProfileRef, {
+                    wallet_balance: increment(request.net_amount),
+                    updated_at: new Date().toISOString()
+                })
             })
 
-            toast.info("تم رفض الطلب")
+            toast.info("تم رفض الطلب ورد المبلغ لمحفظة المحاضر بنجاح")
             fetchWithdrawals()
         } catch (error) {
             console.error("Error rejecting withdrawal:", error)
-            toast.error("حدث خطأ أثناء معالجة الطلب")
+            toast.error("حدث خطأ أثناء معالجة الطلب ورد المبلغ")
         } finally {
             setIsProcessing(false)
         }
@@ -272,7 +295,7 @@ export default function AdminWithdrawalsPage() {
                                                                 size="sm"
                                                                 variant="destructive"
                                                                 className="h-8 gap-1"
-                                                                onClick={() => handleReject(req.id)}
+                                                                onClick={() => handleReject(req)}
                                                                 disabled={isProcessing}
                                                             >
                                                                 <XCircle className="h-3.5 w-3.5" /> رفض

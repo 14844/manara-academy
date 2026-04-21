@@ -18,7 +18,8 @@ import {
     Menu,
     Wallet,
     DollarSign,
-    CheckCircle2
+    CheckCircle2,
+    Ticket
 } from "lucide-react"
 import {
     Sheet,
@@ -38,6 +39,7 @@ const adminNavItems = [
     { name: "مراجعة المدفوعات", href: "/admin/payments", icon: Wallet },
     { name: "تسويات المحاضرين", href: "/admin/settlements", icon: DollarSign },
     { name: "طلبات السحب", href: "/admin/withdrawals", icon: CheckCircle2 },
+    { name: "إدارة الكوبونات", href: "/admin/coupons", icon: Ticket },
     { name: "الإعدادات", href: "/admin/settings", icon: Settings },
 ]
 

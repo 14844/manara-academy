@@ -2,7 +2,19 @@
 
 import { useState, useEffect, useRef } from "react"
 import { auth, db } from "@/lib/firebase/config"
-import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, getDoc, orderBy } from "firebase/firestore"
+import { 
+    collection, 
+    query, 
+    where, 
+    getDocs, 
+    addDoc, 
+    serverTimestamp, 
+    doc, 
+    getDoc, 
+    orderBy,
+    runTransaction,
+    increment
+} from "firebase/firestore"
 import { calculateTotalCommission } from "@/lib/commission-utils"
 import { onAuthStateChanged } from "firebase/auth"
 import { Button } from "@/components/ui/button"
@@ -58,14 +70,13 @@ export default function InstructorWithdrawalsPage() {
     async function fetchFinancialData(instructorId: string) {
         try {
             setIsLoading(true)
-            // 1. Fetch all enrollments for this instructor
-            const enrollmentsQ = query(
-                collection(db, "enrollments"),
-                where("instructor_id", "==", instructorId)
-            )
-            const enrollmentsSnap = await getDocs(enrollmentsQ)
-
-            // 2. Fetch withdrawal requests to see what was already paid/requested
+            
+            // 1. Fetch Instructor Profile for real-time balance
+            const profileRef = doc(db, "profiles", instructorId)
+            const profileSnap = await getDoc(profileRef)
+            const profileData = profileSnap.data() || { wallet_balance: 0 }
+            
+            // 2. Fetch withdrawal requests
             const requestsQ = query(
                 collection(db, "withdrawal_requests"),
                 where("instructor_id", "==", instructorId)
@@ -76,37 +87,18 @@ export default function InstructorWithdrawalsPage() {
                 new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime()
             ))
 
-            // 3. Calculate current balance using the utility for accuracy
-            // Fetch ALL enrollments sorted by date to know which are in the first 10
-            const sortedEnrollments = enrollmentsSnap.docs
-                .map(doc => doc.data())
-                .sort((a: any, b: any) => {
-                    const dateA = a.enrolled_at ? new Date(a.enrolled_at).getTime() : 0
-                    const dateB = b.enrolled_at ? new Date(b.enrolled_at).getTime() : 0
-                    return dateA - dateB
-                }) as { paid_amount: number }[]
-
-            const { totalCommission: allTimeComm, totalNet: allTimeNet } = calculateTotalCommission(sortedEnrollments, instructorId)
-            const allTimeGross = sortedEnrollments.reduce((acc, e) => acc + (Number(e.paid_amount) || 0), 0)
-
-            let netAlreadyRequested = 0
-            let grossAlreadyRequested = 0
-            allRequests.forEach((req: any) => {
-                if (req.status !== 'rejected') {
-                    netAlreadyRequested += req.net_amount || 0
-                    grossAlreadyRequested += req.amount || 0
-                }
-            })
-
-            const currentGross = allTimeGross - grossAlreadyRequested
-            const currentNet = allTimeNet - netAlreadyRequested
-            const currentCommission = currentGross - currentNet
-
+            // 3. Set the balance directly from the profile
+            // We use the net balance directly from instructor's profile wallet
+            const currentNet = profileData.wallet_balance || 0
+            
             setBalance({
-                gross: Math.max(0, currentGross),
-                commission: Math.max(0, currentCommission),
-                net: Math.max(0, currentNet)
+                gross: currentNet / 0.8, // Estimate gross based on 20% commission
+                commission: (currentNet / 0.8) * 0.2,
+                net: currentNet
             })
+
+            // Note: We can also fetch from the 'transactions' collection for exact history
+            // but for immediate UI fix, using wallet_balance is most accurate to the actual money.
 
         } catch (error) {
             console.error("Error fetching financial data:", error)
@@ -165,22 +157,44 @@ export default function InstructorWithdrawalsPage() {
 
         setIsSubmitting(true)
         try {
-            await addDoc(collection(db, "withdrawal_requests"), {
-                instructor_id: user.uid,
-                instructor_name: user.displayName || "محاضر",
-                amount: balance.gross,
-                commission: balance.commission,
-                net_amount: balance.net,
-                status: "pending",
-                requested_at: new Date().toISOString(),
+            const instructorId = user.uid
+            const profileRef = doc(db, "profiles", instructorId)
+            const withdrawalRef = doc(collection(db, "withdrawal_requests"))
+            const netAmount = balance.net
+
+            await runTransaction(db, async (transaction) => {
+                const pSnap = await transaction.get(profileRef)
+                if (!pSnap.exists()) throw new Error("لم يتم العثور على ملف المحاضر")
+                
+                const currentBalance = pSnap.data().wallet_balance || 0
+                if (currentBalance < netAmount) {
+                    throw new Error("عذراً، الرصيد المتاح حالياً أقل من المبلغ المطلوب سحبه")
+                }
+
+                // 1. Deduct immediately from wallet
+                transaction.update(profileRef, {
+                    wallet_balance: increment(-netAmount),
+                    updated_at: new Date().toISOString()
+                })
+
+                // 2. Create the request
+                transaction.set(withdrawalRef, {
+                    instructor_id: instructorId,
+                    instructor_name: user.displayName || "محاضر",
+                    amount: balance.gross,
+                    commission: balance.commission,
+                    net_amount: netAmount,
+                    status: "pending",
+                    requested_at: new Date().toISOString(),
+                })
             })
 
-            toast.success("تم إرسال طلب السحب بنجاح. سيتم مراجعته من قبل الإدارة.")
+            toast.success("تم إرسال طلب السحب بنجاح وخصمه من محفظتك مؤقتاً")
             setShowRequestModal(false)
-            fetchFinancialData(user.uid)
-        } catch (error) {
+            fetchFinancialData(instructorId)
+        } catch (error: any) {
             console.error("Error requesting withdrawal:", error)
-            toast.error("حدث خطأ أثناء إرسال الطلب")
+            toast.error(error.message || "حدث خطأ أثناء إرسال الطلب")
         } finally {
             setIsSubmitting(false)
         }
