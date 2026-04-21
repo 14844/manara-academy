@@ -99,51 +99,6 @@ export default function InstructorDashboard() {
                 <p className="text-muted-foreground">إليك نظرة سريعة على أداء كورساتك لهذا الشهر.</p>
             </div>
             
-            {user && getSpecialOfferProgress(user.uid, stats.totalStudents) && (
-                <Card className="border-2 border-primary/20 bg-primary/5 overflow-hidden relative group">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <Sparkles className="h-24 w-24 text-primary" />
-                    </div>
-                    <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between">
-                            <CardTitle className="text-xl font-black flex items-center gap-2">
-                                <PartyPopper className="h-6 w-6 text-primary" />
-                                عرض المنارة الخاص (15% عمولة)
-                            </CardTitle>
-                            <Badge variant="outline" className="bg-background font-bold">
-                                {getSpecialOfferProgress(user.uid, stats.totalStudents)?.current} / {getSpecialOfferProgress(user.uid, stats.totalStudents)?.limit} طالب
-                            </Badge>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="space-y-2">
-                            <div className="flex justify-between text-sm font-bold">
-                                <span>تقدم العرض</span>
-                                <span className="text-primary">{Math.round(getSpecialOfferProgress(user.uid, stats.totalStudents)?.percentage || 0)}%</span>
-                            </div>
-                            <Progress value={getSpecialOfferProgress(user.uid, stats.totalStudents)?.percentage} className="h-3 rounded-full" />
-                            <div className="grid grid-cols-10 gap-1 mt-1">
-                                {[...Array(10)].map((_, i) => (
-                                    <div 
-                                        key={i} 
-                                        className={`h-1.5 rounded-full transition-all duration-500 ${
-                                            i < (getSpecialOfferProgress(user.uid, stats.totalStudents)?.current || 0) 
-                                            ? "bg-primary shadow-[0_0_8px_rgba(var(--primary),0.5)]" 
-                                            : "bg-muted"
-                                        }`}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                        <p className="text-sm font-medium text-muted-foreground leading-relaxed">
-                            {getSpecialOfferProgress(user.uid, stats.totalStudents)?.isCompleted 
-                                ? "مبروك! لقد أكملت العرض بنجاح واستفدت من عمولة 15% لأول 10 طلاب. سيتم تطبيق النسبة العادية (20%) على الطلاب القادمين."
-                                : `بقي لك ${10 - (getSpecialOfferProgress(user.uid, stats.totalStudents)?.current || 0)} طلاب فقط للاستفادة من عمولة المنارة المخفضة (15% بدلاً من 20%). انطلق واجذب المزيد من الطلاب!`
-                            }
-                        </p>
-                    </CardContent>
-                </Card>
-            )}
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <StatCard
