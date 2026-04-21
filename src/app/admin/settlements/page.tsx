@@ -138,23 +138,6 @@ export default function AdminSettlementsPage() {
             for (const group of Object.values(instructorGroups) as any[]) {
                 const instId = group.instructorId;
                 
-                // Calculate the enrollment index for each student in-memory to avoid Firestore Index errors
-                // We count how many enrollments this instructor has BEFORE the current month's start date
-                let currentTotalIndex = 0;
-                allEnrollmentsRaw.forEach(enr => {
-                    if (enr.instructor_id === instId) {
-                        const date = enr.enrolled_at;
-                        const enrDate = (typeof date === 'string') 
-                            ? new Date(date) 
-                            : (date.toDate ? date.toDate() : new Date(date));
-                        
-                        if (enrDate < start) {
-                            currentTotalIndex++;
-                        }
-                    }
-                });
-
-
                 // Sum up commissions for this month's enrollments
                 group.commission = 0;
                 group.netPayout = 0;
@@ -163,10 +146,9 @@ export default function AdminSettlementsPage() {
                 group.details.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
                 group.details.forEach((enr: any) => {
-                    const result = calculateEnrollmentCommission(enr.amount, instId, currentTotalIndex);
+                    const result = calculateEnrollmentCommission(enr.amount, instId);
                     group.commission += result.commissionAmount;
                     group.netPayout += result.netAmount;
-                    currentTotalIndex++;
                 });
             }
 
