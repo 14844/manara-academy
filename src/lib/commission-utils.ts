@@ -58,13 +58,6 @@ export function calculateTotalCommission(
  * Returns null as special offers are currently disabled per user request.
  */
 export function getSpecialOfferProgress(instructorId: string, totalStudents: number) {
-    return {
-        current: 0,
-        total: 0,
-        limit: 10,
-        percentage: 0,
-        isQualified: false,
-        isCompleted: false,
-        nextTarget: 10
-    };
+    // Disabled per user request for flat 20% commission
+    return null;
 }
