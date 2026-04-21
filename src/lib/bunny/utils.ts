@@ -6,7 +6,7 @@ import crypto from 'crypto';
  */
 export function signBunnyUrl(
     url: string, 
-    securityKey: string, 
+    securityKey: string | undefined, 
     expirationTimeInSeconds: number = 7200,
     tokenPath?: string
 ) {

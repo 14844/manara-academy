@@ -114,13 +114,14 @@ export async function GET(request: Request) {
             // ── EBEMD TOKEN GENERATION ─────────────────────────────────────────
             // Algorithm: HEX(SHA256(token_security_key + video_id + expiration))
             const expiration = Math.floor(Date.now() / 1000) + 86400; // 24 hours
-            const securityKey = BUNNY_CONFIG.SECURITY_KEY;
+            const securityKey = BUNNY_CONFIG.SECURITY_KEY || "";
+            const libraryId = BUNNY_CONFIG.VIDEO_LIBRARY_ID || "";
             
             const tokenInput = securityKey + guid + expiration.toString();
             const token = crypto.createHash('sha256').update(tokenInput).digest('hex');
             
             // رابط الـ Embed المؤمن
-            const embedUrl = `https://iframe.mediadelivery.net/embed/${BUNNY_CONFIG.VIDEO_LIBRARY_ID}/${guid}?token=${token}&expires=${expiration}&autoplay=true`;
+            const embedUrl = `https://iframe.mediadelivery.net/embed/${libraryId}/${guid}?token=${token}&expires=${expiration}&autoplay=true`;
             
             return NextResponse.json({ 
                 type: "stream", 
@@ -131,7 +132,7 @@ export async function GET(request: Request) {
             // رابط مباشر - تشفير Bunny.net بـ V2 SHA256 وصلاحية 24 ساعة
             let finalUrl = videoPath;
             if (videoPath.includes("b-cdn.net")) {
-                finalUrl = signBunnyUrl(videoPath, BUNNY_CONFIG.SECURITY_KEY, 86400); 
+                finalUrl = signBunnyUrl(videoPath, BUNNY_CONFIG.SECURITY_KEY || "", 86400); 
             }
             return NextResponse.json({ type: "direct", url: finalUrl });
         } else {
