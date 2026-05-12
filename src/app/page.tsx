@@ -14,48 +14,35 @@ export default async function LandingPage() {
       <Navbar />
       <main className="flex-1">
         {/* Hero Section */}
-        <section className="relative overflow-hidden bg-background py-20 lg:py-32 min-h-[85vh] flex items-center">
-          {/* Animated Interactive Bubbles */}
-          <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden h-full w-full opacity-60">
-              <div className="absolute top-[10%] left-[5%] w-72 h-72 rounded-full bg-primary/10 blur-[90px] animate-float" />
-              <div className="absolute top-[40%] right-[10%] w-96 h-96 rounded-full bg-primary/15 blur-[100px] animate-float-delayed" />
-              <div className="absolute bottom-[20%] left-[15%] w-64 h-64 rounded-full bg-primary/10 blur-[80px] animate-float" style={{ animationDuration: '18s' }} />
-              <div className="absolute -top-[10%] -right-[10%] w-[500px] h-[500px] rounded-full bg-primary/5 blur-[120px]" />
-              
-              {/* Floating Shape Accents */}
-              <div className="absolute top-[20%] left-[10%] h-4 w-4 rounded-full bg-primary/30 animate-pulse" />
-              <div className="absolute top-[60%] right-[20%] h-6 w-6 rounded-full bg-primary/20 animate-bounce" style={{ animationDuration: '6s' }} />
-          </div>
-
+        <section className="relative overflow-hidden py-20 lg:py-32 min-h-[90vh] flex items-center">
           <div className="container relative z-10 mx-auto px-4">
             <div className="flex flex-col items-center text-center">
-              <div className="inline-flex items-center rounded-full border px-4 py-1.5 text-sm font-semibold transition-all hover:border-primary/50 mb-8 bg-muted/30 backdrop-blur-sm">
+              <div className="inline-flex items-center rounded-full border border-primary/20 px-4 py-1.5 text-sm font-semibold transition-all hover:border-primary/50 mb-8 glass shadow-sm">
                 <span className="text-primary mx-1">خطوتك الأولى:</span>
                 نحو تجربة تعليمية أكثر تطوراً وتفاعلية
               </div>
               <h1 className="max-w-4xl text-5xl font-extrabold tracking-tight sm:text-7xl lg:text-8xl leading-none">
-                بناء العقول، <br/> <span className="text-primary drop-shadow-sm">وصناعة المستقبل</span> معاً
+                بناء العقول، <br/> <span className="text-primary drop-shadow-sm bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-600">وصناعة المستقبل</span> معاً
               </h1>
               <p className="mt-8 max-w-2xl text-xl text-muted-foreground sm:text-2xl leading-relaxed font-arabic">
                 أكاديمية المنارة تجمع بين أفضل المعلمين وأطمح الطلاب في بيئة رقمية آمنة. نوفر أحدث الأدوات لمتابعة التطور العلمي وتحقيق أعلى الدرجات.
               </p>
               <div className="mt-12 flex flex-wrap justify-center gap-6">
-                <Button size="lg" className="h-14 px-10 text-xl font-bold rounded-2xl shadow-lg shadow-primary/20 transition-transform hover:scale-105 active:scale-95 bg-primary hover:bg-primary/90 text-white" asChild>
+                <Button size="lg" className="h-14 px-10 text-xl font-bold rounded-2xl shadow-xl shadow-primary/20" asChild>
                   <Link href="/signup">
                     ابدأ مجاناً الآن ←
                   </Link>
                 </Button>
-                <Button size="lg" variant="outline" className="h-14 px-10 text-xl font-bold rounded-2xl backdrop-blur-sm hover:bg-muted/50 transition-transform hover:scale-105 active:scale-95 border-2" asChild>
+                <Button size="lg" variant="outline" className="h-14 px-10 text-xl font-bold rounded-2xl glass hover:bg-primary/5 border-primary/20" asChild>
                   <Link href="/courses">تصفح الكورسات</Link>
                 </Button>
               </div>
 
               {/* Social Proofs Section */}
               <div className="mt-20 w-full max-w-4xl px-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 py-8 border-y md:border-y-0 md:border-x-0 relative">
-                  {/* Vertical separators for desktop */}
-                  <div className="hidden md:block absolute top-1/2 left-1/3 h-12 w-[1px] bg-border -translate-y-1/2" />
-                  <div className="hidden md:block absolute top-1/2 left-2/3 h-12 w-[1px] bg-border -translate-y-1/2" />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 py-8 glass rounded-3xl border border-white/20 relative shadow-lg">
+                  <div className="hidden md:block absolute top-1/2 left-1/3 h-12 w-[1px] bg-border/50 -translate-y-1/2" />
+                  <div className="hidden md:block absolute top-1/2 left-2/3 h-12 w-[1px] bg-border/50 -translate-y-1/2" />
                   
                   <div className="flex flex-col items-center">
                     <span className="text-4xl font-black text-foreground mb-1">24/7</span>
@@ -72,7 +59,7 @@ export default async function LandingPage() {
                 </div>
 
                 {/* Join Students Section */}
-                <div className="mt-12 flex items-center justify-center gap-4 flex-wrap">
+                <div className="mt-12 flex items-center justify-center gap-4 flex-wrap animate-in fade-in slide-in-from-bottom-4 duration-1000">
                   <div className="flex -space-x-3 rtl:space-x-reverse">
                     <div className="h-10 w-10 rounded-full bg-orange-400 flex items-center justify-center text-white font-bold border-2 border-background shadow-sm ring-1 ring-black/5">م أ</div>
                     <div className="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold border-2 border-background shadow-sm ring-1 ring-black/5">س م</div>
@@ -80,7 +67,7 @@ export default async function LandingPage() {
                     <div className="h-10 w-10 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold border-2 border-background shadow-sm ring-1 ring-black/5">أ م</div>
                   </div>
                   <p className="text-muted-foreground font-medium">
-                    انضم لـ <span className="text-foreground font-bold">آلاف الطلاب</span> اللي بيتعلموا مع أفضل المعلمين في مصر
+                    انضم لـ <span className="text-foreground font-bold">آلاف الطلاب</span> الذين يتعلمون مع أفضل المعلمين في مصر
                   </p>
                 </div>
               </div>
@@ -89,8 +76,8 @@ export default async function LandingPage() {
         </section>
 
         {/* Value Proposition for Instructors */}
-        <section className="bg-muted/30 py-24">
-          <div className="container mx-auto px-4">
+        <section className="py-24 relative">
+          <div className="container mx-auto px-4 relative z-10">
             <div className="mb-16 text-center">
               <h2 className="text-3xl font-bold tracking-tight sm:text-4xl text-primary mb-4">لماذا نعتبر الخيار الأول للمصداقية والتطوير؟</h2>
               <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">صممنا المنصة لتريحك من الأعباء التقنية وتركز فقط على الإبداع والدرجة النهائية، بيئة داعمة للطالب والمعلم.</p>
@@ -129,7 +116,7 @@ export default async function LandingPage() {
             </div>
             
             <div className="grid gap-8 md:grid-cols-2 max-w-5xl mx-auto">
-                <div className="relative rounded-2xl bg-muted/10 p-8 shadow-[0_0_20px_rgba(0,0,0,0.02)] border hover:border-primary/50 transition-colors">
+                <div className="relative rounded-3xl glass p-8 shadow-lg border border-white/20 ios-transition hover:-translate-y-2">
                     <Quote className="absolute top-4 left-4 h-12 w-12 text-primary/10" />
                     <p className="text-lg leading-relaxed text-muted-foreground mb-8 font-medium italic">
                         "من أفضل المنصات التي تعاملت معها بفضل الشفافية التامة ونظام الأمان الرائع لحماية شروحاتي ومحاضراتي. أصبح التواصل مع الطلاب وتقييم مستواهم أسهل من أي وقت مضى."
@@ -143,7 +130,7 @@ export default async function LandingPage() {
                     </div>
                 </div>
 
-                <div className="relative rounded-2xl bg-muted/10 p-8 shadow-[0_0_20px_rgba(0,0,0,0.02)] border hover:border-primary/50 transition-colors">
+                <div className="relative rounded-3xl glass p-8 shadow-lg border border-white/20 ios-transition hover:-translate-y-2">
                     <Quote className="absolute top-4 left-4 h-12 w-12 text-primary/10" />
                     <p className="text-lg leading-relaxed text-muted-foreground mb-8 font-medium italic">
                         "أخيراً منصة منظمة تتيح لي التركيز في المذاكرة! الاختبارات التفاعلية ومتابعة الدرجات ساعدتني جداً في تحسين مستواي بشكل ملحوظ دون تعقيد تقني أو أعطال مستمرة."
@@ -161,9 +148,10 @@ export default async function LandingPage() {
         </section>
 
         {/* Target Audience Section (Students & Instructors combined) */}
-        <section className="bg-primary/5 py-24 border-y border-primary/10">
-            <div className="container mx-auto px-4 text-center max-w-3xl">
-                <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 mb-6">
+        <section className="py-24">
+            <div className="container mx-auto px-4 text-center max-w-3xl glass p-12 rounded-[2.5rem] border border-white/20 shadow-2xl relative overflow-hidden">
+                <div className="absolute inset-0 bg-primary/5 -z-10" />
+                <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl glass mb-6">
                     <GraduationCap className="h-10 w-10 text-primary" />
                 </div>
                 <h2 className="text-3xl font-bold tracking-tight sm:text-4xl mb-6">هل أنت طالب تبحث عن التميز الأكاديمي؟</h2>
@@ -171,10 +159,10 @@ export default async function LandingPage() {
                     وفرنا لك تجربة تعليمية سلسة، تجمع بين شروحات وافية عبر فيديوهات آمنة وعالية الدقة، مع اختبارات تفاعلية تقيم مستواك أولاً بأول، وتدعم تفوقك للوصول للدرجة النهائية.
                 </p>
                 <div className="flex flex-col sm:flex-row justify-center gap-4">
-                    <Button size="lg" className="h-14 px-10 text-lg rounded-full" asChild>
+                    <Button size="lg" className="h-14 px-10 text-lg rounded-2xl" asChild>
                         <Link href="/courses">ابحث عن كورساتك الآن</Link>
                     </Button>
-                    <Button size="lg" variant="outline" className="h-14 px-10 text-lg rounded-full" asChild>
+                    <Button size="lg" variant="outline" className="h-14 px-10 text-lg rounded-2xl glass border-primary/20" asChild>
                         <Link href="/signup">أنشئ حساب طالب</Link>
                     </Button>
                 </div>
@@ -182,8 +170,8 @@ export default async function LandingPage() {
         </section>
 
       </main>
-      <footer className="border-t bg-muted/20 pb-8 pt-16">
-        <div className="container mx-auto px-4">
+      <footer className="border-t bg-background pb-8 pt-16 relative">
+        <div className="container mx-auto px-4 relative z-10">
             <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4 mb-12">
                 <div>
                     <div className="flex items-center gap-2 mb-6">
@@ -247,9 +235,9 @@ export default async function LandingPage() {
 
 function FeatureCard({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) {
   return (
-    <div className="group rounded-2xl border bg-card p-8 shadow-sm transition-all hover:shadow-lg hover:-translate-y-2 hover:border-primary/50 relative overflow-hidden">
+    <div className="group glass-card p-8 relative overflow-hidden">
       <div className="absolute top-0 right-0 h-32 w-32 bg-primary/5 rounded-bl-full -z-10 transition-transform group-hover:scale-150" />
-      <div className="mb-6 flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 group-hover:bg-primary/20 transition-colors">
+      <div className="mb-6 flex items-center justify-center w-16 h-16 rounded-2xl glass group-hover:bg-primary/20 transition-colors shadow-sm">
           {icon}
       </div>
       <h3 className="mb-3 text-xl font-bold">{title}</h3>
