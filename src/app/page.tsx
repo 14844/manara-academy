@@ -40,15 +40,49 @@ export default async function LandingPage() {
                 أكاديمية المنارة تجمع بين أفضل المعلمين وأطمح الطلاب في بيئة رقمية آمنة. نوفر أحدث الأدوات لمتابعة التطور العلمي وتحقيق أعلى الدرجات.
               </p>
               <div className="mt-12 flex flex-wrap justify-center gap-6">
-                <Button size="lg" className="h-14 px-10 text-xl font-bold rounded-2xl shadow-lg shadow-primary/20 transition-transform hover:scale-105 active:scale-95" asChild>
+                <Button size="lg" className="h-14 px-10 text-xl font-bold rounded-2xl shadow-lg shadow-primary/20 transition-transform hover:scale-105 active:scale-95 bg-primary hover:bg-primary/90 text-white" asChild>
                   <Link href="/signup">
-                    انضم إلينا الآن
-                    <ArrowLeft className="mr-3 h-6 w-6" />
+                    ابدأ مجاناً الآن ←
                   </Link>
                 </Button>
                 <Button size="lg" variant="outline" className="h-14 px-10 text-xl font-bold rounded-2xl backdrop-blur-sm hover:bg-muted/50 transition-transform hover:scale-105 active:scale-95 border-2" asChild>
                   <Link href="/courses">تصفح الكورسات</Link>
                 </Button>
+              </div>
+
+              {/* Social Proofs Section */}
+              <div className="mt-20 w-full max-w-4xl px-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 py-8 border-y md:border-y-0 md:border-x-0 relative">
+                  {/* Vertical separators for desktop */}
+                  <div className="hidden md:block absolute top-1/2 left-1/3 h-12 w-[1px] bg-border -translate-y-1/2" />
+                  <div className="hidden md:block absolute top-1/2 left-2/3 h-12 w-[1px] bg-border -translate-y-1/2" />
+                  
+                  <div className="flex flex-col items-center">
+                    <span className="text-4xl font-black text-foreground mb-1">24/7</span>
+                    <span className="text-muted-foreground font-medium">تعلّم في أي وقت</span>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-4xl font-black text-foreground mb-1">+10</span>
+                    <span className="text-muted-foreground font-medium">معلم متميز</span>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-4xl font-black text-foreground mb-1">+50</span>
+                    <span className="text-muted-foreground font-medium">كورس متاح</span>
+                  </div>
+                </div>
+
+                {/* Join Students Section */}
+                <div className="mt-12 flex items-center justify-center gap-4 flex-wrap">
+                  <div className="flex -space-x-3 rtl:space-x-reverse">
+                    <div className="h-10 w-10 rounded-full bg-orange-400 flex items-center justify-center text-white font-bold border-2 border-background shadow-sm ring-1 ring-black/5">م أ</div>
+                    <div className="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold border-2 border-background shadow-sm ring-1 ring-black/5">س م</div>
+                    <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold border-2 border-background shadow-sm ring-1 ring-black/5">م ع</div>
+                    <div className="h-10 w-10 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold border-2 border-background shadow-sm ring-1 ring-black/5">أ م</div>
+                  </div>
+                  <p className="text-muted-foreground font-medium">
+                    انضم لـ <span className="text-foreground font-bold">آلاف الطلاب</span> اللي بيتعلموا مع أفضل المعلمين في مصر
+                  </p>
+                </div>
               </div>
             </div>
           </div>
