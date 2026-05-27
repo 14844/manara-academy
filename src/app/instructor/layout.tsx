@@ -14,7 +14,8 @@ import {
     LogOut,
     Wallet,
     ClipboardList,
-    Ticket
+    Ticket,
+    TrendingUp
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -33,7 +34,8 @@ const sidebarItems = [
     { name: "كورساتي", href: "/instructor/courses", icon: BookOpen },
     { name: "الطلاب", href: "/instructor/students", icon: Users },
     { name: "تصحيح الإجابات", href: "/instructor/grading", icon: ClipboardList },
-    { name: "الإحصائيات", href: "/instructor/analytics", icon: BarChart3 },
+    { name: "تقارير أولياء الأمور", href: "/instructor/reports", icon: BarChart3 },
+    { name: "الإحصائيات", href: "/instructor/analytics", icon: TrendingUp },
     { name: "إدارة الكوبونات", href: "/instructor/coupons", icon: Ticket },
     { name: "المحفظة والأرباح", href: "/instructor/withdrawals", icon: Wallet },
     { name: "الإعدادات", href: "/instructor/settings", icon: Settings },

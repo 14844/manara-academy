@@ -20,7 +20,8 @@ import {
     Loader2,
     Wallet,
     Fingerprint,
-    PlusCircle
+    PlusCircle,
+    Calendar
 } from "lucide-react"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
@@ -173,6 +174,20 @@ export default function AdminUsersPage() {
         }
     }
 
+    const handleToggleAutoReport = async (userId: string, currentStatus: boolean) => {
+        try {
+            await updateDoc(doc(db, "profiles", userId), {
+                auto_report_unlocked: !currentStatus,
+                updated_at: new Date().toISOString()
+            })
+            setUsers(users.map(u => u.id === userId ? { ...u, auto_report_unlocked: !currentStatus } : u))
+            toast.success(!currentStatus ? "تم تفعيل الجدولة التلقائية للمدرس بنجاح" : "تم قفل الجدولة التلقائية للمدرس")
+        } catch (error) {
+            console.error("Toggle auto report error:", error)
+            toast.error("حدث خطأ أثناء تحديث حالة الجدولة التلقائية")
+        }
+    }
+
     const filteredUsers = users.filter(u =>
         u.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -241,6 +256,7 @@ export default function AdminUsersPage() {
                                         onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
                                         onResetDevices={() => handleResetDevices(user.id)}
                                         onToggleVerify={handleToggleVerify}
+                                        onToggleAutoReport={handleToggleAutoReport}
                                     />
                             ))
                         ) : (
@@ -262,6 +278,7 @@ export default function AdminUsersPage() {
                                 onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
                                 onResetDevices={() => handleResetDevices(user.id)}
                                 onToggleVerify={handleToggleVerify}
+                                onToggleAutoReport={handleToggleAutoReport}
                             />
                         ))}
                     </div>
@@ -279,6 +296,7 @@ export default function AdminUsersPage() {
                                         onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
                                         onResetDevices={() => handleResetDevices(user.id)}
                                         onToggleVerify={handleToggleVerify}
+                                        onToggleAutoReport={handleToggleAutoReport}
                                     />
                                 ))}
                             </div>
@@ -379,7 +397,7 @@ function StatCard({ title, value, icon: Icon, color }: any) {
     )
 }
 
-function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices, onToggleVerify }: any) {
+function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices, onToggleVerify, onToggleAutoReport }: any) {
     const avatarUrl = user.photoURL || user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.full_name || user.id}`
 
     return (
@@ -440,10 +458,21 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDe
                                     </>
                                 )}
                                 {user.role === 'instructor' && (
-                                    <div className="flex items-center gap-2">
-                                        <User className="h-3.5 w-3.5" />
-                                        التخصص: {user.specialty}
-                                        {user.is_verified && <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 text-[10px]">موثق</Badge>}
+                                    <div className="flex flex-col gap-1.5">
+                                        <div className="flex items-center gap-2">
+                                            <User className="h-3.5 w-3.5" />
+                                            التخصص: {user.specialty}
+                                            {user.is_verified && <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 text-[10px]">موثق</Badge>}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Calendar className="h-3.5 w-3.5 text-purple-500" />
+                                            <span>الجدولة التلقائية:</span>
+                                            {user.auto_report_unlocked ? (
+                                                <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 text-[10px] font-bold">نشطة</Badge>
+                                            ) : (
+                                                <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50 text-[10px] font-bold">مغلقة</Badge>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -452,15 +481,26 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDe
 
                     <div className="flex flex-col gap-2 shrink-0 sm:min-w-[140px]">
                         {user.role === 'instructor' && (
-                            <Button 
-                                variant="outline" 
-                                className={`w-full gap-2 h-9 font-bold ${user.is_verified ? 'text-amber-600 border-amber-200 bg-amber-50' : 'text-blue-600 border-blue-200 bg-blue-50'}`}
-                                size="sm" 
-                                onClick={() => onToggleVerify(user.id, user.is_verified)}
-                            >
-                                <ShieldCheck className="h-4 w-4" />
-                                {user.is_verified ? 'إلغاء التوثيق' : 'توثيق المدرس'}
-                            </Button>
+                            <>
+                                <Button 
+                                    variant="outline" 
+                                    className={`w-full gap-2 h-9 font-bold ${user.is_verified ? 'text-amber-600 border-amber-200 bg-amber-50' : 'text-blue-600 border-blue-200 bg-blue-50'}`}
+                                    size="sm" 
+                                    onClick={() => onToggleVerify(user.id, user.is_verified)}
+                                >
+                                    <ShieldCheck className="h-4 w-4" />
+                                    {user.is_verified ? 'إلغاء التوثيق' : 'توثيق المدرس'}
+                                </Button>
+                                <Button 
+                                    variant="outline" 
+                                    className={`w-full gap-2 h-9 font-bold ${user.auto_report_unlocked ? 'text-rose-600 border-rose-200 bg-rose-50 hover:bg-rose-100 hover:text-rose-700' : 'text-purple-600 border-purple-200 bg-purple-50 hover:bg-purple-100 hover:text-purple-700'}`}
+                                    size="sm" 
+                                    onClick={() => onToggleAutoReport(user.id, user.auto_report_unlocked)}
+                                >
+                                    <Calendar className="h-4 w-4" />
+                                    {user.auto_report_unlocked ? 'قفل الجدولة' : 'تفعيل الجدولة'}
+                                </Button>
+                            </>
                         )}
                         {onApprove && (
                             <Button className="w-full gap-2 bg-green-600 hover:bg-green-700 h-9" size="sm" onClick={onApprove}>

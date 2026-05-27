@@ -21,6 +21,7 @@ import { Menu, X, GraduationCap, LayoutDashboard, LogOut, Settings, Wallet } fro
 const navItems = [
     { name: "الرئيسية", href: "/" },
     { name: "تصفح الكورسات", href: "/courses" },
+    { name: "المختبرات الافتراضية", href: "/labs" },
     { name: "عن المنصة", href: "/about" },
     { name: "مركز المساعدة", href: "/help" },
 ]
