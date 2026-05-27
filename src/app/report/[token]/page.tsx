@@ -395,11 +395,9 @@ export default function ParentReportPublicPage() {
     async function fetchReport(reportId: string) {
         setIsLoading(true)
         try {
-            const docRef = doc(db, "parent_reports", reportId)
-            const docSnap = await getDoc(docRef)
-
-            if (docSnap.exists()) {
-                const data = docSnap.data()
+            const response = await fetch(`/api/reports/${reportId}`)
+            if (response.ok) {
+                const data = await response.json()
                 const expDate = new Date(data.expires_at)
                 const today = new Date()
 
