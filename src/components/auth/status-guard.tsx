@@ -24,7 +24,7 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                 // If we are on a protected route but auth is missing, we MUST clear any stale session
                 const isPublicRoute = [
                     '/', '/login', '/signup', '/about', '/faq', '/terms', '/privacy', '/refund'
-                ].includes(pathname) || pathname.startsWith('/courses') || pathname.startsWith('/help')
+                ].includes(pathname) || pathname.startsWith('/courses') || pathname.startsWith('/help') || pathname.startsWith('/report') || pathname.startsWith('/labs')
                 
                 if (!isPublicRoute) {
                     console.warn("StatusGuard: Protected path detected without auth. Clearing session...")
