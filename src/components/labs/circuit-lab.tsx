@@ -130,7 +130,7 @@ export function CircuitLab() {
                 </g>
               )}
               {/* Text label */}
-              <text x="-45" y="40" fill="#cbd5e1" fontSize="13" fontWeight="bold" textAnchor="middle" dir="ltr">
+              <text x="-45" y="40" fill="#cbd5e1" fontSize="13" fontWeight="bold" textAnchor="middle">
                 {resistance} Ω
               </text>
             </g>
