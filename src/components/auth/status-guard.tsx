@@ -14,17 +14,25 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = useState(true)
 
     useEffect(() => {
+        const path = pathname || ""
+
+        // Completely bypass any auth loading or checks for parent report links
+        if (path.startsWith('/report')) {
+            setIsLoading(false)
+            return
+        }
+
         let profileUnsubscribe: (() => void) | undefined;
 
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            console.log("StatusGuard: Check for path:", pathname, "| User UID:", user?.uid)
+            console.log("StatusGuard: Check for path:", path, "| User UID:", user?.uid)
 
             if (!user) {
                 if (profileUnsubscribe) profileUnsubscribe();
                 // If we are on a protected route but auth is missing, we MUST clear any stale session
                 const isPublicRoute = [
                     '/', '/login', '/signup', '/about', '/faq', '/terms', '/privacy', '/refund'
-                ].includes(pathname) || pathname.startsWith('/courses') || pathname.startsWith('/help') || pathname.startsWith('/report') || pathname.startsWith('/labs')
+                ].includes(path) || path.startsWith('/courses') || path.startsWith('/help') || path.startsWith('/labs')
                 
                 if (!isPublicRoute) {
                     console.warn("StatusGuard: Protected path detected without auth. Clearing session...")
@@ -71,17 +79,17 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
 
                         // Handle Status Redirects
                         if ((profile.status === 'pending' || !profile.status) && profile.role !== 'admin') {
-                            if (pathname !== '/pending-approval') {
+                            if (path !== '/pending-approval') {
                                 router.push("/pending-approval")
                             }
                         }
                         else if (profile.status === 'rejected' || profile.status === 'blocked') {
-                            if (pathname !== '/restricted-access') {
+                            if (path !== '/restricted-access') {
                                 router.push("/restricted-access?reason=account")
                             }
                         }
                         else {
-                            if (pathname === '/pending-approval' || pathname === '/restricted-access' || pathname === '/login' || pathname === '/signup') {
+                            if (path === '/pending-approval' || path === '/restricted-access' || path === '/login' || path === '/signup') {
                                 const target = profile.role === 'instructor' ? "/instructor" : "/dashboard"
                                 router.push(target)
                             }
