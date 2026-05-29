@@ -1,8 +1,10 @@
 "use client"
 
 import { MessageCircle, Phone, X } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { DEFAULT_SUPPORT } from "@/lib/support-settings"
+import { useSupportSettings } from "@/hooks/use-support-settings"
 import {
     Popover,
     PopoverContent,
@@ -11,9 +13,10 @@ import {
 
 export function SupportButton() {
     const [isOpen, setIsOpen] = useState(false)
-    const whatsappNumber = "201017333215"
-    const whatsappLink = `https://wa.me/${whatsappNumber}`
-    const supportEmail = "manaraacademyplatform@gmail.com"
+    const { settings: contacts } = useSupportSettings()
+
+    const whatsappLink = `https://wa.me/${contacts.phone}`
+    const supportEmail = contacts.email
 
     return (
         <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -47,7 +50,7 @@ export function SupportButton() {
                             </div>
                         </a>
                         <a
-                            href="https://mail.google.com/mail/?view=cm&fs=1&to=manaraacademyplatform@gmail.com"
+                            href={`https://mail.google.com/mail/?view=cm&fs=1&to=${supportEmail}`}
                             target="_blank"
                             className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted transition-colors group"
                         >

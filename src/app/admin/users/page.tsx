@@ -20,7 +20,8 @@ import {
     Loader2,
     Wallet,
     Fingerprint,
-    PlusCircle
+    PlusCircle,
+    Calendar
 } from "lucide-react"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
@@ -144,6 +145,49 @@ export default function AdminUsersPage() {
         }
     }
 
+    const handleResetDevices = async (userId: string) => {
+        try {
+            const userRef = doc(db, "profiles", userId)
+            await updateDoc(userRef, {
+                active_devices: [],
+                updated_at: new Date().toISOString()
+            })
+            setUsers(users.map(u => u.id === userId ? { ...u, active_devices: [] } : u))
+            toast.success("تم تصفير الأجهزة المسجلة بنجاح")
+        } catch (error) {
+            console.error("Reset devices error:", error)
+            toast.error("حدث خطأ أثناء تصفير الأجهزة")
+        }
+    }
+
+    const handleToggleVerify = async (userId: string, currentStatus: boolean) => {
+        try {
+            await updateDoc(doc(db, "profiles", userId), {
+                is_verified: !currentStatus,
+                updated_at: new Date().toISOString()
+            })
+            setUsers(users.map(u => u.id === userId ? { ...u, is_verified: !currentStatus } : u))
+            toast.success(!currentStatus ? "تم توثيق المدرس بنجاح" : "تم إلغاء توثيق المدرس")
+        } catch (error) {
+            console.error("Toggle verify error:", error)
+            toast.error("حدث خطأ أثناء تحديث حالة التوثيق")
+        }
+    }
+
+    const handleToggleAutoReport = async (userId: string, currentStatus: boolean) => {
+        try {
+            await updateDoc(doc(db, "profiles", userId), {
+                auto_report_unlocked: !currentStatus,
+                updated_at: new Date().toISOString()
+            })
+            setUsers(users.map(u => u.id === userId ? { ...u, auto_report_unlocked: !currentStatus } : u))
+            toast.success(!currentStatus ? "تم تفعيل الجدولة التلقائية للمدرس بنجاح" : "تم قفل الجدولة التلقائية للمدرس")
+        } catch (error) {
+            console.error("Toggle auto report error:", error)
+            toast.error("حدث خطأ أثناء تحديث حالة الجدولة التلقائية")
+        }
+    }
+
     const filteredUsers = users.filter(u =>
         u.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -203,14 +247,17 @@ export default function AdminUsersPage() {
                     <div className="grid gap-6">
                         {PendingUsers.length > 0 ? (
                             PendingUsers.map((user) => (
-                                <UserCard
-                                    key={user.id}
-                                    user={user}
-                                    onApprove={() => handleUpdateStatus(user.id, 'approved')}
-                                    onReject={() => handleUpdateStatus(user.id, 'rejected')}
-                                    onRecharge={(u: any) => setSelectedUserForRecharge(u)}
-                                    onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
-                                />
+                                    <UserCard
+                                        key={user.id}
+                                        user={user}
+                                        onApprove={() => handleUpdateStatus(user.id, 'approved')}
+                                        onReject={() => handleUpdateStatus(user.id, 'rejected')}
+                                        onRecharge={(u: any) => setSelectedUserForRecharge(u)}
+                                        onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
+                                        onResetDevices={() => handleResetDevices(user.id)}
+                                        onToggleVerify={handleToggleVerify}
+                                        onToggleAutoReport={handleToggleAutoReport}
+                                    />
                             ))
                         ) : (
                             <div className="text-center py-12 border-2 border-dashed rounded-2xl text-muted-foreground">
@@ -229,25 +276,31 @@ export default function AdminUsersPage() {
                                 onReject={() => handleUpdateStatus(user.id, 'rejected')}
                                 onRecharge={(u: any) => setSelectedUserForRecharge(u)}
                                 onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
+                                onResetDevices={() => handleResetDevices(user.id)}
+                                onToggleVerify={handleToggleVerify}
+                                onToggleAutoReport={handleToggleAutoReport}
                             />
                         ))}
                     </div>
                 </TabsContent>
 
-                <TabsContent value="all" className="pt-6">
-                    <div className="grid gap-6">
-                        {filteredUsers.map((user) => (
-                            <UserCard
-                                key={user.id}
-                                user={user}
-                                onApprove={user.status !== 'approved' ? () => handleUpdateStatus(user.id, 'approved') : undefined}
-                                onReject={user.status !== 'rejected' ? () => handleUpdateStatus(user.id, 'rejected') : undefined}
-                                onRecharge={(u: any) => setSelectedUserForRecharge(u)}
-                                onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
-                            />
-                        ))}
-                    </div>
-                </TabsContent>
+                        <TabsContent value="all" className="pt-6">
+                            <div className="grid gap-6">
+                                {filteredUsers.map((user) => (
+                                    <UserCard
+                                        key={user.id}
+                                        user={user}
+                                        onApprove={user.status !== 'approved' ? () => handleUpdateStatus(user.id, 'approved') : undefined}
+                                        onReject={user.status !== 'rejected' ? () => handleUpdateStatus(user.id, 'rejected') : undefined}
+                                        onRecharge={(u: any) => setSelectedUserForRecharge(u)}
+                                        onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
+                                        onResetDevices={() => handleResetDevices(user.id)}
+                                        onToggleVerify={handleToggleVerify}
+                                        onToggleAutoReport={handleToggleAutoReport}
+                                    />
+                                ))}
+                            </div>
+                        </TabsContent>
             </Tabs>
 
             {/* Recharge Dialog */}
@@ -344,16 +397,18 @@ function StatCard({ title, value, icon: Icon, color }: any) {
     )
 }
 
-function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw }: any) {
+function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices, onToggleVerify, onToggleAutoReport }: any) {
+    const avatarUrl = user.photoURL || user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.full_name || user.id}`
+
     return (
         <Card className="hover:shadow-md transition-shadow">
             <CardContent className="p-6">
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
                     <div className="flex items-start gap-4">
-                        <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 relative">
-                            {user.role === 'instructor' ? <ShieldCheck className="h-7 w-7" /> : <GraduationCap className="h-7 w-7" />}
+                        <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 relative overflow-hidden border-2 border-primary/10">
+                            <img src={avatarUrl} className="w-full h-full object-cover" alt="User Avatar" />
                             {user.status === 'approved' && (
-                                <div className="absolute -bottom-1 -right-1 bg-background rounded-full p-0.5 shadow-sm">
+                                <div className="absolute -bottom-1 -right-1 bg-background rounded-full p-0.5 shadow-sm z-10">
                                     <CheckCircle2 className="h-5 w-5 text-green-500 fill-green-50" />
                                 </div>
                             )}
@@ -403,9 +458,21 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw }: any) {
                                     </>
                                 )}
                                 {user.role === 'instructor' && (
-                                    <div className="flex items-center gap-2">
-                                        <User className="h-3.5 w-3.5" />
-                                        التخصص: {user.specialty}
+                                    <div className="flex flex-col gap-1.5">
+                                        <div className="flex items-center gap-2">
+                                            <User className="h-3.5 w-3.5" />
+                                            التخصص: {user.specialty}
+                                            {user.is_verified && <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 text-[10px]">موثق</Badge>}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Calendar className="h-3.5 w-3.5 text-purple-500" />
+                                            <span>الجدولة التلقائية:</span>
+                                            {user.auto_report_unlocked ? (
+                                                <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 text-[10px] font-bold">نشطة</Badge>
+                                            ) : (
+                                                <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50 text-[10px] font-bold">مغلقة</Badge>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -413,6 +480,28 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw }: any) {
                     </div>
 
                     <div className="flex flex-col gap-2 shrink-0 sm:min-w-[140px]">
+                        {user.role === 'instructor' && (
+                            <>
+                                <Button 
+                                    variant="outline" 
+                                    className={`w-full gap-2 h-9 font-bold ${user.is_verified ? 'text-amber-600 border-amber-200 bg-amber-50' : 'text-blue-600 border-blue-200 bg-blue-50'}`}
+                                    size="sm" 
+                                    onClick={() => onToggleVerify(user.id, user.is_verified)}
+                                >
+                                    <ShieldCheck className="h-4 w-4" />
+                                    {user.is_verified ? 'إلغاء التوثيق' : 'توثيق المدرس'}
+                                </Button>
+                                <Button 
+                                    variant="outline" 
+                                    className={`w-full gap-2 h-9 font-bold ${user.auto_report_unlocked ? 'text-rose-600 border-rose-200 bg-rose-50 hover:bg-rose-100 hover:text-rose-700' : 'text-purple-600 border-purple-200 bg-purple-50 hover:bg-purple-100 hover:text-purple-700'}`}
+                                    size="sm" 
+                                    onClick={() => onToggleAutoReport(user.id, user.auto_report_unlocked)}
+                                >
+                                    <Calendar className="h-4 w-4" />
+                                    {user.auto_report_unlocked ? 'قفل الجدولة' : 'تفعيل الجدولة'}
+                                </Button>
+                            </>
+                        )}
                         {onApprove && (
                             <Button className="w-full gap-2 bg-green-600 hover:bg-green-700 h-9" size="sm" onClick={onApprove}>
                                 <CheckCircle2 className="h-4 w-4" />
@@ -425,16 +514,31 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw }: any) {
                                 {user.status === 'approved' ? 'حظر الحساب' : 'رفض الطلب'}
                             </Button>
                         )}
-                        {user.role === 'student' && onRecharge && (
-                            <Button
-                                variant="outline"
-                                className="w-full gap-2 border-primary/20 text-primary hover:bg-primary/5 h-9"
-                                size="sm"
-                                onClick={() => onRecharge(user)}
-                            >
-                                <PlusCircle className="h-4 w-4" />
-                                شحن المحفظة
-                            </Button>
+                        {user.role === 'student' && (
+                            <>
+                                {onRecharge && (
+                                    <Button
+                                        variant="outline"
+                                        className="w-full gap-2 border-primary/20 text-primary hover:bg-primary/5 h-9"
+                                        size="sm"
+                                        onClick={() => onRecharge(user)}
+                                    >
+                                        <PlusCircle className="h-4 w-4" />
+                                        شحن المحفظة
+                                    </Button>
+                                )}
+                                {onResetDevices && user.active_devices && user.active_devices.length > 0 && (
+                                    <Button
+                                        variant="outline"
+                                        className="w-full gap-2 border-blue-200 text-blue-600 hover:bg-blue-50 h-9"
+                                        size="sm"
+                                        onClick={onResetDevices}
+                                    >
+                                        <Fingerprint className="h-4 w-4" />
+                                        تصفير الأجهزة ({user.active_devices.length})
+                                    </Button>
+                                )}
+                            </>
                         )}
                         {user.role === 'student' && onWithdraw && user.status === 'approved' && (
                             <Button

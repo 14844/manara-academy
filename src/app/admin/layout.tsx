@@ -18,7 +18,8 @@ import {
     Menu,
     Wallet,
     DollarSign,
-    CheckCircle2
+    CheckCircle2,
+    Ticket
 } from "lucide-react"
 import {
     Sheet,
@@ -38,6 +39,7 @@ const adminNavItems = [
     { name: "مراجعة المدفوعات", href: "/admin/payments", icon: Wallet },
     { name: "تسويات المحاضرين", href: "/admin/settlements", icon: DollarSign },
     { name: "طلبات السحب", href: "/admin/withdrawals", icon: CheckCircle2 },
+    { name: "إدارة الكوبونات", href: "/admin/coupons", icon: Ticket },
     { name: "الإعدادات", href: "/admin/settings", icon: Settings },
 ]
 
@@ -46,6 +48,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const pathname = usePathname()
     const [isLoading, setIsLoading] = useState(true)
     const [isAdmin, setIsAdmin] = useState(false)
+    const [isSheetOpen, setIsSheetOpen] = useState(false)
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -62,7 +65,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 setIsAdmin(true)
             } else {
                 toast.error("عذراً، لا تمتلك صلاحيات الوصول لهذه الصفحة")
-                router.push("/dashboard")
+                const role = docSnap.exists() ? docSnap.data().role : ''
+                if (role === 'instructor') {
+                    router.push("/instructor")
+                } else {
+                    router.push("/dashboard")
+                }
             }
             setIsLoading(false)
         })
@@ -88,7 +96,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
                 {/* Mobile Header with Sidebar Toggle */}
                 <div className="md:hidden border-b bg-muted/20 px-4 py-3 flex items-center gap-4">
-                    <Sheet>
+                    <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
                         <SheetTrigger asChild>
                             <Button variant="ghost" size="icon">
                                 <Menu className="h-5 w-5" />
@@ -108,6 +116,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                                         <Link
                                             key={item.href}
                                             href={item.href}
+                                            onClick={() => setIsSheetOpen(false)}
                                             className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${pathname === item.href
                                                 ? "bg-primary text-primary-foreground font-bold shadow-sm"
                                                 : "hover:bg-muted text-muted-foreground"

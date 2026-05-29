@@ -1,13 +1,12 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-ibm-plex-sans-arabic);
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -38,17 +37,17 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 3px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
+  --radius-xl: calc(var(--radius) + 6px);
+  --radius-2xl: calc(var(--radius) + 12px);
+  --radius-3xl: calc(var(--radius) + 18px);
+  --radius-4xl: calc(var(--radius) + 24px);
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 1.25rem; /* iOS Style Large Radius */
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -83,11 +82,11 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: oklch(0.08 0 0); /* Slightly darker for better glass contrast */
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.12 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover: oklch(0.12 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
@@ -106,7 +105,7 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
+  --sidebar: oklch(0.12 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
@@ -114,6 +113,83 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+}
+
+@keyframes subtle-shake {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  10%, 20% { transform: scale(1.05) rotate(1deg); }
+  30%, 40% { transform: scale(1.05) rotate(-1deg); }
+  50% { transform: scale(1) rotate(0deg); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(10vw, -10vh) scale(1.1); }
+  66% { transform: translate(-5vw, 15vh) scale(0.9); }
+}
+
+@keyframes blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+}
+
+@keyframes glow {
+  0%, 100% { opacity: 0.3; transform: scale(1); filter: blur(120px); }
+  50% { opacity: 0.6; transform: scale(1.1); filter: blur(150px); }
+}
+
+@layer utilities {
+  .animate-glow {
+    animation: glow 8s infinite ease-in-out;
+  }
+  .animate-subtle-shake {
+    animation: subtle-shake 2s infinite ease-in-out;
+  }
+  .animate-blob {
+    animation: blob 7s infinite;
+  }
+  .animate-float {
+    animation: float 20s infinite ease-in-out;
+  }
+  
+  .glass {
+    background-color: oklch(1 0 0 / 40%);
+    backdrop-filter: blur(24px);
+    border: 1px solid oklch(1 0 0 / 20%);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  }
+  
+  .dark .glass {
+    background-color: oklch(0 0 0 / 40%);
+    backdrop-filter: blur(24px);
+    border: 1px solid oklch(1 0 0 / 10%);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  }
+
+  .glass-card {
+    background-color: oklch(1 0 0 / 40%);
+    backdrop-filter: blur(24px);
+    border: 1px solid oklch(1 0 0 / 20%);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+    border-radius: 1.5rem;
+    transition: all 0.3s ease;
+  }
+
+  .dark .glass-card {
+    background-color: oklch(0 0 0 / 40%);
+    border: 1px solid oklch(1 0 0 / 10%);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  }
+
+  .glass-card:hover {
+    box-shadow: 0 8px 40px 0 rgba(31, 38, 135, 0.12);
+    transform: translateY(-4px);
+  }
+
+  .ios-transition {
+    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
 }
 
 @layer base {
@@ -126,8 +202,9 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-size: 1.05rem; /* Slightly larger for better readability */
+    font-size: 1.05rem;
     line-height: 1.6;
+    overflow-x: hidden;
   }
 }
 

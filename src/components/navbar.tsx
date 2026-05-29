@@ -21,13 +21,16 @@ import { Menu, X, GraduationCap, LayoutDashboard, LogOut, Settings, Wallet } fro
 const navItems = [
     { name: "الرئيسية", href: "/" },
     { name: "تصفح الكورسات", href: "/courses" },
+    { name: "المختبرات الافتراضية", href: "/labs" },
     { name: "عن المنصة", href: "/about" },
+    { name: "مركز المساعدة", href: "/help" },
 ]
 
 export function Navbar() {
     const pathname = usePathname()
     const [user, setUser] = useState<any>(null)
     const [profile, setProfile] = useState<any>(null)
+    const [isSheetOpen, setIsSheetOpen] = useState(false)
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -52,7 +55,7 @@ export function Navbar() {
     }
 
     return (
-        <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <header className="sticky top-4 z-50 w-[95%] mx-auto glass rounded-3xl border border-white/20 shadow-lg ios-transition">
             <div className="container flex h-16 items-center justify-between">
                 <div className="flex items-center gap-6 md:gap-10">
                     <Link href="/" className="flex items-center gap-2">
@@ -113,7 +116,7 @@ export function Navbar() {
                     </div>
                     <ThemeToggle />
 
-                    <Sheet>
+                    <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
                         <SheetTrigger asChild>
                             <Button variant="outline" size="icon" className="md:hidden">
                                 <Menu className="h-5 w-5" />
@@ -125,7 +128,7 @@ export function Navbar() {
                                 <SheetTitle>قائمة الملاحة</SheetTitle>
                             </SheetHeader>
                             <div className="flex flex-col gap-6 py-4">
-                                <Link href="/" className="flex items-center gap-2">
+                                <Link href="/" className="flex items-center gap-2" onClick={() => setIsSheetOpen(false)}>
                                     <GraduationCap className="h-7 w-7 text-primary" />
                                     <span className="font-bold text-lg">أكاديمية المنارة</span>
                                 </Link>
@@ -134,6 +137,7 @@ export function Navbar() {
                                         <Link
                                             key={item.href}
                                             href={item.href}
+                                            onClick={() => setIsSheetOpen(false)}
                                             className={`text-base font-medium p-2 rounded-lg transition-colors ${pathname === item.href ? "bg-primary/10 text-primary font-bold" : "hover:bg-muted"
                                                 }`}
                                         >
@@ -143,20 +147,38 @@ export function Navbar() {
                                     <hr className="my-2" />
                                     {user ? (
                                         <div className="flex flex-col gap-2">
-                                            <Link href={profile?.role === 'instructor' ? '/instructor' : '/dashboard'} className={`text-base font-medium p-2 rounded-lg transition-colors ${pathname === (profile?.role === 'instructor' ? '/instructor' : '/dashboard') ? "bg-primary/10 text-primary font-bold" : "hover:bg-muted"
-                                                }`}>
+                                            <Link
+                                                href={profile?.role === 'instructor' ? '/instructor' : '/dashboard'}
+                                                onClick={() => setIsSheetOpen(false)}
+                                                className={`text-base font-medium p-2 rounded-lg transition-colors ${pathname === (profile?.role === 'instructor' ? '/instructor' : '/dashboard') ? "bg-primary/10 text-primary font-bold" : "hover:bg-muted"
+                                                    }`}
+                                            >
                                                 لوحة التحكم
                                             </Link>
-                                            <button onClick={handleLogout} className="text-base font-medium p-2 rounded-lg text-destructive hover:bg-destructive/10 text-right">
+                                            <button
+                                                onClick={() => {
+                                                    handleLogout()
+                                                    setIsSheetOpen(false)
+                                                }}
+                                                className="text-base font-medium p-2 rounded-lg text-destructive hover:bg-destructive/10 text-right"
+                                            >
                                                 تسجيل الخروج
                                             </button>
                                         </div>
                                     ) : (
                                         <div className="flex flex-col gap-2">
-                                            <Link href="/login" className="text-base font-medium p-2 rounded-lg hover:bg-muted">
+                                            <Link
+                                                href="/login"
+                                                onClick={() => setIsSheetOpen(false)}
+                                                className="text-base font-medium p-2 rounded-lg hover:bg-muted"
+                                            >
                                                 تسجيل الدخول
                                             </Link>
-                                            <Link href="/signup" className="text-base font-medium p-2 rounded-lg bg-primary text-primary-foreground text-center">
+                                            <Link
+                                                href="/signup"
+                                                onClick={() => setIsSheetOpen(false)}
+                                                className="text-base font-medium p-2 rounded-lg bg-primary text-primary-foreground text-center"
+                                            >
                                                 ابدأ الآن
                                             </Link>
                                         </div>

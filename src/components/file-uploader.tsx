@@ -1,10 +1,11 @@
 "use client"
 
 import { useState, useRef } from "react"
-import { Upload, X, CheckCircle2, Loader2, AlertTriangle } from "lucide-react"
+import { Upload, X, CheckCircle2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { toast } from "sonner"
+import * as tus from "tus-js-client"
 
 interface FileUploaderProps {
     onUploadComplete: (url: string) => void
@@ -18,7 +19,7 @@ interface FileUploaderProps {
 export function FileUploader({
     onUploadComplete,
     accept = "video/*,image/*",
-    maxSizeMB = 500,
+    maxSizeMB = 5120,
     validateDimensions,
     label = "رفع ملف",
     folder = "general"
@@ -73,7 +74,7 @@ export function FileUploader({
         setProgress(0)
     }
 
-    const startUpload = () => {
+    const startUpload = async () => {
         if (!file) {
             toast.error("يرجى اختيار ملف أولاً")
             return
@@ -82,50 +83,100 @@ export function FileUploader({
         setIsUploading(true)
         setProgress(0)
 
-        const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
-        const fileName = `${Date.now()}_${sanitizedName}`
+        try {
+            const isVideo = file.type.startsWith('video/')
+            const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
+            const fileName = `${Date.now()}_${sanitizedName}`
 
-        const xhr = new XMLHttpRequest()
+            if (isVideo) {
+                // ── STEP 1: Get Upload Signature/Metadata from our API ──
+                const authUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
+                const authRes = await fetch(authUrl, { 
+                    method: 'POST',
+                    headers: { 'Content-Type': file.type }
+                    // For videos, we do NOT send the body here - we just get the signature
+                })
 
-        // Use searchParams to pass metadata to the API route
-        const uploadUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
-
-        xhr.open('PUT', uploadUrl, true)
-        xhr.setRequestHeader('Content-Type', file.type)
-
-        xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-                const percentComplete = (event.loaded / event.total) * 100
-                setProgress(percentComplete)
-            }
-        }
-
-        xhr.onload = () => {
-            setIsUploading(false)
-            if (xhr.status >= 200 && xhr.status < 300) {
-                try {
-                    const response = JSON.parse(xhr.responseText)
-                    if (response.success) {
-                        setIsComplete(true)
-                        onUploadComplete(response.url)
-                        toast.success("تم الرفع بنجاح إلى Bunny.net")
-                    } else {
-                        toast.error(`فشل الرفع: ${response.error}`)
-                    }
-                } catch (e) {
-                    toast.error("خطأ في قراءة استجابة السيرفر")
+                const authData = await authRes.json()
+                if (!authRes.ok || !authData.success) {
+                    throw new Error(authData.error || "فشل الحصول على تصريح الرفع")
                 }
+
+                // ── STEP 2: Execute Video Upload via TUS (Professional) ──
+                const upload = new tus.Upload(file, {
+                    endpoint: "https://video.bunnycdn.com/tusupload",
+                    retryDelays: [0, 3000, 5000, 10000, 20000],
+                    headers: {
+                        AuthorizationSignature: authData.signature,
+                        AuthorizationExpire: authData.expiration.toString(),
+                        VideoId: authData.guid,
+                        LibraryId: authData.libraryId.toString(),
+                    },
+                    metadata: {
+                        filename: file.name,
+                        filetype: file.type,
+                    },
+                    onError: (error) => {
+                        setIsUploading(false)
+                        console.error("TUS Upload Error:", error)
+                        toast.error(`خطأ في الرفع: ${error.message}`)
+                    },
+                    onProgress: (bytesUploaded, bytesTotal) => {
+                        const percentage = (bytesUploaded / bytesTotal) * 100
+                        setProgress(percentage)
+                    },
+                    onSuccess: () => {
+                        setIsUploading(false)
+                        setIsComplete(true)
+                        onUploadComplete(`bunny_stream://${authData.guid}`)
+                        toast.success("تم الرفع الاحترافي لـ Bunny Stream بنجاح")
+                    },
+                })
+
+                // Start the upload
+                upload.start()
             } else {
-                toast.error(`فشل الرفع: خطأ ${xhr.status}`)
+                // ── DIRECT PROXIED UPLOAD (Images/Docs) ───────────────────────
+                // For non-videos, we send the file body in a single POST request
+                const xhr = new XMLHttpRequest()
+                const uploadUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
+                
+                xhr.open('POST', uploadUrl, true)
+                xhr.setRequestHeader('Content-Type', file.type)
+
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        setProgress((event.loaded / event.total) * 100)
+                    }
+                }
+
+                xhr.onload = () => {
+                    setIsUploading(false)
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            const response = JSON.parse(xhr.responseText)
+                            setIsComplete(true)
+                            onUploadComplete(response.url)
+                            toast.success("تم الرفع (تخزين) بنجاح")
+                        } catch (e) {
+                            toast.error("خطأ في معالجة رد السيرفر")
+                        }
+                    } else {
+                        toast.error(`فشل الرفع: ${xhr.status}`)
+                    }
+                }
+                
+                xhr.onerror = () => {
+                    setIsUploading(false)
+                    toast.error("خطأ في الاتصال بالسيرفر")
+                }
+                
+                xhr.send(file)
             }
-        }
-
-        xhr.onerror = () => {
+        } catch (err: any) {
             setIsUploading(false)
-            toast.error("حدث خطأ في الاتصال أثناء الرفع")
+            toast.error(err.message || "حدث خطأ غير متوقع")
         }
-
-        xhr.send(file)
     }
 
     return (
@@ -138,7 +189,7 @@ export function FileUploader({
                     <Upload className="h-8 w-8 text-muted-foreground mb-2" />
                     <p className="text-sm font-bold">{label}</p>
                     <p className="text-[10px] text-muted-foreground mt-1">
-                        {accept.includes('video') ? "MP4, MOV (بحد أقصى ٥٠٠ ميجابايت)" : "JPG, PNG (بحد أقصى ٥ ميجابايت)"}
+                        {accept.includes('video') ? "MP4, MOV (بحد أقصى ٥ جيجابايت)" : "JPG, PNG (بحد أقصى ٥ ميجابايت)"}
                     </p>
                     <input
                         type="file"

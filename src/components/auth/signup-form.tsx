@@ -10,6 +10,7 @@ import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth"
 import { doc, setDoc, collection, query, where, getDocs } from "firebase/firestore"
 import { generateUniqueStudentId } from "@/lib/profile-utils"
 import { Button } from "@/components/ui/button"
+import Link from "next/link"
 import {
     Form,
     FormControl,
@@ -21,7 +22,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
-import { Loader2 } from "lucide-react"
+import { Loader2, Eye, EyeOff, ShieldAlert, ShieldCheck, Shield } from "lucide-react"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
     Select,
@@ -30,6 +31,7 @@ import {
     SelectTrigger,
     SelectValue
 } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 
 const ARAB_COUNTRIES = [
     { name: "مصر", code: "+20", flag: "🇪🇬" },
@@ -59,30 +61,107 @@ const signupSchema = z.object({
     countryCode: z.string(),
     role: z.enum(["student", "instructor"]),
     gradeLevel: z.string().optional(),
-    parentPhone: z.string().optional(), // Logic handled in refine
+    parentPhone: z.string().optional(),
     specialty: z.string().optional(),
     bio: z.string().optional(),
-}).refine((data: any) => {
-    // Egypt phone length check
-    if (data.countryCode === "+20" && data.phone.length !== 11) {
-        return false
+    acceptPolicies: z.boolean().refine(val => val === true, {
+        message: "يجب الموافقة على الشروط والأحكام وسياسة الخصوصية للمتابعة",
+    }),
+}).superRefine((data, ctx) => {
+    // ... rest of refine logic ...
+    const cleanPhone = (str: string) => {
+        const arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+        return (str || "").replace(/[٠-٩]/g, w => arabicNumbers.indexOf(w).toString()).replace(/\D/g, "");
+    };
+
+    let cleanedUserPhone = cleanPhone(data.phone);
+
+    if (data.countryCode === "+20") {
+        if (cleanedUserPhone.length === 10 && cleanedUserPhone.startsWith("1")) {
+            cleanedUserPhone = "0" + cleanedUserPhone;
+        }
+        if (cleanedUserPhone.length !== 11) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "رقم الهاتف غير صحيح",
+                path: ["phone"]
+            });
+        }
+    } else {
+        if (cleanedUserPhone.length < 8) {
+             ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "رقم الهاتف غير صحيح",
+                path: ["phone"]
+            });
+        }
     }
-    // Role based checks
+
     if (data.role === "student") {
-        return !!data.gradeLevel && !!data.parentPhone && data.parentPhone.length >= 10
+        if (!data.gradeLevel) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "يرجى اختيار المرحلة الدراسية",
+                path: ["gradeLevel"]
+            });
+        }
+        
+        let cleanedParentPhone = cleanPhone(data.parentPhone || "");
+        if (data.countryCode === "+20" && cleanedParentPhone.length === 10 && cleanedParentPhone.startsWith("1")) {
+            cleanedParentPhone = "0" + cleanedParentPhone;
+        }
+        if (cleanedParentPhone.length < 10) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "رقم هاتف ولي الأمر غير صحيح",
+                path: ["parentPhone"]
+            });
+        }
     }
+
     if (data.role === "instructor") {
-        return !!data.specialty && !!data.bio
+        if (!data.specialty) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "يرجى إدخال التخصص",
+                path: ["specialty"]
+            });
+        }
+        if (!data.bio) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "يرجى إدخال نبذة عنك",
+                path: ["bio"]
+            });
+        }
     }
-    return true
-}, {
-    message: "يرجى إكمال جميع البيانات المطلوبة، ورقم الهاتف المصري يجب أن يكون ١١ رقماً",
-    path: ["phone"]
 })
 
 export function SignupForm() {
     const router = useRouter()
     const [isLoading, setIsLoading] = useState(false)
+    const [showPassword, setShowPassword] = useState(false)
+    
+    // ... helper functions ...
+    const calculateStrength = (password: string) => {
+        let strength = 0;
+        if (!password) return 0;
+        if (password.length >= 8) strength += 20;
+        if (/[A-Z]/.test(password)) strength += 20;
+        if (/[a-z]/.test(password)) strength += 20;
+        if (/[0-9]/.test(password)) strength += 20;
+        if (/[^A-Za-z0-9]/.test(password)) strength += 20;
+        return strength;
+    };
+
+    const getStrengthLabels = (strength: number) => {
+        if (strength === 0) return { label: "أدخل كلمة المرور", color: "bg-muted" };
+        if (strength <= 20) return { label: "ضعيفة جداً - أضف أرقاماً ورموزاً", color: "bg-red-500" };
+        if (strength <= 40) return { label: "ضعيفة - استخدم أحرفاً كبيرة وصغيرة", color: "bg-orange-500" };
+        if (strength <= 60) return { label: "متوسطة - اجعلها أطول قليلاً", color: "bg-yellow-500" };
+        if (strength <= 80) return { label: "جيدة - أضف رمزاً خاصاً (#@!)", color: "bg-blue-500" };
+        return { label: "قوية جداً ومؤمنة تماماً ✅", color: "bg-green-500" };
+    };
 
     const form = useForm<z.infer<typeof signupSchema>>({
         resolver: zodResolver(signupSchema),
@@ -97,39 +176,37 @@ export function SignupForm() {
             parentPhone: "",
             specialty: "",
             bio: "",
+            acceptPolicies: false,
         },
     })
 
     async function onSubmit(values: z.infer<typeof signupSchema>) {
         setIsLoading(true)
         const email = values.email.trim().toLowerCase()
-        const fullPhone = values.countryCode + values.phone
+
+        // Get or Generate Device ID for new registration
+        let deviceId = localStorage.getItem('manara_device_id')
+        if (!deviceId) {
+            deviceId = crypto.randomUUID()
+            localStorage.setItem('manara_device_id', deviceId)
+        }
+
+        // Sanitize phone numbers ...
+        const cleanPhone = (str: string) => {
+            const arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+            return (str || "").replace(/[٠-٩]/g, w => arabicNumbers.indexOf(w).toString()).replace(/\D/g, "");
+        };
+
+        let cleanedUserPhone = cleanPhone(values.phone);
+        if (values.countryCode === "+20" && cleanedUserPhone.length === 10 && cleanedUserPhone.startsWith("1")) {
+            cleanedUserPhone = "0" + cleanedUserPhone;
+        }
+        const fullPhone = values.countryCode + cleanedUserPhone;
+
+        const cleanedParentPhone = values.role === 'student' ? cleanPhone(values.parentPhone || "") : null;
+        const formattedParentPhone = cleanedParentPhone ? values.countryCode + cleanedParentPhone : null;
 
         try {
-            // Check for existing email or phone in Firestore first
-            const profilesRef = collection(db, "profiles")
-
-            const qEmail = query(profilesRef, where("email", "==", email))
-            const qPhone = query(profilesRef, where("phone", "==", fullPhone))
-
-            const [emailSnap, phoneSnap] = await Promise.all([
-                getDocs(qEmail),
-                getDocs(qPhone)
-            ])
-
-            if (!emailSnap.empty) {
-                toast.error("هذا البريد الإلكتروني مسجل بالفعل")
-                setIsLoading(false)
-                return
-            }
-
-            if (!phoneSnap.empty) {
-                toast.error("رقم الهاتف هذا مسجل بالفعل")
-                setIsLoading(false)
-                return
-            }
-
-            // 1. Create User in Firebase Auth
             const userCredential = await createUserWithEmailAndPassword(
                 auth,
                 email,
@@ -137,15 +214,23 @@ export function SignupForm() {
             )
             const user = userCredential.user
 
-            // 2. Update Display Name
+            const profilesRef = collection(db, "profiles")
+            const qPhone = query(profilesRef, where("phone", "==", fullPhone))
+            const phoneSnap = await getDocs(qPhone)
+
+            if (!phoneSnap.empty) {
+                await user.delete()
+                toast.error("رقم الهاتف هذا مسجل بالفعل بحساب آخر")
+                setIsLoading(false)
+                return
+            }
+
             await updateProfile(user, {
                 displayName: values.fullName
             })
 
-            // 3. Generate Unique Student ID
             const studentId = await generateUniqueStudentId()
 
-            // 4. Create User Profile in Firestore
             await setDoc(doc(db, "profiles", user.uid), {
                 id: user.uid,
                 student_id: studentId,
@@ -153,12 +238,13 @@ export function SignupForm() {
                 full_name: values.fullName,
                 role: values.role,
                 phone: fullPhone,
-                parent_phone: values.role === 'student' ? values.parentPhone : null,
+                parent_phone: formattedParentPhone,
                 grade_level: values.gradeLevel || null,
                 specialty: values.specialty || null,
                 bio: values.bio || null,
                 status: "pending",
                 wallet_balance: 0,
+                active_devices: [deviceId], // Register first device
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             })
@@ -181,13 +267,12 @@ export function SignupForm() {
             router.push("/pending-approval")
         } catch (error: any) {
             console.error("Signup error:", error)
-            let message = "حدث خطأ في إنشاء الحساب"
-            if (error.code === 'auth/email-already-in-use') message = "البريد الإلكتروني مستخدم بالفعل"
-            if (error.code === 'auth/weak-password') message = "كلمة المرور ضعيفة جداً"
+            let message = "حدث خطأ في إنشاء الحساب، يرجى المحاولة مرة أخرى."
+            if (error.code === 'auth/email-already-in-use') message = "البريد الإلكتروني مستخدم بالفعل."
+            else if (error.code === 'auth/weak-password') message = "كلمة المرور ضعيفة جداً."
+            else if (error.code === 'auth/network-request-failed') message = "لا يوجد اتصال بالإنترنت، يرجى التحقق من الشبكة."
 
-            toast.error(message, {
-                description: error.message,
-            })
+            toast.error(message)
         } finally {
             setIsLoading(false)
         }
@@ -229,7 +314,39 @@ export function SignupForm() {
                         <FormItem>
                             <FormLabel>كلمة المرور</FormLabel>
                             <FormControl>
-                                <Input type="password" placeholder="••••••••" {...field} dir="ltr" />
+                                <div className="space-y-2">
+                                    <div className="relative">
+                                        <Input 
+                                            type={showPassword ? "text" : "password"} 
+                                            placeholder="••••••••" 
+                                            {...field} 
+                                            dir="ltr" 
+                                            className="pr-10"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                        >
+                                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        </button>
+                                    </div>
+                                    {/* Strength Indicator */}
+                                    <div className="space-y-1.5">
+                                        <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                                            <div 
+                                                className={`h-full transition-all duration-300 ${getStrengthLabels(calculateStrength(field.value)).color}`}
+                                                style={{ width: `${calculateStrength(field.value)}%` }}
+                                            />
+                                        </div>
+                                        <div className="flex justify-between items-center text-[10px] font-bold">
+                                            <span className="text-muted-foreground">قوة كلمة المرور:</span>
+                                            <span className={calculateStrength(field.value) > 40 ? "text-primary" : "text-muted-foreground"}>
+                                                {getStrengthLabels(calculateStrength(field.value)).label}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
                             </FormControl>
                             <FormMessage />
                         </FormItem>
@@ -389,6 +506,27 @@ export function SignupForm() {
                         />
                     </>
                 )}
+                <FormField
+                    control={form.control}
+                    name="acceptPolicies"
+                    render={({ field }) => (
+                        <FormItem className="flex flex-row items-start space-x-3 space-x-reverse space-y-0 rounded-md border p-4 bg-muted/20">
+                            <FormControl>
+                                <Checkbox
+                                    checked={field.value}
+                                    onCheckedChange={field.onChange}
+                                />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                                <FormLabel className="text-sm font-medium cursor-pointer">
+                                    أوافق على <Link href="/terms" className="text-primary hover:underline">شروط الاستخدام</Link> و <Link href="/privacy" className="text-primary hover:underline">سياسة الخصوصية</Link>
+                                </FormLabel>
+                                <FormMessage />
+                            </div>
+                        </FormItem>
+                    )}
+                />
+
                 <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
                     إنشاء حساب

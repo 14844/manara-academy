@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase/config"
-import { collection, query, where, getDocs, orderBy, doc, getDoc } from "firebase/firestore"
+import { collection, query, where, getDocs, orderBy, doc, getDoc, count as getCount } from "firebase/firestore"
+import { calculateEnrollmentCommission } from "@/lib/commission-utils"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -74,17 +75,25 @@ export default function AdminSettlementsPage() {
         setIsLoading(true)
         try {
             // Calculate date range for the month
-            const startDate = new Date(selectedYear, selectedMonth - 1, 1).toISOString()
-            const endDate = new Date(selectedYear, selectedMonth, 1).toISOString()
-
-            // Fetch all enrollments in range
-            const enrollmentsQ = query(
-                collection(db, "enrollments"),
-                where("enrolled_at", ">=", startDate),
-                where("enrolled_at", "<", endDate)
-            )
-            const snap = await getDocs(enrollmentsQ)
-            const enrollments = snap.docs.map(doc => doc.data())
+            const start = new Date(selectedYear, selectedMonth - 1, 1)
+            const end = new Date(selectedYear, selectedMonth, 1)
+            
+            // Fetch all enrollments once to filter and calculate in-memory
+            // This avoids "Query requires an index" errors in Firestore
+            const enrollmentsSnap = await getDocs(collection(db, "enrollments"))
+            const allEnrollmentsRaw = enrollmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }))
+            
+            const enrollments = allEnrollmentsRaw.filter(enr => {
+                    const date = enr.enrolled_at;
+                    if (!date) return false;
+                    
+                    // Handle both ISO strings and Firestore Timestamps
+                    const enrDate = (typeof date === 'string') 
+                        ? new Date(date) 
+                        : (date.toDate ? date.toDate() : new Date(date));
+                    
+                    return enrDate >= start && enrDate < end;
+                })
 
             // Group by instructor
             const instructorGroups: Record<string, any> = {}
@@ -125,19 +134,31 @@ export default function AdminSettlementsPage() {
                 })
             })
 
-            // Calculate commissions and net
-            Object.values(instructorGroups).forEach((group: any) => {
-                group.commission = group.grossRevenue * 0.20
-                group.netPayout = group.grossRevenue - group.commission
-            })
+            // Calculate commissions and net accurately using the utility
+            for (const group of Object.values(instructorGroups) as any[]) {
+                const instId = group.instructorId;
+                
+                // Sum up commissions for this month's enrollments
+                group.commission = 0;
+                group.netPayout = 0;
+
+                // Sort details by date to ensure proper index tracking
+                group.details.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+                group.details.forEach((enr: any) => {
+                    const result = calculateEnrollmentCommission(enr.amount, instId);
+                    group.commission += result.commissionAmount;
+                    group.netPayout += result.netAmount;
+                });
+            }
 
             const sortedSettlements = Object.values(instructorGroups).sort((a, b) => b.grossRevenue - a.grossRevenue)
             setSettlements(sortedSettlements)
 
-            // Calculate grand totals
+            // Calculate grand totals based on actual group calculations
             const totalGross = sortedSettlements.reduce((acc, s) => acc + s.grossRevenue, 0)
-            const totalComm = totalGross * 0.20
-            const totalNet = totalGross - totalComm
+            const totalComm = sortedSettlements.reduce((acc, s) => acc + s.commission, 0)
+            const totalNet = sortedSettlements.reduce((acc, s) => acc + s.netPayout, 0)
 
             setTotals({
                 gross: totalGross,
@@ -248,7 +269,7 @@ export default function AdminSettlementsPage() {
                     <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                             <div>
-                                <p className="text-xs font-bold text-muted-foreground mb-1 uppercase">عمولة المنصة (20%)</p>
+                                <p className="text-xs font-bold text-muted-foreground mb-1 uppercase">عمولة المنصة</p>
                                 <h3 className="text-2xl font-black text-red-600">{totals.commission.toLocaleString()} ج.م</h3>
                             </div>
                             <div className="p-3 rounded-xl bg-red-50 text-red-600">
@@ -297,7 +318,7 @@ export default function AdminSettlementsPage() {
                                         <TableHead className="text-right">المحاضر</TableHead>
                                         <TableHead className="text-center">عدد الطلاب</TableHead>
                                         <TableHead className="text-center">إجمالي المبيعات</TableHead>
-                                        <TableHead className="text-center">عمولة المنصة (20%)</TableHead>
+                                        <TableHead className="text-center">عمولة المنصة</TableHead>
                                         <TableHead className="text-center">المبلغ المستحق للتحويل</TableHead>
                                     </TableRow>
                                 </TableHeader>

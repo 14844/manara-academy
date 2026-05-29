@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { auth, db } from "@/lib/firebase/config"
-import { collection, query, where, getDocs, doc, getDoc, deleteDoc, Timestamp } from "firebase/firestore"
+import { collection, query, where, getDocs, doc, getDoc, deleteDoc, updateDoc, Timestamp } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -21,11 +21,23 @@ import {
     Award,
     Activity,
     UserMinus,
-    MessageSquare
+    MessageSquare,
+    CheckCircle
 } from "lucide-react"
 import { toast } from "sonner"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
+import {
+    Sheet,
+    SheetContent,
+    SheetHeader,
+    SheetTitle,
+    SheetDescription,
+    SheetFooter,
+} from "@/components/ui/sheet"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 
 export default function StudentProfilePage() {
     const { studentId } = useParams()
@@ -37,6 +49,11 @@ export default function StudentProfilePage() {
     const [enrollments, setEnrollments] = useState<any[]>([])
     const [submissions, setSubmissions] = useState<any[]>([])
     const [instructorCourses, setInstructorCourses] = useState<Map<string, any>>(new Map())
+    const [selectedSubmission, setSelectedSubmission] = useState<any>(null)
+    const [isGradingSheetOpen, setIsGradingSheetOpen] = useState(false)
+    const [currentExamData, setCurrentExamData] = useState<any>(null)
+    const [gradingScores, setGradingScores] = useState<Record<string, number>>({})
+    const [isSubmittingGrade, setIsSubmittingGrade] = useState(false)
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -49,6 +66,80 @@ export default function StudentProfilePage() {
         })
         return () => unsubscribe()
     }, [studentId])
+
+    const openGradingSheet = async (sub: any) => {
+        setSelectedSubmission(sub)
+        setIsGradingSheetOpen(true)
+        setGradingScores({})
+
+        // Fetch original exam/lesson data to get the questions
+        try {
+            const courseRef = doc(db, "courses", sub.course_id)
+            const courseSnap = await getDoc(courseRef)
+            if (courseSnap.exists()) {
+                const courseData = courseSnap.data()
+                const lesson = courseData.modules?.flatMap((m: any) => m.lessons).find((l: any) => String(l.id) === String(sub.lesson_id))
+                if (lesson && lesson.questions) {
+                    setCurrentExamData(lesson)
+
+                    // Initialize scores for essay questions
+                    const initialScores: Record<string, number> = {}
+                    lesson.questions?.forEach((q: any) => {
+                        if (q.type === 'essay') {
+                            initialScores[q.id] = sub.grading_details?.[q.id] || 0
+                        }
+                    })
+                    setGradingScores(initialScores)
+                }
+            }
+        } catch (error) {
+            console.error("Error fetching exam data for grading:", error)
+            toast.error("فشل في تحميل بيانات الاختبار")
+        }
+    }
+
+    const saveGrades = async () => {
+        if (!selectedSubmission || !currentExamData) return
+        setIsSubmittingGrade(true)
+
+        try {
+            // Recalculate total score
+            let totalPoints = 0
+            let earnedPoints = 0
+
+            currentExamData.questions.forEach((q: any) => {
+                const qPts = q.points || 1
+                totalPoints += qPts
+                if (q.type === 'essay') {
+                    earnedPoints += (gradingScores[q.id] || 0)
+                } else {
+                    if (selectedSubmission.answers[q.id] === q.correctAnswer) {
+                        earnedPoints += qPts
+                    }
+                }
+            })
+
+            const finalScore = totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0
+
+            const subRef = doc(db, "submissions", selectedSubmission.id)
+            await updateDoc(subRef, {
+                score: finalScore,
+                needs_grading: false,
+                grading_details: gradingScores,
+                graded_at: Timestamp.now(),
+                graded_by: instructor?.uid
+            })
+
+            toast.success("تم حفظ الدرجات وتحديث النتيجة!")
+            setIsGradingSheetOpen(false)
+            fetchStudentData(instructor?.uid) // Refresh data
+        } catch (error) {
+            console.error("Error saving grades:", error)
+            toast.error("حدث خطأ أثناء حفظ التصحيح")
+        } finally {
+            setIsSubmittingGrade(false)
+        }
+    }
 
     async function fetchStudentData(instructorId: string) {
         setIsLoading(true)
@@ -164,13 +255,13 @@ export default function StudentProfilePage() {
                     <div className="flex items-center gap-5">
                         <div className="h-20 w-20 rounded-2xl bg-primary/10 flex items-center justify-center text-primary font-bold text-3xl border-2 border-primary/20 shadow-inner overflow-hidden">
                             {studentProfile?.avatar_url ? (
-                                <img src={studentProfile.avatar_url} alt={studentProfile.name} className="w-full h-full object-cover" />
+                                <img src={studentProfile.avatar_url} alt={studentProfile.full_name} className="w-full h-full object-cover" />
                             ) : (
-                                studentProfile?.name?.charAt(0) || "S"
+                                studentProfile?.full_name?.charAt(0) || "S"
                             )}
                         </div>
                         <div>
-                            <h1 className="text-3xl font-black tracking-tight">{studentProfile?.name}</h1>
+                            <h1 className="text-3xl font-black tracking-tight">{studentProfile?.full_name}</h1>
                             <div className="flex flex-wrap gap-3 mt-2">
                                 <Badge variant="secondary" className="gap-1.5 px-3 py-1 text-xs">
                                     <Mail className="h-3.5 w-3.5" />
@@ -324,10 +415,20 @@ export default function StudentProfilePage() {
                                                         </p>
                                                     </div>
                                                 </div>
-                                                <div className="text-right">
-                                                    <div className={`text-2xl font-black px-4 py-1.5 rounded-2xl ${sub.score >= 50 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                                        {sub.score}%
-                                                    </div>
+                                                <div className="text-right flex flex-col items-end gap-1">
+                                                    {sub.needs_grading ? (
+                                                        <div className="flex flex-col items-end gap-2">
+                                                            <Badge className="bg-blue-600 animate-pulse text-[10px] px-3 py-1">في انتظار التصحيح</Badge>
+                                                            <Button size="sm" variant="outline" className="h-8 gap-1 text-xs border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => openGradingSheet(sub)}>
+                                                                <FileText className="h-3 w-3" />
+                                                                تصحيح الآن
+                                                            </Button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className={`text-2xl font-black px-4 py-1.5 rounded-2xl ${sub.score >= 50 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                            {sub.score}%
+                                                        </div>
+                                                    )}
                                                     <p className="text-[10px] font-bold text-muted-foreground mt-1 tracking-widest uppercase">النتيجة النهائية</p>
                                                 </div>
                                             </div>
@@ -344,6 +445,74 @@ export default function StudentProfilePage() {
                     </section>
                 </div>
             </div>
+
+            {/* Grading Sheet */}
+            <Sheet open={isGradingSheetOpen} onOpenChange={setIsGradingSheetOpen}>
+                <SheetContent side="left" className="w-full sm:max-w-2xl overflow-y-auto font-arabic">
+                    <SheetHeader className="text-right border-b pb-6">
+                        <SheetTitle className="text-2xl font-black">تصحيح إجابات الطالب</SheetTitle>
+                        <SheetDescription className="text-sm font-bold">
+                            قم بمراجعة الإجابات المقالية ورصد الدرجة المستحقة لكل سؤال.
+                        </SheetDescription>
+                    </SheetHeader>
+
+                    {selectedSubmission && currentExamData && (
+                        <div className="py-8 space-y-8">
+                            <div className="bg-primary/5 p-4 rounded-xl border border-primary/10 mb-6">
+                                <h4 className="font-bold text-primary mb-1">{instructorCourses.get(selectedSubmission.course_id)?.title}</h4>
+                                <p className="text-xs text-muted-foreground font-bold">تاريخ التسليم: {selectedSubmission.submitted_at?.seconds ? new Date(selectedSubmission.submitted_at.seconds * 1000).toLocaleString('ar-EG') : "غير معروف"}</p>
+                            </div>
+
+                            {currentExamData.questions.map((q: any, idx: number) => {
+                                if (q.type !== 'essay') return null;
+                                return (
+                                    <Card key={idx} className="border-2 shadow-sm">
+                                        <CardHeader className="bg-muted/30 pb-3">
+                                            <div className="flex justify-between items-start">
+                                                <Badge variant="outline" className="mb-2">سؤال مقالي {idx + 1}</Badge>
+                                                <Badge className="bg-zinc-800 text-[10px]">{q.points || 1} نقاط</Badge>
+                                            </div>
+                                            <h5 className="font-bold text-lg leading-relaxed">{q.text || "سؤال مقالي"}</h5>
+                                            {(q.imageUrl || q.image_url) && (
+                                                <div className="mt-4 border rounded-lg overflow-hidden max-w-sm bg-white">
+                                                    <img src={q.imageUrl || q.image_url} alt="Question" className="w-full h-auto" />
+                                                </div>
+                                            )}
+                                        </CardHeader>
+                                        <CardContent className="pt-6 space-y-4">
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-bold text-muted-foreground">إجابة الطالب:</Label>
+                                                <div className="p-4 rounded-xl bg-zinc-50 border whitespace-pre-wrap text-sm leading-relaxed min-h-[100px]">
+                                                    {selectedSubmission.answers[q.id] || <span className="text-red-400 italic">لم يقم الطالب بالإجابة</span>}
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-bold text-primary">رصد الدرجة (من {q.points || 1}):</Label>
+                                                <Input
+                                                    type="number"
+                                                    min="0"
+                                                    max={q.points || 1}
+                                                    step="0.5"
+                                                    value={gradingScores[q.id] || 0}
+                                                    onChange={(e) => setGradingScores({ ...gradingScores, [q.id]: parseFloat(e.target.value) })}
+                                                    className="font-bold text-lg h-12 border-2 focus:border-primary"
+                                                />
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                )
+                            })}
+                        </div>
+                    )}
+
+                    <SheetFooter className="mt-8 border-t pt-6">
+                        <Button className="w-full h-14 text-lg font-bold gap-2" onClick={saveGrades} disabled={isSubmittingGrade}>
+                            {isSubmittingGrade ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle className="h-5 w-5" />}
+                            اعتماد التصحيح وحفظ النتيجة
+                        </Button>
+                    </SheetFooter>
+                </SheetContent>
+            </Sheet>
         </div>
     )
 }
