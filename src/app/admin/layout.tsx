@@ -65,7 +65,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 setIsAdmin(true)
             } else {
                 toast.error("عذراً، لا تمتلك صلاحيات الوصول لهذه الصفحة")
-                router.push("/dashboard")
+                const role = docSnap.exists() ? docSnap.data().role : ''
+                if (role === 'instructor') {
+                    router.push("/instructor")
+                } else {
+                    router.push("/dashboard")
+                }
             }
             setIsLoading(false)
         })

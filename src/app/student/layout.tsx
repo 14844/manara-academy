@@ -9,7 +9,7 @@ import { doc, getDoc } from "firebase/firestore"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
-export default function DashboardLayout({
+export default function StudentLayout({
     children,
 }: {
     children: React.ReactNode

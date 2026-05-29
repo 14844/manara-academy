@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import {
     BarChart3,
     BookOpen,
@@ -15,8 +15,13 @@ import {
     Wallet,
     ClipboardList,
     Ticket,
-    TrendingUp
+    TrendingUp,
+    Loader2
 } from "lucide-react"
+import { auth, db } from "@/lib/firebase/config"
+import { onAuthStateChanged } from "firebase/auth"
+import { doc, getDoc } from "firebase/firestore"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { UserNav } from "../../components/user-nav"
@@ -48,9 +53,50 @@ export default function InstructorLayout({
 }: {
     children: React.ReactNode
 }) {
+    const router = useRouter()
     const pathname = usePathname()
-
+    const [isLoading, setIsLoading] = useState(true)
+    const [isInstructor, setIsInstructor] = useState(false)
     const [isSheetOpen, setIsSheetOpen] = useState(false)
+
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            if (!user) {
+                router.push("/login")
+                return
+            }
+
+            // Verify instructor role in Firestore
+            const docRef = doc(db, "profiles", user.uid)
+            const docSnap = await getDoc(docRef)
+
+            if (docSnap.exists() && docSnap.data().role === 'instructor') {
+                setIsInstructor(true)
+            } else {
+                toast.error("عذراً، لا تمتلك صلاحيات الوصول لهذه الصفحة")
+                const role = docSnap.exists() ? docSnap.data().role : ''
+                if (role === 'admin') {
+                    router.push("/admin")
+                } else {
+                    router.push("/dashboard")
+                }
+            }
+            setIsLoading(false)
+        })
+
+        return () => unsubscribe()
+    }, [router])
+
+    if (isLoading) {
+        return (
+            <div className="flex min-h-screen flex-col items-center justify-center bg-background">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="mt-4 text-muted-foreground italic font-arabic">جاري التحقق من الصلاحيات...</p>
+            </div>
+        )
+    }
+
+    if (!isInstructor) return null
 
     return (
         <StatusGuard>

@@ -9,7 +9,7 @@ export async function middleware(request: NextRequest) {
     // However, Edge Functions (middleware) cannot run firebase-admin easily without polyfills.
     // So we'll trust the session cookie for basic protection and handle role logic in the page/layout.
 
-    if (!session && (path.startsWith('/dashboard') || path.startsWith('/instructor') || path.startsWith('/admin') || path.startsWith('/pending-approval'))) {
+    if (!session && (path.startsWith('/dashboard') || path.startsWith('/instructor') || path.startsWith('/admin') || path.startsWith('/student') || path.startsWith('/learn') || path.startsWith('/pending-approval'))) {
         return NextResponse.redirect(new URL('/login', request.url))
     }
 
