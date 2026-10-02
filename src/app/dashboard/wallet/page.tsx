@@ -22,7 +22,6 @@ import {
     AlertCircle
 } from "lucide-react"
 import { toast } from "sonner"
-import { supabase, SUPABASE_BUCKET } from "@/lib/supabase/config"
 import { Badge } from "@/components/ui/badge"
 
 export default function WalletPage() {
@@ -92,20 +91,32 @@ export default function WalletPage() {
 
         setSubmitting(true)
         try {
-            // 1. Upload screenshot to Supabase
+            // 1. Upload screenshot to Bunny.net via our API
             const fileExt = file.name.split('.').pop()
             const fileName = `${user.uid}_${Date.now()}.${fileExt}`
-            const filePath = `payment_proofs/${fileName}`
+            const folder = "payment_proofs"
 
-            const { data: uploadData, error: uploadError } = await supabase.storage
-                .from(SUPABASE_BUCKET)
-                .upload(filePath, file)
+            const uploadRes = await fetch(`/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`, {
+                method: 'POST',
+                body: file,
+                headers: {
+                    'Content-Type': file.type || 'application/octet-stream'
+                }
+            })
 
-            if (uploadError) throw uploadError
+            if (!uploadRes.ok) {
+                const errText = await uploadRes.text()
+                let errorMsg = "فشل رفع الصورة"
+                try {
+                    const errJson = JSON.parse(errText)
+                    errorMsg = errJson.error || errorMsg
+                } catch (e) {
+                    errorMsg = `خطأ السيرفر: ${uploadRes.status}`
+                }
+                throw new Error(errorMsg)
+            }
 
-            const { data: { publicUrl } } = supabase.storage
-                .from(SUPABASE_BUCKET)
-                .getPublicUrl(filePath)
+            const { url: publicUrl } = await uploadRes.json()
 
             // 2. Create request in Firestore
             await addDoc(collection(db, "wallet_requests"), {
@@ -187,23 +198,42 @@ export default function WalletPage() {
                         </CardHeader>
                         <CardContent className="space-y-6">
                             {/* Instructions */}
-                            <div className="bg-muted/50 p-6 rounded-2xl space-y-4 border-2 border-dashed border-primary/20">
-                                <h3 className="font-bold text-sm flex items-center gap-2">
-                                    <Smartphone className="h-4 w-4 text-primary" />
-                                    خطوات الدفع عبر إنستا باي (InstaPay)
-                                </h3>
-                                <div className="space-y-3">
+                            <div className="bg-muted/50 p-6 rounded-2xl space-y-6 border-2 border-dashed border-primary/20">
+                                <div className="space-y-4">
+                                    <h3 className="font-bold text-sm flex items-center gap-2 text-primary">
+                                        <Smartphone className="h-4 w-4" />
+                                        1. المحافظ الإلكترونية (Vodafone, Orange, Etisalat Cash)
+                                    </h3>
                                     <div className="flex items-center justify-between bg-background p-3 rounded-xl border border-primary/10">
                                         <div className="space-y-1">
-                                            <p className="text-xs text-muted-foreground font-bold">رقم التحويل (إنستا باي)</p>
+                                            <p className="text-[10px] text-muted-foreground font-bold">رقم التحويل للمحافظ</p>
+                                            <p className="text-lg font-black tracking-widest text-primary">01068206660</p>
+                                        </div>
+                                        <Button variant="ghost" size="icon" onClick={() => copyToClipboard("01068206660")} className="h-10 w-10 text-primary">
+                                            <Copy className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4 border-t pt-4">
+                                    <h3 className="font-bold text-sm flex items-center gap-2 text-primary">
+                                        <Smartphone className="h-4 w-4" />
+                                        2. التحويل عبر إنستا باي (InstaPay)
+                                    </h3>
+                                    <div className="flex items-center justify-between bg-background p-3 rounded-xl border border-primary/10">
+                                        <div className="space-y-1">
+                                            <p className="text-[10px] text-muted-foreground font-bold">رقم التحويل (إنستا باي)</p>
                                             <p className="text-lg font-black tracking-widest text-primary">01122331600</p>
                                         </div>
                                         <Button variant="ghost" size="icon" onClick={() => copyToClipboard("01122331600")} className="h-10 w-10 text-primary">
                                             <Copy className="h-4 w-4" />
                                         </Button>
                                     </div>
-                                    <p className="text-xs text-muted-foreground leading-relaxed">
-                                        * قم بتحويل المبلغ المطلوب للرقم أعلاه، ثم قم بتصوير "سكرين شوت" لعملية التحويل الناجحة وإرفاقها في النموذج أدناه. سيتم مراجعة الطلب وإضافة الرصيد لحسابك.
+                                </div>
+
+                                <div className="p-3 bg-primary/5 rounded-xl border border-primary/10">
+                                    <p className="text-xs text-muted-foreground leading-relaxed font-medium">
+                                        <span className="text-primary font-bold">ملحوظة هامة:</span> بعد إتمام عملية التحويل، يرجى رفع "سكرين شوت" واضحة لعملية التحويل أدناه. ستقوم الإدارة بمراجعة الطلب وتأكيد شحن المحفظة خلال دقائق.
                                     </p>
                                 </div>
                             </div>

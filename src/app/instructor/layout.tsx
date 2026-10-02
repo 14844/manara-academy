@@ -1,7 +1,8 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import {
     BarChart3,
     BookOpen,
@@ -11,8 +12,16 @@ import {
     PlusCircle,
     GraduationCap,
     LogOut,
-    Wallet
+    Wallet,
+    ClipboardList,
+    Ticket,
+    TrendingUp,
+    Loader2
 } from "lucide-react"
+import { auth, db } from "@/lib/firebase/config"
+import { onAuthStateChanged } from "firebase/auth"
+import { doc, getDoc } from "firebase/firestore"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { UserNav } from "../../components/user-nav"
@@ -29,7 +38,10 @@ const sidebarItems = [
     { name: "لوحة التحكم", href: "/instructor", icon: LayoutDashboard },
     { name: "كورساتي", href: "/instructor/courses", icon: BookOpen },
     { name: "الطلاب", href: "/instructor/students", icon: Users },
-    { name: "الإحصائيات", href: "/instructor/analytics", icon: BarChart3 },
+    { name: "تصحيح الإجابات", href: "/instructor/grading", icon: ClipboardList },
+    { name: "تقارير أولياء الأمور", href: "/instructor/reports", icon: BarChart3 },
+    { name: "الإحصائيات", href: "/instructor/analytics", icon: TrendingUp },
+    { name: "إدارة الكوبونات", href: "/instructor/coupons", icon: Ticket },
     { name: "المحفظة والأرباح", href: "/instructor/withdrawals", icon: Wallet },
     { name: "الإعدادات", href: "/instructor/settings", icon: Settings },
 ]
@@ -41,7 +53,50 @@ export default function InstructorLayout({
 }: {
     children: React.ReactNode
 }) {
+    const router = useRouter()
     const pathname = usePathname()
+    const [isLoading, setIsLoading] = useState(true)
+    const [isInstructor, setIsInstructor] = useState(false)
+    const [isSheetOpen, setIsSheetOpen] = useState(false)
+
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            if (!user) {
+                router.push("/login")
+                return
+            }
+
+            // Verify instructor role in Firestore
+            const docRef = doc(db, "profiles", user.uid)
+            const docSnap = await getDoc(docRef)
+
+            if (docSnap.exists() && docSnap.data().role === 'instructor') {
+                setIsInstructor(true)
+            } else {
+                toast.error("عذراً، لا تمتلك صلاحيات الوصول لهذه الصفحة")
+                const role = docSnap.exists() ? docSnap.data().role : ''
+                if (role === 'admin') {
+                    router.push("/admin")
+                } else {
+                    router.push("/dashboard")
+                }
+            }
+            setIsLoading(false)
+        })
+
+        return () => unsubscribe()
+    }, [router])
+
+    if (isLoading) {
+        return (
+            <div className="flex min-h-screen flex-col items-center justify-center bg-background">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="mt-4 text-muted-foreground italic font-arabic">جاري التحقق من الصلاحيات...</p>
+            </div>
+        )
+    }
+
+    if (!isInstructor) return null
 
     return (
         <StatusGuard>
@@ -85,7 +140,7 @@ export default function InstructorLayout({
                 <div className="flex-1 flex flex-col">
                     <header className="flex h-16 items-center justify-between border-b bg-background px-6">
                         <div className="flex items-center gap-4">
-                            <Sheet>
+                            <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
                                 <SheetTrigger asChild>
                                     <Button variant="ghost" size="icon" className="md:hidden">
                                         <Menu className="h-5 w-5" />
@@ -105,6 +160,7 @@ export default function InstructorLayout({
                                                     <Link
                                                         key={item.href}
                                                         href={item.href}
+                                                        onClick={() => setIsSheetOpen(false)}
                                                         className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-muted ${pathname === item.href ? "bg-muted text-primary" : "text-muted-foreground"
                                                             }`}
                                                     >
@@ -115,7 +171,7 @@ export default function InstructorLayout({
                                             </nav>
                                         </div>
                                         <div className="mt-auto border-t p-4">
-                                            <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" asChild>
+                                            <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" asChild onClick={() => setIsSheetOpen(false)}>
                                                 <Link href="/logout">
                                                     <LogOut className="h-4 w-4" />
                                                     تسجيل الخروج
