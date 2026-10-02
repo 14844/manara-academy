@@ -13,8 +13,59 @@ const ibmPlexSansArabic = IBM_Plex_Sans_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "Manara Academy | أكاديمية المنارة التعليمية",
-  description: "المنصة التعليمية الشاملة للطلاب والمدرسين",
+  metadataBase: new URL("https://manara-academy.vercel.app"),
+  title: {
+    default: "أكاديمية المنارة التعليمية | Manara Academy",
+    template: "%s | أكاديمية المنارة التعليمية",
+  },
+  description: "المنصة التعليمية الرائدة للطلاب والمدرسين - كورسات تفاعلية، ومختبرات افتراضية متطورة، ومتابعة دراسية دقيقة بأحدث التقنيات.",
+  keywords: [
+    "أكاديمية المنارة",
+    "منارة أكاديمي",
+    "Manara Academy",
+    "منصة كورسات",
+    "تعليم تفاعلي",
+    "مختبرات افتراضية",
+    "كورسات ثانوية عامة",
+    "شروحات ومراجعات",
+    "منصة تعليمية مصر",
+    "أكاديمية المنارة التعليمية"
+  ],
+  authors: [{ name: "Manara Academy" }],
+  creator: "Manara Academy",
+  publisher: "Manara Academy",
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
+  openGraph: {
+    title: "أكاديمية المنارة التعليمية | Manara Academy",
+    description: "المنصة التعليمية الشاملة للطلاب والمدرسين في جميع المراحل الدراسية مع تجارب ومختبرات تفاعلية.",
+    url: "https://manara-academy.vercel.app",
+    siteName: "أكاديمية المنارة التعليمية",
+    locale: "ar_EG",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "أكاديمية المنارة التعليمية | Manara Academy",
+    description: "المنصة التعليمية الشاملة للطلاب والمدرسين",
+  },
+  verification: {
+    google: "googlec964b7e72c9a3e7d",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
 };
 
 export default function RootLayout({
