@@ -256,7 +256,7 @@ export default function InstructorAnalyticsPage() {
                     icon={<DollarSign className="h-5 w-5" />}
                 />
                 <AnalyticsCard
-                    title="عمولة المنصة (20%)"
+                    title="عمولة المنصة (5%)"
                     value={`${stats.platformCommission.toLocaleString()} ج.م`}
                     trend={"ثابتة لكافة الكورسات"}
                     color="bg-red-50 text-red-600"
@@ -398,7 +398,7 @@ export default function InstructorAnalyticsPage() {
                             </div>
                             <div className="space-y-0.5">
                                 <p className="text-xs font-bold">نظام العمولات</p>
-                                <p className="text-[10px] text-muted-foreground font-medium">العمولة الحالية 20% ثابتة لجميع المحاضرين والطلاب.</p>
+                                <p className="text-[10px] text-muted-foreground font-medium">العمولة الحالية 5% ثابتة لجميع المحاضرين والطلاب (95% صافي أرباح للمعلم).</p>
                             </div>
                         </CardContent>
                     </Card>

@@ -257,7 +257,7 @@ export default function InstructorWithdrawalsPage() {
                                             <span className="font-bold">{balance.gross.toLocaleString()} ج.م</span>
                                         </div>
                                         <div className="flex justify-between p-3 bg-red-50 text-red-700 rounded-lg">
-                                            <span>عمولة المنصة (20%):</span>
+                                            <span>عمولة المنصة (5%):</span>
                                             <span className="font-bold">-{balance.commission.toLocaleString()} ج.م</span>
                                         </div>
                                         <div className="flex justify-between p-4 bg-primary/10 text-primary border-2 border-primary/20 rounded-xl">
@@ -298,7 +298,7 @@ export default function InstructorWithdrawalsPage() {
                             <span className="font-bold text-red-600">{balance.commission.toLocaleString()} ج.م</span>
                         </div>
                         <div className="pt-4 border-t">
-                            <Badge variant="outline" className="text-[10px] w-full justify-center py-1">العمولة ثابتة 20%</Badge>
+                            <Badge variant="outline" className="text-[10px] w-full justify-center py-1 bg-emerald-50 text-emerald-700 border-emerald-200">العمولة مخفضة 5% فقط (صافي أرباح 95%)</Badge>
                         </div>
                     </CardContent>
                 </Card>
