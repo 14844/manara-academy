@@ -1,10 +1,10 @@
 /**
  * Calculates the platform commission and net payout for an instructor BASED ON PLATFORM POLICY.
  * 
- * BASE RATE: 20% commission for everyone.
+ * BASE RATE: 5% commission for everyone (95% net payout for instructors).
  */
 
-export const BASE_RATE = 0.20;
+export const BASE_RATE = 0.05;
 
 export interface CommissionResult {
     commissionAmount: number;
@@ -58,6 +58,6 @@ export function calculateTotalCommission(
  * Returns null as special offers are currently disabled per user request.
  */
 export function getSpecialOfferProgress(instructorId: string, totalStudents: number) {
-    // Disabled per user request for flat 20% commission
+    // Flat 5% commission for all instructors
     return null;
 }

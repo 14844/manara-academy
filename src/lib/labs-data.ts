@@ -19,6 +19,14 @@ export const virtualLabs: VirtualLab[] = [
     color: "bg-blue-500",
   },
   {
+    id: "chemical-reactions",
+    title: "مختبر التفاعلات الكيميائية والمعادلات",
+    description: "معمل كيميائي تفاعلي ثلاثي الأبعاد: اسحب المواد والأحماض والقواعد والفلزات وشاهد التفاعلات وتغيرات اللون وتصاعد الغازات مع إظهار المعادلات الموزونة في الوقت الفعلي.",
+    subject: "chemistry",
+    simName: "chemical-reactions",
+    color: "bg-emerald-600",
+  },
+  {
     id: "build-a-molecule",
     title: "بناء الجزيئات",
     description: "اجمع الذرات معاً لبناء جزيئات مختلفة. تعرف على التركيب الكيميائي واستمتع بإنشاء مركبات ثلاثية الأبعاد.",

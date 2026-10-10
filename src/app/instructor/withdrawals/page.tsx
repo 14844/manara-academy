@@ -92,8 +92,8 @@ export default function InstructorWithdrawalsPage() {
             const currentNet = profileData.wallet_balance || 0
             
             setBalance({
-                gross: currentNet / 0.8, // Estimate gross based on 20% commission
-                commission: (currentNet / 0.8) * 0.2,
+                gross: currentNet / 0.95, // Estimate gross based on 5% platform commission
+                commission: (currentNet / 0.95) * 0.05,
                 net: currentNet
             })
 

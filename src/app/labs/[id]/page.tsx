@@ -10,6 +10,7 @@ import { useState, useRef } from "react"
 import { CircuitLab } from "@/components/labs/circuit-lab"
 import { MoleculeLab } from "@/components/labs/molecule-lab"
 import { FunctionLab } from "@/components/labs/function-lab"
+import { ReactionLab } from "@/components/labs/reaction-lab"
 
 export default function LabViewerPage() {
     const { id } = useParams()
@@ -89,6 +90,7 @@ export default function LabViewerPage() {
                         className="glass-card border border-white/20 p-1 h-[72vh] min-h-[480px] rounded-[2rem] relative shadow-2xl flex flex-col bg-white/5 overflow-hidden"
                     >
                         {lab.id === "circuit-construction-kit" && <CircuitLab key={resetKey} />}
+                        {lab.id === "chemical-reactions" && <ReactionLab key={resetKey} />}
                         {lab.id === "build-a-molecule" && <MoleculeLab key={resetKey} />}
                         {lab.id === "function-builder" && <FunctionLab key={resetKey} />}
                     </div>

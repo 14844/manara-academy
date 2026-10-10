@@ -147,9 +147,9 @@ export default function CourseDetailsPage() {
                         updated_at: new Date().toISOString()
                     })
 
-                    // Add to Instructor (80% of actual paid amount)
-                    const instructorEarnings = finalPrice * 0.8
-                    const platformCommission = finalPrice * 0.2
+                    // Add to Instructor (95% of actual paid amount, 5% platform commission)
+                    const instructorEarnings = finalPrice * 0.95
+                    const platformCommission = finalPrice * 0.05
                     
                     transaction.update(instructorProfileRef, {
                         wallet_balance: increment(instructorEarnings),

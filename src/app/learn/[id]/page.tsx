@@ -26,6 +26,7 @@ import { auth, db } from "@/lib/firebase/config"
 import { onAuthStateChanged } from "firebase/auth"
 import { toast } from "sonner"
 import { SecureVideoPlayer } from "@/components/courses/secure-video-player"
+import { SecurePdfViewer } from "@/components/pdf/secure-pdf-viewer"
 import { InternalExam } from "@/components/courses/internal-exam"
 import {
     Sheet,
@@ -353,32 +354,38 @@ export default function LearnPage() {
                     <div className="max-w-5xl mx-auto w-full p-4 md:p-8 space-y-6">
                         {/* Content Viewer Section */}
                         {(currentLesson?.type === 'video' || !currentLesson?.type) && (
-                            <SecureVideoPlayer
-                                key={`${id}_${currentLesson?.id}`}
-                                courseId={course.id}
-                                lessonId={currentLesson?.id}
-                                userEmail={user?.email}
-                                studentId={profile?.student_id || user?.uid}
-                                startTime={videoStartTime}
-                            />
+                            <div className="space-y-6">
+                                <SecureVideoPlayer
+                                    key={`${id}_${currentLesson?.id}`}
+                                    courseId={course.id}
+                                    lessonId={currentLesson?.id}
+                                    userEmail={user?.email}
+                                    studentId={profile?.student_id || user?.uid}
+                                    startTime={videoStartTime}
+                                />
+                                {currentLesson?.description && (
+                                    <div className="bg-background border rounded-2xl p-6 shadow-sm space-y-3 font-arabic animate-in fade-in-50 duration-300">
+                                        <div className="flex items-center gap-2 text-sm font-bold text-primary">
+                                            <Video className="h-4 w-4" />
+                                            <span>وصف وملاحظات المحاضرة:</span>
+                                        </div>
+                                        <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap bg-muted/20 p-4 rounded-xl border border-muted/50">
+                                            {currentLesson.description}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
                         )}
 
                         {currentLesson?.type === 'file' && (
-                            <div className="bg-background border rounded-xl p-12 flex flex-col items-center justify-center text-center space-y-4 shadow-sm min-h-[400px]">
-                                <div className="h-20 w-20 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
-                                    <FileText className="h-10 w-10" />
-                                </div>
-                                <div className="space-y-2">
-                                    <h2 className="text-2xl font-bold">{currentLesson.title}</h2>
-                                    <p className="text-muted-foreground">هذا المحتوى عباره عن ملف مرجعي أو ملخص للدرس.</p>
-                                </div>
-                                <Button className="gap-2" size="lg" asChild>
-                                    <a href={currentLesson.url} target="_blank" rel="noopener noreferrer">
-                                        <PlayCircle className="h-5 w-5" />
-                                        فتح الملف / تحميل
-                                    </a>
-                                </Button>
-                            </div>
+                            <SecurePdfViewer
+                                fileUrl={currentLesson.url}
+                                title={currentLesson.title}
+                                description={currentLesson.description}
+                                instructorName={course?.instructor_name || "معلم المادة"}
+                                studentName={profile?.full_name || profile?.name}
+                                studentEmail={user?.email}
+                            />
                         )}
 
                         {currentLesson?.type === 'assignment' && (
