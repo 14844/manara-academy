@@ -68,6 +68,64 @@ export const metadata: Metadata = {
   },
 };
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://manara-academy.vercel.app/#website",
+      "url": "https://manara-academy.vercel.app",
+      "name": "أكاديمية المنارة التعليمية",
+      "alternateName": ["أكاديمية المنارة", "Manara Academy", "منارة أكاديمي"],
+      "description": "المنصة التعليمية الشاملة للطلاب والمدرسين في جميع المراحل الدراسية",
+      "inLanguage": "ar"
+    },
+    {
+      "@type": "EducationalOrganization",
+      "@id": "https://manara-academy.vercel.app/#organization",
+      "name": "أكاديمية المنارة التعليمية",
+      "alternateName": "Manara Academy",
+      "url": "https://manara-academy.vercel.app",
+      "logo": "https://manara-academy.vercel.app/icon",
+      "description": "المنصة التعليمية الرائدة للطلاب والمدرسين - كورسات تفاعلية ومختبرات افتراضية"
+    },
+    {
+      "@type": "ItemList",
+      "name": "أقسام أكاديمية المنارة الرئيسية",
+      "itemListElement": [
+        {
+          "@type": "SiteNavigationElement",
+          "position": 1,
+          "name": "تصفح الكورسات والمحاضرات",
+          "description": "استكشف أحدث الكورسات التعليمية لشروحات ومراجعات الثانوية العامة",
+          "url": "https://manara-academy.vercel.app/courses"
+        },
+        {
+          "@type": "SiteNavigationElement",
+          "position": 2,
+          "name": "تسجيل الدخول",
+          "description": "تسجيل الدخول لحساب الطالب أو المدرس لمتابعة الدروس والواجبات",
+          "url": "https://manara-academy.vercel.app/login"
+        },
+        {
+          "@type": "SiteNavigationElement",
+          "position": 3,
+          "name": "المختبرات الافتراضية",
+          "description": "تجارب علمية تفاعلية ومحاكاة لمواد الفيزياء والكيمياء والرياضيات",
+          "url": "https://manara-academy.vercel.app/labs"
+        },
+        {
+          "@type": "SiteNavigationElement",
+          "position": 4,
+          "name": "عن أكاديمية المنارة",
+          "description": "تعرف على رؤية المنصة ورسالتها في تطوير المنظومة التعليمية",
+          "url": "https://manara-academy.vercel.app/about"
+        }
+      ]
+    }
+  ]
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -75,6 +133,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      </head>
       <body
         className={`${ibmPlexSansArabic.variable} font-sans antialiased`}
         suppressHydrationWarning
