@@ -27,7 +27,7 @@ export async function POST(request: Request) {
         const receivedHash = payload.transactionHashKey || payload.hashKey || "";
 
         // Verify Hash if vendor key is present
-        const isValid = verifyFawaterakWebhookHash({
+        const isValid = await verifyFawaterakWebhookHash({
             transactionId,
             transactionKey,
             paymentMethod,

@@ -183,10 +183,31 @@ export async function createFawaterakTransaction({
     };
 }
 
+let cachedVendorKey: string | null = null;
+
+export async function getFawaterakVendorKey(): Promise<string> {
+    if (process.env.FAWATERAK_VENDOR_KEY) {
+        return process.env.FAWATERAK_VENDOR_KEY.trim();
+    }
+    if (cachedVendorKey) return cachedVendorKey;
+
+    try {
+        const { adminDb } = await import("@/lib/firebase/admin");
+        const docSnap = await adminDb.collection("settings").doc("fawaterak").get();
+        if (docSnap.exists) {
+            cachedVendorKey = docSnap.data()?.vendor_key || "";
+            return cachedVendorKey;
+        }
+    } catch (e) {
+        // ignore
+    }
+    return "";
+}
+
 /**
  * Verify Fawaterak Webhook HMAC SHA256 Signature
  */
-export function verifyFawaterakWebhookHash({
+export async function verifyFawaterakWebhookHash({
     transactionId,
     transactionKey,
     paymentMethod,
@@ -196,11 +217,11 @@ export function verifyFawaterakWebhookHash({
     transactionKey: string;
     paymentMethod: string;
     receivedHash?: string;
-}): boolean {
-    const vendorApiKey = process.env.FAWATERAK_VENDOR_KEY;
+}): Promise<boolean> {
+    const vendorApiKey = await getFawaterakVendorKey();
     if (!vendorApiKey) {
-        // If vendor key is not set, log warning and accept if hash is missing or dev mode
-        console.warn("FAWATERAK_VENDOR_KEY is not configured in .env. Skipping HMAC signature check.");
+        // If vendor key is not set, log warning and accept
+        console.warn("FAWATERAK_VENDOR_KEY is not configured. Skipping HMAC signature check.");
         return true;
     }
 
@@ -219,6 +240,7 @@ export function verifyFawaterakWebhookHash({
         return false;
     }
 }
+
 
 /**
  * Fetch transaction data from Fawaterak by intentKey
