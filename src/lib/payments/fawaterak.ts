@@ -183,7 +183,7 @@ export async function createFawaterakTransaction({
     };
 }
 
-let cachedVendorKey: string | null = null;
+let cachedVendorKey = "";
 
 export async function getFawaterakVendorKey(): Promise<string> {
     if (process.env.FAWATERAK_VENDOR_KEY) {
@@ -195,8 +195,9 @@ export async function getFawaterakVendorKey(): Promise<string> {
         const { adminDb } = await import("@/lib/firebase/admin");
         const docSnap = await adminDb.collection("settings").doc("fawaterak").get();
         if (docSnap.exists) {
-            cachedVendorKey = docSnap.data()?.vendor_key || "";
-            return cachedVendorKey;
+            const key: string = (docSnap.data()?.vendor_key || "").toString().trim();
+            cachedVendorKey = key;
+            return key;
         }
     } catch (e) {
         // ignore
