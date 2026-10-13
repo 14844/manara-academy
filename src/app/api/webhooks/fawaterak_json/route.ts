@@ -105,12 +105,16 @@ export async function POST(request: Request) {
             .collection("wallet_requests")
             .where("student_id", "==", studentId)
             .where("status", "==", "pending_payment")
-            .orderBy("created_at", "desc")
-            .limit(1)
             .get();
 
         if (!pendingReqSnap.empty) {
-            const reqDoc = pendingReqSnap.docs[0];
+            // Sort by created_at desc in memory to avoid needing Firestore composite index
+            const sortedDocs = [...pendingReqSnap.docs].sort((a, b) => {
+                const aTime = new Date(a.data().created_at || 0).getTime();
+                const bTime = new Date(b.data().created_at || 0).getTime();
+                return bTime - aTime;
+            });
+            const reqDoc = sortedDocs[0];
             await reqDoc.ref.update({
                 status: "approved",
                 approved_by: "fawaterak_webhook",
