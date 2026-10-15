@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { verifyFawaterakWebhookHash } from "@/lib/payments/fawaterak";
+import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
     try {
@@ -141,9 +142,39 @@ export async function POST(request: Request) {
         }
 
         console.log(`Successfully credited ${paidAmount} EGP to student ${studentId} via Fawaterak!`);
+
+        // Record Activity Log
+        await logServerActivity({
+            action: "wallet_recharge_fawaterak_success",
+            category: "financial",
+            title: "إتمام شحن محفظة إلكتروني فورياً (فواتيرك)",
+            description: `تم تأكيد دفع مبلغ ${paidAmount} ج.م للطالب "${studentProfile?.full_name || studentId}" عبر فواتيرك (${paymentMethod}) وشحن المحفظة فورياً`,
+            status: "success",
+            user_id: studentId,
+            user_name: studentProfile?.full_name || "طالب المنارة",
+            user_email: studentProfile?.email || "",
+            user_role: "student",
+            amount: paidAmount,
+            metadata: {
+                transaction_id: transactionId,
+                transaction_key: transactionKey,
+                payment_method: paymentMethod,
+                amount: paidAmount,
+            }
+        });
+
         return NextResponse.json({ status: "success", credited_amount: paidAmount });
     } catch (error: any) {
         console.error("Fawaterak webhook processing error:", error);
+        await logServerActivity({
+            action: "wallet_recharge_webhook_error",
+            category: "financial",
+            title: "خطأ في استقبال دفع فواتيرك",
+            description: `حدث خطأ أثناء معالجة ويب هوك فواتيرك: ${error.message || "خطأ غير معروف"}`,
+            status: "failed",
+            error_message: error.message,
+        }).catch(() => {});
+
         return NextResponse.json({ error: error.message || "Internal webhook error" }, { status: 500 });
     }
 }

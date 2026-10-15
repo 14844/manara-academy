@@ -27,6 +27,7 @@ import {
     ArrowRight
 } from "lucide-react"
 import { toast } from "sonner"
+import { logActivity } from "@/lib/activity-logger"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -127,6 +128,25 @@ function WalletContent() {
             }
 
             if (data.paymentUrl) {
+                // Log activity
+                logActivity({
+                    action: "wallet_recharge_fawaterak_initiated",
+                    category: "financial",
+                    title: "بدء شحن إلكتروني فوري (فواتيرك)",
+                    description: `بدأ الطالب عملية شحن لمحفظته بمبلغ ${chargeVal} ج.م عبر بوابة فواتيرك`,
+                    status: "pending",
+                    user_id: user.uid,
+                    user_name: profile?.full_name || user.displayName || "طالب",
+                    user_email: user.email || "",
+                    user_role: "student",
+                    amount: chargeVal,
+                    metadata: {
+                        amount: chargeVal,
+                        intent_key: data.intentKey,
+                        gateway: "fawaterak",
+                    }
+                }).catch(() => {})
+
                 toast.info("جاري توجيهك بأمان إلى صفحة الدفع (فواتيرك)...")
                 window.location.href = data.paymentUrl
             } else {
@@ -134,6 +154,20 @@ function WalletContent() {
             }
         } catch (err: any) {
             console.error("Fawaterak payment error:", err)
+            logActivity({
+                action: "wallet_recharge_fawaterak_init_failed",
+                category: "financial",
+                title: "فشل بدء شحن فواتيرك",
+                description: `فشلت محاولة بدء شحن فواتيرك بمبلغ ${chargeVal} ج.م: ${err.message || "خطأ غير معروف"}`,
+                status: "failed",
+                user_id: user?.uid,
+                user_name: profile?.full_name || user?.displayName || "طالب",
+                user_email: user?.email || "",
+                user_role: "student",
+                amount: chargeVal,
+                error_message: err.message,
+            }).catch(() => {})
+
             toast.error(err.message || "حدث خطأ أثناء الاتصال ببوابة فواتيرك")
         } finally {
             setFawaterakLoading(false)
@@ -178,7 +212,7 @@ function WalletContent() {
             const { url: publicUrl } = await uploadRes.json()
 
             // Create request in Firestore
-            await addDoc(collection(db, "wallet_requests"), {
+            const reqRef = await addDoc(collection(db, "wallet_requests"), {
                 student_id: user.uid,
                 student_name: profile?.full_name || user.displayName,
                 student_email: user.email,
@@ -193,6 +227,25 @@ function WalletContent() {
             })
 
             toast.success("تم إرسال طلب الشحن بنجاح! سيتم مراجعته من قبل الإدارة خلال ساعات.")
+
+            // Log activity
+            logActivity({
+                action: "wallet_recharge_manual_request",
+                category: "financial",
+                title: "طلب شحن محفظة (يدوي)",
+                description: `قام الطالب بتقديم طلب شحن محفظة بقيمة ${amount} ج.م من رقم (${senderNumber}) بانتظار مراجعة الإدارة`,
+                status: "pending",
+                user_id: user.uid,
+                user_name: profile?.full_name || user.displayName || "طالب",
+                user_email: user.email || "",
+                user_role: "student",
+                amount: Number(amount),
+                metadata: {
+                    request_id: reqRef.id,
+                    sender_number: senderNumber,
+                    proof_url: publicUrl,
+                }
+            }).catch(() => {})
 
             // Clean up
             setAmount("")

@@ -33,6 +33,7 @@ import { toast } from "sonner"
 import Link from "next/link"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { logActivity } from "@/lib/activity-logger"
 
 export default function CourseDetailsPage() {
     const { id } = useParams()
@@ -206,8 +207,52 @@ export default function CourseDetailsPage() {
 
             toast.success("تم الالتحاق بالكورس بنجاح!")
             setIsEnrolled(true)
+
+            // Log activity
+            logActivity({
+                action: "course_enrolled",
+                category: finalPrice > 0 ? "financial" : "course",
+                title: finalPrice > 0 ? "شراء واشتراك في كورس" : "اشتراك في كورس مجاني",
+                description: finalPrice > 0
+                    ? `قام الطالب بالاشتراك في كورس "${course.title}" وخصم ${finalPrice} ج.م من محفظته وإيداع ${finalPrice * 0.95} ج.م للمحاضر (بعد 5% عمولة)`
+                    : `قام الطالب بالاشتراك مجاناً في كورس "${course.title}"`,
+                status: "success",
+                user_id: user.uid,
+                user_name: user.displayName || "طالب",
+                user_email: user.email || "",
+                user_role: "student",
+                target_user_id: course.instructor_id,
+                target_user_name: course.instructor_name,
+                amount: finalPrice > 0 ? finalPrice : 0,
+                metadata: {
+                    course_id: course.id,
+                    course_title: course.title,
+                    price: coursePrice,
+                    final_paid: finalPrice,
+                    instructor_share: finalPrice * 0.95,
+                    platform_commission: finalPrice * 0.05,
+                    coupon_code: appliedCoupon?.code || null,
+                }
+            }).catch(() => {})
         } catch (error: any) {
             console.error("Enrollment error details:", error)
+
+            // Log failure
+            logActivity({
+                action: "course_enroll_failed",
+                category: "course",
+                title: "فشل شراء كورس",
+                description: `فشلت محاولة الاشتراك في كورس "${course?.title || id}": ${error.message || "خطأ غير معروف"}`,
+                status: "failed",
+                user_id: user?.uid,
+                user_name: user?.displayName || "طالب",
+                user_email: user?.email || "",
+                user_role: "student",
+                amount: course?.price || 0,
+                error_message: error.message,
+                metadata: { course_id: course?.id, course_title: course?.title }
+            }).catch(() => {})
+
             // Specific messages for common errors
             if (error.code === 'permission-denied') {
                 toast.error("خطأ في الصلاحيات المالكية. يرجى التواصل مع الدعم الفني.")

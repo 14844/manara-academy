@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
+import { logActivity } from "@/lib/activity-logger"
 import { Loader2, Eye, EyeOff, ShieldAlert, ShieldCheck, Shield } from "lucide-react"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
@@ -263,6 +264,24 @@ export function SignupForm() {
 
             toast.success("تم إنشاء الحساب بنجاح! حسابك قيد المراجعة حالياً.")
 
+            // Log activity
+            logActivity({
+                action: "user_signup",
+                category: "auth",
+                title: "إنشاء حساب جديد",
+                description: `قام ${values.role === "instructor" ? "مدرس جديد" : "طالب جديد"} بإنشاء حساب باسم "${values.fullName}" (${email})`,
+                status: "success",
+                user_id: user.uid,
+                user_name: values.fullName,
+                user_email: email,
+                user_role: values.role as any,
+                metadata: {
+                    role: values.role,
+                    phone: fullPhone,
+                    student_id: studentId,
+                }
+            }).catch(() => {})
+
             // 5. Redirect to pending approval page
             router.push("/pending-approval")
         } catch (error: any) {
@@ -271,6 +290,18 @@ export function SignupForm() {
             if (error.code === 'auth/email-already-in-use') message = "البريد الإلكتروني مستخدم بالفعل."
             else if (error.code === 'auth/weak-password') message = "كلمة المرور ضعيفة جداً."
             else if (error.code === 'auth/network-request-failed') message = "لا يوجد اتصال بالإنترنت، يرجى التحقق من الشبكة."
+
+            logActivity({
+                action: "user_signup_failed",
+                category: "auth",
+                title: "فشل إنشاء حساب",
+                description: `فشلت محاولة تسجيل حساب جديد (${values.email}): ${message}`,
+                status: "failed",
+                user_name: values.fullName || "مستخدم جديد",
+                user_email: values.email,
+                user_role: values.role as any,
+                error_message: error.message || message,
+            }).catch(() => {})
 
             toast.error(message)
         } finally {

@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { cookies } from "next/headers";
 import { FieldValue } from "firebase-admin/firestore";
 import { getFawaterakTransactionData } from "@/lib/payments/fawaterak";
+import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
     try {
@@ -89,6 +90,26 @@ export async function POST(request: Request) {
                     fawaterak_transaction_key: intentKey,
                     status: "completed",
                     created_at: new Date().toISOString(),
+                });
+
+                // Log activity
+                await logServerActivity({
+                    action: "wallet_recharge_fawaterak_verified",
+                    category: "financial",
+                    title: "تأكيد فوري لشحن محفظة (فواتيرك)",
+                    description: `تم التحقق وتأكيد دفع مبلغ ${paidAmount} ج.م للطالب "${studentProfile?.full_name || uid}" عبر فواتيرك وشحن المحفظة`,
+                    status: "success",
+                    user_id: uid,
+                    user_name: studentProfile?.full_name || "طالب المنارة",
+                    user_email: studentProfile?.email || "",
+                    user_role: "student",
+                    amount: paidAmount,
+                    metadata: {
+                        intent_key: intentKey,
+                        transaction_id: transactionId,
+                        amount: paidAmount,
+                        method: paymentMethod,
+                    }
                 });
 
                 return NextResponse.json({

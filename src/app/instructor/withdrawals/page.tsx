@@ -33,6 +33,7 @@ import {
     Loader2
 } from "lucide-react"
 import { toast } from "sonner"
+import { logActivity } from "@/lib/activity-logger"
 import Link from "next/link"
 import {
     Dialog,
@@ -192,8 +193,43 @@ export default function InstructorWithdrawalsPage() {
             toast.success("تم إرسال طلب السحب بنجاح وخصمه من محفظتك مؤقتاً")
             setShowRequestModal(false)
             fetchFinancialData(instructorId)
+
+            // Log activity
+            logActivity({
+                action: "withdrawal_requested",
+                category: "financial",
+                title: "طلب سحب أرباح محاضر",
+                description: `قام المحاضر بطلب سحب أرباح بقيمة ${netAmount} ج.م (صافي بعد عمولة ${balance.commission} ج.م)`,
+                status: "pending",
+                user_id: instructorId,
+                user_name: user.displayName || "محاضر",
+                user_email: user.email || "",
+                user_role: "instructor",
+                amount: netAmount,
+                metadata: {
+                    gross_amount: balance.gross,
+                    commission: balance.commission,
+                    net_amount: netAmount,
+                    withdrawal_id: withdrawalRef.id,
+                }
+            }).catch(() => {})
         } catch (error: any) {
             console.error("Error requesting withdrawal:", error)
+
+            logActivity({
+                action: "withdrawal_request_failed",
+                category: "financial",
+                title: "فشل طلب سحب أرباح",
+                description: `فشل طلب سحب أرباح للمحاضر: ${error.message || "خطأ غير معروف"}`,
+                status: "failed",
+                user_id: user?.uid,
+                user_name: user?.displayName || "محاضر",
+                user_email: user?.email || "",
+                user_role: "instructor",
+                amount: balance?.net || 0,
+                error_message: error.message,
+            }).catch(() => {})
+
             toast.error(error.message || "حدث خطأ أثناء إرسال الطلب")
         } finally {
             setIsSubmitting(false)

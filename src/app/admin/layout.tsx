@@ -19,7 +19,8 @@ import {
     Wallet,
     DollarSign,
     CheckCircle2,
-    Ticket
+    Ticket,
+    Activity
 } from "lucide-react"
 import {
     Sheet,
@@ -33,6 +34,7 @@ import Link from "next/link"
 
 const adminNavItems = [
     { name: "نظرة عامة", href: "/admin", icon: LayoutDashboard },
+    { name: "سجل النشاطات (Logs)", href: "/admin/logs", icon: Activity },
     { name: "مراجعة الكورسات", href: "/admin/courses", icon: CheckSquare },
     { name: "المستخدمين", href: "/admin/users", icon: Users },
     { name: "جميع الكورسات", href: "/admin/all-courses", icon: BookOpen },

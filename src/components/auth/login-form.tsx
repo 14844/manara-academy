@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
+import { logActivity } from "@/lib/activity-logger"
 import { Loader2, Eye, EyeOff } from "lucide-react"
 
 const loginSchema = z.object({
@@ -150,6 +151,23 @@ export function LoginForm() {
 
             toast.success("تم تسجيل الدخول بنجاح")
 
+            // Log activity
+            logActivity({
+                action: "user_login",
+                category: "auth",
+                title: "تسجيل دخول مستخدم",
+                description: `قام المستخدم "${profile?.full_name || userCredential.user.email}" بتسجيل الدخول إلى حسابه بنجاح كـ (${profile?.role === "instructor" ? "مدرس" : profile?.role === "admin" ? "مسؤول" : "طالب"})`,
+                status: "success",
+                user_id: userCredential.user.uid,
+                user_name: profile?.full_name || userCredential.user.displayName || "مستخدم",
+                user_email: userCredential.user.email || email,
+                user_role: profile?.role || "student",
+                metadata: {
+                    role: profile?.role,
+                    email: email,
+                }
+            }).catch(() => {})
+
             try {
                 if (profile?.role === 'instructor') {
                     console.log("LoginForm: Navigating to /instructor")
@@ -172,6 +190,22 @@ export function LoginForm() {
             } else if (error.code === 'auth/too-many-requests') {
                 message = "محاولات كثيرة خاطئة، يرجى الانتظار قليلاً ثم المحاولة."
             }
+
+            // Log login failure
+            logActivity({
+                action: "user_login_failed",
+                category: "auth",
+                title: "فشل تسجيل دخول",
+                description: `محاولة تسجيل دخول فاشلة بالحساب (${email}): ${message}`,
+                status: "failed",
+                user_email: email,
+                error_message: error.message || message,
+                metadata: {
+                    attempted_email: email,
+                    error_code: error.code,
+                }
+            }).catch(() => {})
+
             toast.error(message)
         } finally {
             setIsLoading(false)

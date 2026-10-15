@@ -32,6 +32,8 @@ import {
     Download
 } from "lucide-react"
 import { toast } from "sonner"
+import { auth } from "@/lib/firebase/config"
+import { logActivity } from "@/lib/activity-logger"
 import { Input } from "@/components/ui/input"
 import {
     Dialog,
@@ -87,6 +89,29 @@ export default function AdminWithdrawalsPage() {
             setSelectedRequest({ ...request, status: "paid", paid_at: new Date().toISOString() })
             setShowReceipt(true)
             fetchWithdrawals()
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "withdrawal_approved",
+                category: "financial",
+                title: "موافقة على سحب أرباح محاضر",
+                description: `وافق المسؤول على سحب أرباح بقيمة ${request.net_amount} ج.م للمحاضر "${request.instructor_name || request.instructor_id}"`,
+                status: "success",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: request.instructor_id,
+                target_user_name: request.instructor_name,
+                amount: request.net_amount,
+                metadata: {
+                    withdrawal_id: request.id,
+                    net_amount: request.net_amount,
+                    gross_amount: request.amount,
+                    commission: request.commission,
+                }
+            }).catch(() => {})
         } catch (error) {
             console.error("Error approving withdrawal:", error)
             toast.error("حدث خطأ أثناء معالجة الطلب")
@@ -121,6 +146,28 @@ export default function AdminWithdrawalsPage() {
 
             toast.info("تم رفض الطلب ورد المبلغ لمحفظة المحاضر بنجاح")
             fetchWithdrawals()
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "withdrawal_rejected",
+                category: "financial",
+                title: "رفض طلب سحب أرباح",
+                description: `رفض المسؤول طلب سحب أرباح بقيمة ${request.net_amount} ج.م للمحاضر "${request.instructor_name || request.instructor_id}" ورد المبلغ لمحفظته. السبب: ${reason || "لم يحدد"}`,
+                status: "failed",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: request.instructor_id,
+                target_user_name: request.instructor_name,
+                amount: request.net_amount,
+                metadata: {
+                    withdrawal_id: request.id,
+                    refunded_amount: request.net_amount,
+                    rejection_reason: reason,
+                }
+            }).catch(() => {})
         } catch (error) {
             console.error("Error rejecting withdrawal:", error)
             toast.error("حدث خطأ أثناء معالجة الطلب ورد المبلغ")

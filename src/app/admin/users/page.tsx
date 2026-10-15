@@ -36,6 +36,8 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { increment, runTransaction } from "firebase/firestore"
+import { auth } from "@/lib/firebase/config"
+import { logActivity } from "@/lib/activity-logger"
 
 export default function AdminUsersPage() {
     const [users, setUsers] = useState<any[]>([])
@@ -85,6 +87,29 @@ export default function AdminUsersPage() {
             ))
 
             toast.success(`تم إضافة ${rechargeAmount} ج.م لمحفظة ${selectedUserForRecharge.full_name}`)
+            
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "admin_manual_recharge",
+                category: "financial",
+                title: "شحن رصيد يدوي بواسطة الإدارة",
+                description: `قام المسؤول بشحن مبلغ ${rechargeAmount} ج.م مباشرة إلى محفظة المستخدم "${selectedUserForRecharge.full_name}" (${selectedUserForRecharge.email || selectedUserForRecharge.id})`,
+                status: "success",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: selectedUserForRecharge.id,
+                target_user_name: selectedUserForRecharge.full_name,
+                amount: Number(rechargeAmount),
+                metadata: {
+                    user_id: selectedUserForRecharge.id,
+                    user_role: selectedUserForRecharge.role,
+                    amount_added: Number(rechargeAmount),
+                }
+            }).catch(() => {})
+
             setSelectedUserForRecharge(null)
             setRechargeAmount("")
         } catch (error) {
@@ -121,6 +146,29 @@ export default function AdminUsersPage() {
             ))
 
             toast.success(`تم سحب ${withdrawAmount} ج.م من محفظة ${selectedUserForWithdraw.full_name}`)
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "admin_manual_deduct",
+                category: "financial",
+                title: "خصم رصيد يدوي بواسطة الإدارة",
+                description: `قام المسؤول بخصم مبلغ ${withdrawAmount} ج.م من محفظة المستخدم "${selectedUserForWithdraw.full_name}" (${selectedUserForWithdraw.email || selectedUserForWithdraw.id})`,
+                status: "success",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: selectedUserForWithdraw.id,
+                target_user_name: selectedUserForWithdraw.full_name,
+                amount: -Number(withdrawAmount),
+                metadata: {
+                    user_id: selectedUserForWithdraw.id,
+                    user_role: selectedUserForWithdraw.role,
+                    amount_deducted: Number(withdrawAmount),
+                }
+            }).catch(() => {})
+
             setSelectedUserForWithdraw(null)
             setWithdrawAmount("")
         } catch (error) {
@@ -133,12 +181,34 @@ export default function AdminUsersPage() {
 
     const handleUpdateStatus = async (userId: string, newStatus: string) => {
         try {
+            const targetUser = users.find(u => u.id === userId);
             await updateDoc(doc(db, "profiles", userId), {
                 status: newStatus,
                 updated_at: new Date().toISOString()
             })
             setUsers(users.map(u => u.id === userId ? { ...u, status: newStatus } : u))
             toast.success(newStatus === 'approved' ? "تم تفعيل الحساب بنجاح" : "تم رفض الحساب")
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "user_status_changed",
+                category: "admin_action",
+                title: newStatus === "approved" ? "تفعيل حساب مستخدم" : "رفض / تعليق حساب مستخدم",
+                description: `قام المسؤول بـ (${newStatus === "approved" ? "تفعيل واعتماد" : "رفض"}) حساب المستخدم "${targetUser?.full_name || userId}"`,
+                status: "success",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: userId,
+                target_user_name: targetUser?.full_name,
+                metadata: {
+                    user_id: userId,
+                    user_role: targetUser?.role,
+                    new_status: newStatus,
+                }
+            }).catch(() => {})
         } catch (error) {
             console.error("Update status error:", error)
             toast.error("حدث خطأ أثناء تحديث الحالة")
