@@ -20,7 +20,8 @@ import {
     DollarSign,
     CheckCircle2,
     Ticket,
-    Activity
+    Activity,
+    BarChart3
 } from "lucide-react"
 import {
     Sheet,
@@ -34,6 +35,7 @@ import Link from "next/link"
 
 const adminNavItems = [
     { name: "نظرة عامة", href: "/admin", icon: LayoutDashboard },
+    { name: "المؤشرات والمالية (KPIs)", href: "/admin/kpis", icon: BarChart3 },
     { name: "سجل النشاطات (Logs)", href: "/admin/logs", icon: Activity },
     { name: "مراجعة الكورسات", href: "/admin/courses", icon: CheckSquare },
     { name: "المستخدمين", href: "/admin/users", icon: Users },
