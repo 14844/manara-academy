@@ -56,24 +56,32 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                         const profile = docSnap.data()
                         
                         // Single Session Enforcement (Students only)
-                        if (profile.role === 'student') {
+                        if (profile.role === 'student' && !docSnap.metadata.fromCache) {
                             const localSessionId = localStorage.getItem('manara_active_session_id')
-                            if (profile.active_session_id && localSessionId && profile.active_session_id !== localSessionId) {
-                                console.warn("StatusGuard: Session mismatch detected! Taking hard action...")
+                            if (!localSessionId && profile.active_session_id) {
+                                localStorage.setItem('manara_active_session_id', String(profile.active_session_id))
+                            } else if (profile.active_session_id && localSessionId) {
+                                const profileSessionTime = Number(profile.active_session_id) || 0
+                                const localSessionTime = Number(localSessionId) || 0
                                 
-                                // Perform logout cleanup
-                                try {
-                                    await auth.signOut()
-                                    await fetch('/api/auth/session', { method: 'DELETE' })
-                                } catch (err) {
-                                    console.error("Logout error:", err)
+                                // Only conflict if another login created a STRICTLY NEWER session on a different device
+                                if (profileSessionTime > localSessionTime && String(profile.active_session_id) !== String(localSessionId)) {
+                                    console.warn("StatusGuard: Newer session detected on another device! Logging out...")
+                                    
+                                    // Perform logout cleanup
+                                    try {
+                                        await auth.signOut()
+                                        await fetch('/api/auth/session', { method: 'DELETE' })
+                                    } catch (err) {
+                                        console.error("Logout error:", err)
+                                    }
+                                    
+                                    localStorage.removeItem('manara_active_session_id')
+                                    
+                                    // FORCE hard redirect to login to kill all states
+                                    window.location.replace("/login?error=session_conflict")
+                                    return
                                 }
-                                
-                                localStorage.removeItem('manara_active_session_id')
-                                
-                                // FORCE hard redirect to login to kill all states
-                                window.location.replace("/login?error=session_conflict")
-                                return
                             }
                         }
 

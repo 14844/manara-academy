@@ -81,6 +81,7 @@ export function LoginForm() {
             })
 
             if (!sessionResponse.ok) {
+                localStorage.removeItem('manara_active_session_id')
                 const errData = await sessionResponse.json().catch(() => ({}))
                 await auth.signOut()
                 throw new Error(errData.error || "فشل إنشاء جلسة الدخول")
