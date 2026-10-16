@@ -108,104 +108,22 @@ export default function CourseDetailsPage() {
 
         setIsEnrolling(true)
         try {
-            const coursePrice = Number(course.price) || 0
-            const enrollmentId = `${user.uid}_${course.id}`
+            const res = await fetch("/api/courses/enroll", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    courseId: course.id,
+                    couponCode: appliedCoupon?.code || null,
+                }),
+            });
 
-            // Use transaction for BOTH paid and free paths to ensure consistent analytics and students_count
-            await runTransaction(db, async (transaction) => {
-                const studentProfileRef = doc(db, "profiles", user.uid)
-                const instructorProfileRef = doc(db, "profiles", course.instructor_id)
-                const enrollmentRef = doc(db, "enrollments", enrollmentId)
-                const courseRef = doc(db, "courses", course.id)
-                const transactionLogRef = doc(collection(db, "transactions"))
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || "فشل الاشتراك في الكورس");
+            }
 
-                // 1. Fetch Student Profile
-                const studentSnap = await transaction.get(studentProfileRef)
-                if (!studentSnap.exists()) throw new Error("لم يتم العثور على ملف تعريف الطالب")
-
-                // 2. Fetch Instructor Profile (optional check but good for safety)
-                const instructorSnap = await transaction.get(instructorProfileRef)
-                // If it doesn't exist, we might want to log it but let enrollment proceed if rules allow
-                // Actually, if it doesn't exist, updating it will fail, so we should be aware.
-
-                // 3. Calculate Financials
-                let finalPrice = coursePrice
-                if (appliedCoupon) {
-                    const discount = (coursePrice * appliedCoupon.discount_percent) / 100
-                    finalPrice = Math.max(0, coursePrice - discount)
-                }
-
-                // 4. Handle Payment (if price > 0)
-                if (finalPrice > 0) {
-                    const currentBalance = studentSnap.data().wallet_balance || 0
-                    if (currentBalance < finalPrice) {
-                        throw new Error(`رصيدك غير كافٍ. تحتاج إلى ${finalPrice} بينما رصيدك ${currentBalance} ج.م.`)
-                    }
-
-                    // Deduct from Student
-                    transaction.update(studentProfileRef, {
-                        wallet_balance: currentBalance - finalPrice,
-                        updated_at: new Date().toISOString()
-                    })
-
-                    // Add to Instructor (95% of actual paid amount, 5% platform commission)
-                    const instructorEarnings = finalPrice * 0.95
-                    const platformCommission = finalPrice * 0.05
-                    
-                    transaction.update(instructorProfileRef, {
-                        wallet_balance: increment(instructorEarnings),
-                        updated_at: new Date().toISOString()
-                    })
-
-                    // Create Financial Audit Log
-                    transaction.set(transactionLogRef, {
-                        type: "enrollment_payout",
-                        amount: finalPrice,
-                        instructor_id: course.instructor_id,
-                        instructor_share: instructorEarnings,
-                        platform_commission: platformCommission,
-                        student_id: user.uid,
-                        student_name: studentSnap.data().full_name || user.displayName,
-                        course_id: course.id,
-                        course_title: course.title,
-                        coupon_used: appliedCoupon?.code || null,
-                        created_at: new Date().toISOString()
-                    })
-                }
-
-                // 5. Create/Update Enrollment (Consistent fields for both paths)
-                transaction.set(enrollmentRef, {
-                    id: enrollmentId,
-                    student_id: user.uid,
-                    student_name: studentSnap.data().full_name || user.displayName,
-                    student_unique_id: studentSnap.data().student_id || "N/A",
-                    course_id: course.id,
-                    course_title: course.title,
-                    instructor_id: course.instructor_id,
-                    instructor_name: course.instructor_name,
-                    enrolled_at: new Date().toISOString(),
-                    progress: 0,
-                    status: "active",
-                    paid_amount: finalPrice,
-                    original_price: coursePrice,
-                    coupon_used: appliedCoupon?.code || null
-                })
-
-                // 6. Update Coupon Usage if applicable
-                if (appliedCoupon) {
-                    const couponRef = doc(db, "coupons", appliedCoupon.id)
-                    transaction.update(couponRef, {
-                        usage_count: increment(1)
-                    })
-                }
-
-                // 7. Increment students_count
-                transaction.update(courseRef, {
-                    students_count: increment(1)
-                })
-            })
-
-            toast.success("تم الالتحاق بالكورس بنجاح!")
+            const finalPrice = data.paidAmount ?? (Number(course.price) || 0);
+            toast.success("تم الالتحاق بالكورس بنجاح!");
             setIsEnrolled(true)
 
             // Log activity

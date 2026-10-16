@@ -85,26 +85,13 @@ export default function AdminPaymentsPage() {
 
         setIsActionLoading(true)
         try {
-            await runTransaction(db, async (transaction) => {
-                const profileRef = doc(db, "profiles", request.student_id)
-                const requestRef = doc(db, "wallet_requests", request.id)
-
-                const profileSnap = await transaction.get(profileRef)
-                if (!profileSnap.exists()) throw new Error("Profile not found")
-
-                // 1. Update Profile Balance
-                transaction.update(profileRef, {
-                    wallet_balance: increment(request.amount),
-                    updated_at: new Date().toISOString()
-                })
-
-                // 2. Update Request Status
-                transaction.update(requestRef, {
-                    status: "approved",
-                    updated_at: new Date().toISOString(),
-                    reviewed_at: new Date().toISOString()
-                })
+            const res = await fetch("/api/admin/payments/approve", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ requestId: request.id }),
             })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "فشل اعتماد الطلب")
 
             toast.success("تم اعتماد الدفع وإضافة الرصيد لمحفظة الطالب")
             setSelectedRequest(null)

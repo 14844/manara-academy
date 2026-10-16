@@ -126,23 +126,16 @@ export default function AdminWithdrawalsPage() {
 
         setIsProcessing(true)
         try {
-            const reqRef = doc(db, "withdrawal_requests", request.id)
-            const instructorProfileRef = doc(db, "profiles", request.instructor_id)
-
-            await runTransaction(db, async (transaction) => {
-                // 1. Update request status
-                transaction.update(reqRef, {
-                    status: "rejected",
-                    rejection_reason: reason,
-                    rejected_at: new Date().toISOString()
-                })
-
-                // 2. Refund to instructor wallet
-                transaction.update(instructorProfileRef, {
-                    wallet_balance: increment(request.net_amount),
-                    updated_at: new Date().toISOString()
-                })
+            const res = await fetch("/api/admin/withdrawals/reject", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    requestId: request.id,
+                    reason,
+                }),
             })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "فشل رفض الطلب")
 
             toast.info("تم رفض الطلب ورد المبلغ لمحفظة المحاضر بنجاح")
             fetchWithdrawals()

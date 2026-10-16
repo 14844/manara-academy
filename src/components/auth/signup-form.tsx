@@ -230,28 +230,30 @@ export function SignupForm() {
                 displayName: values.fullName
             })
 
-            const studentId = await generateUniqueStudentId()
+            const idToken = await user.getIdToken()
 
-            await setDoc(doc(db, "profiles", user.uid), {
-                id: user.uid,
-                student_id: studentId,
-                email: email,
-                full_name: values.fullName,
-                role: values.role,
-                phone: fullPhone,
-                parent_phone: formattedParentPhone,
-                grade_level: values.gradeLevel || null,
-                specialty: values.specialty || null,
-                bio: values.bio || null,
-                status: "pending",
-                wallet_balance: 0,
-                active_devices: [deviceId], // Register first device
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
+            const registerRes = await fetch("/api/auth/register-profile", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    idToken,
+                    fullName: values.fullName,
+                    role: values.role,
+                    phone: fullPhone,
+                    parentPhone: formattedParentPhone,
+                    gradeLevel: values.gradeLevel || null,
+                    specialty: values.specialty || null,
+                    bio: values.bio || null,
+                    deviceId,
+                }),
             })
 
+            if (!registerRes.ok) {
+                const regData = await registerRes.json().catch(() => ({}))
+                throw new Error(regData.error || "فشل تسجيل بيانات الحساب")
+            }
+
             // 5. Set session cookie
-            const idToken = await user.getIdToken()
             const sessionResponse = await fetch('/api/auth/session', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

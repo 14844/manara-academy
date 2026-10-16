@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getRole() {
+      return request.auth.token.role;
+    }
+
+    // Profiles: users can only read their own profile.
+    // Client cannot write to sensitive fields: role, status, wallet_balance.
+    match /profiles/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+                    && !('role' in request.resource.data)
+                    && !('status' in request.resource.data)
+                    && !('wallet_balance' in request.resource.data);
+      allow update: if isOwner(userId)
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'status', 'wallet_balance']);
+      allow delete: if false;
+    }
+
+    // Enrollments: Only readable by the student or instructor. Writes are strictly server-side.
+    match /enrollments/{enrollmentId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid ||
+        resource.data.instructor_id == request.auth.uid
+      );
+      allow write: if false;
+    }
+
+    // Transactions: Only readable by involved student or instructor. Writes are strictly server-side.
+    match /transactions/{txId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid ||
+        resource.data.instructor_id == request.auth.uid
+      );
+      allow write: if false;
+    }
+
+    // Coupons: Clients can read coupons, but clients cannot alter usage_count.
+    match /coupons/{couponId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['usage_count']);
+    }
+
+    // Wallet requests: Student can read and create their own request; approval/status change is server-side.
+    match /wallet_requests/{requestId} {
+      allow read: if isAuthenticated() && resource.data.student_id == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.student_id == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Withdrawal requests: Instructor can read and create their own request; status change is server-side.
+    match /withdrawal_requests/{requestId} {
+      allow read: if isAuthenticated() && resource.data.instructor_id == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.instructor_id == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Public courses: anyone can read courses. Instructors manage their own courses.
+    match /courses/{courseId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && (
+        resource == null || resource.data.instructor_id == request.auth.uid
+      );
+    }
+
+    // Internal logs: strictly server-side
+    match /activity_logs/{logId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    // System configurations: strictly server-side
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /system/{docId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    // Default deny for everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

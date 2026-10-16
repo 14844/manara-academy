@@ -74,11 +74,17 @@ export default function AdminUsersPage() {
 
         setIsRecharging(true)
         try {
-            const userRef = doc(db, "profiles", selectedUserForRecharge.id)
-            await updateDoc(userRef, {
-                wallet_balance: increment(Number(rechargeAmount)),
-                updated_at: new Date().toISOString()
+            const res = await fetch("/api/admin/wallet/adjust", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    targetUserId: selectedUserForRecharge.id,
+                    amount: Number(rechargeAmount),
+                    type: "recharge",
+                }),
             })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "فشل تعديل الرصيد")
 
             setUsers(users.map(u =>
                 u.id === selectedUserForRecharge.id
@@ -125,7 +131,6 @@ export default function AdminUsersPage() {
 
         setIsWithdrawing(true)
         try {
-            const userRef = doc(db, "profiles", selectedUserForWithdraw.id)
             const currentBalance = selectedUserForWithdraw.wallet_balance || 0
 
             if (Number(withdrawAmount) > currentBalance) {
@@ -134,10 +139,17 @@ export default function AdminUsersPage() {
                 return
             }
 
-            await updateDoc(userRef, {
-                wallet_balance: increment(-Number(withdrawAmount)),
-                updated_at: new Date().toISOString()
+            const res = await fetch("/api/admin/wallet/adjust", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    targetUserId: selectedUserForWithdraw.id,
+                    amount: Number(withdrawAmount),
+                    type: "withdraw",
+                }),
             })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "فشل تعديل الرصيد")
 
             setUsers(users.map(u =>
                 u.id === selectedUserForWithdraw.id
