@@ -36,6 +36,10 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "غير مصرح لك بتأكيد هذا الدفع" }, { status: 403 });
         }
 
+        if (walletData.status !== "pending_payment" && walletData.status !== "pending") {
+            return NextResponse.json({ error: "طلب الشحن تم معالجته مسبقاً أو غير صالح" }, { status: 400 });
+        }
+
         // 2. Fixed doc id for unified idempotency check with webhook
         const txRef = adminDb.collection("transactions").doc(intentKey);
         const existingTx = await txRef.get();
@@ -61,7 +65,14 @@ export async function POST(request: Request) {
         const txStatus = (data.status || "").toLowerCase();
 
         if (txStatus === "paid" || txStatus === "success") {
-            const paidAmount = Number(walletData.amount || 0);
+            const fawaterakPaid = Number(data.paid_amount || data.total || data.cartTotal || 0);
+            const requestedAmount = Number(walletData.amount || 0);
+
+            if (fawaterakPaid < requestedAmount) {
+                return NextResponse.json({ error: "المبلغ المدفوع غير مطابق للطلب" }, { status: 400 });
+            }
+
+            const paidAmount = requestedAmount;
             const transactionId = data.id || data.transaction_id || intentKey;
             const paymentMethod = data.payment_method || "Online";
 

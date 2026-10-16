@@ -211,20 +211,21 @@ function WalletContent() {
 
             const { url: publicUrl } = await uploadRes.json()
 
-            // Create request in Firestore
-            const reqRef = await addDoc(collection(db, "wallet_requests"), {
-                student_id: user.uid,
-                student_name: profile?.full_name || user.displayName,
-                student_email: user.email,
-                student_unique_id: profile?.student_id || "N/A",
-                amount: Number(amount),
-                sender_number: senderNumber,
-                screenshot_url: publicUrl,
-                payment_gateway: "manual",
-                status: "pending",
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
+            // Create request via secure server route
+            const manualRes = await fetch("/api/wallet/manual-request", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    amount: Number(amount),
+                    senderNumber,
+                    screenshotUrl: publicUrl,
+                }),
             })
+            const manualData = await manualRes.json()
+            if (!manualRes.ok) {
+                throw new Error(manualData.error || "فشل إرسال طلب الشحن")
+            }
+            const reqRef = { id: manualData.requestId }
 
             toast.success("تم إرسال طلب الشحن بنجاح! سيتم مراجعته من قبل الإدارة خلال ساعات.")
 

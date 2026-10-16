@@ -215,17 +215,6 @@ export function SignupForm() {
             )
             const user = userCredential.user
 
-            const profilesRef = collection(db, "profiles")
-            const qPhone = query(profilesRef, where("phone", "==", fullPhone))
-            const phoneSnap = await getDocs(qPhone)
-
-            if (!phoneSnap.empty) {
-                await user.delete()
-                toast.error("رقم الهاتف هذا مسجل بالفعل بحساب آخر")
-                setIsLoading(false)
-                return
-            }
-
             await updateProfile(user, {
                 displayName: values.fullName
             })
@@ -250,6 +239,7 @@ export function SignupForm() {
 
             const regData = await registerRes.json().catch(() => ({}))
             if (!registerRes.ok) {
+                await user.delete().catch(() => {})
                 throw new Error(regData.error || "فشل تسجيل بيانات الحساب")
             }
             const studentId = regData.studentId || "N/A"

@@ -68,8 +68,20 @@ export async function POST(request: Request) {
 
         const walletReqDoc = walletReqSnap.docs[0];
         const walletData = walletReqDoc.data();
+
+        if (walletData.status !== "pending_payment" && walletData.status !== "pending") {
+            return NextResponse.json({ error: "Request not pending" }, { status: 400 });
+        }
+
         const studentId = walletData.student_id;
-        const paidAmount = Number(walletData.amount || 0);
+        const requestedAmount = Number(walletData.amount || 0);
+        const webhookPaidAmount = Number(payload.paidAmount || payload.amount || 0);
+
+        if (webhookPaidAmount > 0 && webhookPaidAmount < requestedAmount) {
+            return NextResponse.json({ error: "Paid amount less than requested" }, { status: 400 });
+        }
+
+        const paidAmount = requestedAmount;
 
         if (!studentId || paidAmount <= 0) {
             return NextResponse.json({ error: "Invalid student or amount in recorded request" }, { status: 400 });

@@ -11,67 +11,122 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function getRole() {
-      return request.auth.token.role;
+    function getUserRole() {
+      return request.auth.token.role != null
+        ? request.auth.token.role
+        : get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role;
     }
 
-    // Profiles: users can only read their own profile.
-    // Client cannot write to sensitive fields: role, status, wallet_balance.
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        request.auth.token.role == 'admin' ||
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function isInstructor() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'instructor' ||
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'instructor'
+      );
+    }
+
+    // Profiles: users read own profile; admin reads all.
+    // Client cannot write to sensitive fields: role, status, wallet_balance, active_devices, active_session_id.
     match /profiles/{userId} {
-      allow read: if isOwner(userId);
+      allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId)
                     && !('role' in request.resource.data)
                     && !('status' in request.resource.data)
-                    && !('wallet_balance' in request.resource.data);
-      allow update: if isOwner(userId)
-                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'status', 'wallet_balance']);
-      allow delete: if false;
+                    && !('wallet_balance' in request.resource.data)
+                    && !('active_devices' in request.resource.data)
+                    && !('active_session_id' in request.resource.data);
+      allow update: if isAdmin() || (
+        isOwner(userId) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 'status', 'wallet_balance', 'active_devices', 'active_session_id'
+        ])
+      );
+      allow delete: if isAdmin();
     }
 
-    // Enrollments: Only readable by the student or instructor. Writes are strictly server-side.
+    // Enrollments: Readable by student, course instructor, or admin.
+    // Progress update allowed for enrolled student. Delete allowed for admin. Writes/purchases are server-side.
     match /enrollments/{enrollmentId} {
       allow read: if isAuthenticated() && (
         resource.data.student_id == request.auth.uid ||
-        resource.data.instructor_id == request.auth.uid
+        resource.data.instructor_id == request.auth.uid ||
+        isAdmin()
       );
-      allow write: if false;
+      allow update: if isAuthenticated() && (
+        isAdmin() || (
+          resource.data.student_id == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'progress', 'completed_lessons', 'last_lesson_id', 'updated_at'
+          ])
+        )
+      );
+      allow delete: if isAdmin();
+      allow create: if false;
     }
 
-    // Transactions: Only readable by involved student or instructor. Writes are strictly server-side.
+    // Transactions: Strictly read-only for participants and admin. Writes are server-side.
     match /transactions/{txId} {
       allow read: if isAuthenticated() && (
         resource.data.student_id == request.auth.uid ||
-        resource.data.instructor_id == request.auth.uid
+        resource.data.instructor_id == request.auth.uid ||
+        isAdmin()
       );
       allow write: if false;
     }
 
-    // Coupons: Clients can read coupons, but clients cannot alter usage_count.
+    // Coupons: Owner instructor or admin can create/manage. usage_count cannot be edited from client.
     match /coupons/{couponId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['usage_count']);
+      allow create: if isAuthenticated() && (
+        (isInstructor() && request.resource.data.instructor_id == request.auth.uid) || isAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        (resource.data.instructor_id == request.auth.uid || isAdmin()) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['usage_count'])
+      );
+      allow delete: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
     }
 
-    // Wallet requests: Student can read and create their own request; approval/status change is server-side.
+    // Wallet requests: Read by student or admin. Client cannot write (handled strictly via server routes).
     match /wallet_requests/{requestId} {
-      allow read: if isAuthenticated() && resource.data.student_id == request.auth.uid;
-      allow create: if isAuthenticated() && request.resource.data.student_id == request.auth.uid;
-      allow update, delete: if false;
+      allow read: if isAuthenticated() && (resource.data.student_id == request.auth.uid || isAdmin());
+      allow write: if false;
     }
 
-    // Withdrawal requests: Instructor can read and create their own request; status change is server-side.
+    // Withdrawal requests: Instructor can read own & create with their own id. Admin reads all & updates status.
     match /withdrawal_requests/{requestId} {
-      allow read: if isAuthenticated() && resource.data.instructor_id == request.auth.uid;
-      allow create: if isAuthenticated() && request.resource.data.instructor_id == request.auth.uid;
-      allow update, delete: if false;
+      allow read: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && (
+        (isInstructor() && request.resource.data.instructor_id == request.auth.uid) || isAdmin()
+      );
+      allow update: if isAdmin();
+      allow delete: if false;
     }
 
-    // Public courses: anyone can read courses. Instructors manage their own courses.
+    // Courses: Publicly readable. Created by instructor (with their own uid) or admin.
+    // Instructor cannot tamper with students_count, status, is_published, or instructor_id.
     match /courses/{courseId} {
       allow read: if true;
-      allow write: if isAuthenticated() && (
-        resource == null || resource.data.instructor_id == request.auth.uid
+      allow create: if isAuthenticated() && (
+        (isInstructor() && request.resource.data.instructor_id == request.auth.uid) || isAdmin()
       );
+      allow update: if isAuthenticated() && (
+        isAdmin() || (
+          resource.data.instructor_id == request.auth.uid &&
+          request.resource.data.instructor_id == resource.data.instructor_id &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'students_count', 'status', 'is_published'
+          ])
+        )
+      );
+      allow delete: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
 
       // Private media: strictly server-side only
       match /private/{docId} {
@@ -79,20 +134,56 @@ service cloud.firestore {
       }
     }
 
-    // Internal logs: strictly server-side
-    match /activity_logs/{logId} {
-      allow read: if false;
-      allow write: if false;
+    // Submissions: Students create their own; instructors/admin read and grade.
+    match /submissions/{subId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid ||
+        resource.data.instructor_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && request.resource.data.student_id == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid || isAdmin()
+      );
+      allow delete: if isAdmin();
     }
 
-    // System configurations: strictly server-side
+    // Video progress: Student can read and write their own progress; admin can read.
+    match /video_progress/{progressId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid || isAdmin()
+      );
+      allow create, update: if isAuthenticated() && (
+        request.resource.data.student_id == request.auth.uid || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Parent Reports & Schedules: Publicly readable by token; created by instructor or admin.
+    match /parent_reports/{reportId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && (isInstructor() || isAdmin());
+    }
+
+    match /report_schedules/{scheduleId} {
+      allow read, write: if isAuthenticated() && (isInstructor() || isAdmin());
+    }
+
+    // Internal activity logs: Admin can read. Logging is performed by server logger or authenticated client logger.
+    match /activity_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+
+    // System configurations: Publicly readable; written only by admin.
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if false;
+      allow write: if isAdmin();
     }
 
     match /system/{docId} {
-      allow read: if false;
+      allow read: if isAdmin();
       allow write: if false;
     }
 

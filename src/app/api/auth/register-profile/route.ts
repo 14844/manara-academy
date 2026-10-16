@@ -25,6 +25,23 @@ export async function POST(request: Request) {
         const uid = decoded.uid;
         const email = decoded.email || "";
 
+        // Check if profile document already exists (prevent resetting balance/role/status)
+        const profileRef = adminDb.collection("profiles").doc(uid);
+        const existingSnap = await profileRef.get();
+        if (existingSnap.exists) {
+            return NextResponse.json({ error: "الحساب مسجل بالفعل مسبقاً" }, { status: 409 });
+        }
+
+        // Phone uniqueness check via Admin SDK
+        if (phone) {
+            const phoneSnap = await adminDb.collection("profiles").where("phone", "==", phone).limit(1).get();
+            if (!phoneSnap.empty) {
+                // Delete orphaned auth user
+                await adminAuth.deleteUser(uid).catch(() => {});
+                return NextResponse.json({ error: "رقم الهاتف هذا مسجل بالفعل بحساب آخر" }, { status: 400 });
+            }
+        }
+
         // Enforce strict roles on server: only "student" or "instructor" (never "admin")
         const safeRole = requestedRole === "instructor" ? "instructor" : "student";
 
@@ -40,8 +57,8 @@ export async function POST(request: Request) {
             return `MANARA-${nextId}`;
         });
 
-        // Set profile with strictly enforced status="pending" and wallet_balance=0
-        await adminDb.collection("profiles").doc(uid).set({
+        // Create profile document with create() - strictly fails if already exists
+        await profileRef.create({
             id: uid,
             student_id: studentId,
             email: email,
