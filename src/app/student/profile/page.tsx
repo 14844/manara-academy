@@ -51,11 +51,20 @@ export default function StudentProfilePage() {
 
         setIsSaving(true)
         try {
-            await updateDoc(doc(db, "profiles", user.uid), {
-                ...profile,
-                status: 'pending', // Re-trigger approval
-                updated_at: new Date().toISOString()
+            const res = await fetch("/api/profile/update-status", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    action: "update_profile",
+                    profile,
+                }),
             })
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}))
+                throw new Error(err.error || "فشل تحديث البيانات")
+            }
+
             toast.success("تم تحديث البيانات بنجاح. حسابك الآن قيد المراجعة.")
             router.push("/pending-approval")
         } catch (error) {

@@ -73,19 +73,11 @@ export default function CoursesPage() {
                     ...doc.data()
                 }))
 
-                const enrollmentsSnap = await getDocs(collection(db, "enrollments"))
-                const enrollments = enrollmentsSnap.docs.map(doc => doc.data())
-
-                const profilesSnap = await getDocs(collection(db, "profiles"))
-                const profilesMap: Record<string, any> = {}
-                profilesSnap.forEach(doc => {
-                    profilesMap[doc.id] = doc.data()
-                })
-
                 const updatedCourses = fetchedCourses.map((course: any) => ({
                     ...course,
-                    students_count: enrollments.filter((e: any) => e.course_id === course.id).length,
-                    instructor_verified: profilesMap[course.instructor_id]?.is_verified || false
+                    students_count: Number(course.students_count || 0),
+                    instructor_verified: course.instructor_verified || false,
+                    instructor_name: course.instructor_name || "مدرس المنصة"
                 }))
 
                 setCourses(updatedCourses)

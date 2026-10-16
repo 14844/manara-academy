@@ -14,6 +14,7 @@ interface FileUploaderProps {
     validateDimensions?: { width: number; height: number }
     label?: string
     folder?: string
+    courseId?: string
 }
 
 export function FileUploader({
@@ -22,7 +23,8 @@ export function FileUploader({
     maxSizeMB = 5120,
     validateDimensions,
     label = "رفع ملف",
-    folder = "general"
+    folder = "general",
+    courseId
 }: FileUploaderProps) {
     console.log("FileUploader initialized for Bunny.net. Path:", folder)
     const [file, setFile] = useState<File | null>(null)
@@ -88,9 +90,11 @@ export function FileUploader({
             const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
             const fileName = `${Date.now()}_${sanitizedName}`
 
+            const courseParam = courseId ? `&courseId=${encodeURIComponent(courseId)}` : ''
+
             if (isVideo) {
                 // ── STEP 1: Get Upload Signature/Metadata from our API ──
-                const authUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
+                const authUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}${courseParam}`
                 const authRes = await fetch(authUrl, { 
                     method: 'POST',
                     headers: { 'Content-Type': file.type }
@@ -139,7 +143,7 @@ export function FileUploader({
                 // ── DIRECT PROXIED UPLOAD (Images/Docs) ───────────────────────
                 // For non-videos, we send the file body in a single POST request
                 const xhr = new XMLHttpRequest()
-                const uploadUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
+                const uploadUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}${courseParam}`
                 
                 xhr.open('POST', uploadUrl, true)
                 xhr.setRequestHeader('Content-Type', file.type)

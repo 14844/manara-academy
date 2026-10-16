@@ -159,36 +159,22 @@ export default function InstructorWithdrawalsPage() {
         setIsSubmitting(true)
         try {
             const instructorId = user.uid
-            const profileRef = doc(db, "profiles", instructorId)
-            const withdrawalRef = doc(collection(db, "withdrawal_requests"))
             const netAmount = balance.net
 
-            await runTransaction(db, async (transaction) => {
-                const pSnap = await transaction.get(profileRef)
-                if (!pSnap.exists()) throw new Error("لم يتم العثور على ملف المحاضر")
-                
-                const currentBalance = pSnap.data().wallet_balance || 0
-                if (currentBalance < netAmount) {
-                    throw new Error("عذراً، الرصيد المتاح حالياً أقل من المبلغ المطلوب سحبه")
-                }
-
-                // 1. Deduct immediately from wallet
-                transaction.update(profileRef, {
-                    wallet_balance: increment(-netAmount),
-                    updated_at: new Date().toISOString()
-                })
-
-                // 2. Create the request
-                transaction.set(withdrawalRef, {
-                    instructor_id: instructorId,
-                    instructor_name: user.displayName || "محاضر",
+            const res = await fetch("/api/instructor/withdrawals/request", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
                     amount: balance.gross,
                     commission: balance.commission,
                     net_amount: netAmount,
-                    status: "pending",
-                    requested_at: new Date().toISOString(),
-                })
+                }),
             })
+
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+                throw new Error(data.error || "فشل إرسال طلب السحب")
+            }
 
             toast.success("تم إرسال طلب السحب بنجاح وخصمه من محفظتك مؤقتاً")
             setShowRequestModal(false)
@@ -210,7 +196,7 @@ export default function InstructorWithdrawalsPage() {
                     gross_amount: balance.gross,
                     commission: balance.commission,
                     net_amount: netAmount,
-                    withdrawal_id: withdrawalRef.id,
+                    withdrawal_id: data.requestId || "pending_req",
                 }
             }).catch(() => {})
         } catch (error: any) {

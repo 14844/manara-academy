@@ -286,6 +286,7 @@ export default function ManageCoursePage() {
                                                                             label="اختر ملف الفيديو (MP4)"
                                                                             folder="videos"
                                                                             accept="video/*"
+                                                                            courseId={id as string}
                                                                             onUploadComplete={(url) => {
                                                                                 const newModules = [...modules]
                                                                                 newModules[mIdx].lessons[iIdx].video_path = url
@@ -341,6 +342,7 @@ export default function ManageCoursePage() {
                                                                             label="اختر الملف (PDF, Zip, etc...)"
                                                                             folder="files"
                                                                             accept=".pdf,.doc,.docx,.zip,.rar"
+                                                                            courseId={id as string}
                                                                             onUploadComplete={(url) => {
                                                                                 const newModules = [...modules]
                                                                                 newModules[mIdx].lessons[iIdx].url = url
@@ -514,6 +516,7 @@ export default function ManageCoursePage() {
                                         label="رفع غلاف الكورس"
                                         folder="thumbnails"
                                         accept="image/*"
+                                        courseId={id as string}
                                         onUploadComplete={(url) => {
                                             console.log("New thumbnail URL received:", url)
                                             setCourse({ ...course, thumbnail_url: url })

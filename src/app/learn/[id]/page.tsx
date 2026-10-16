@@ -185,6 +185,7 @@ export default function LearnPage() {
                     await updateDoc(enrollmentRef, {
                         completed_lessons: newCompleted,
                         progress: newProgress,
+                        last_lesson_id: lessonId,
                         last_accessed_lesson: lessonId,
                         updated_at: new Date().toISOString()
                     })

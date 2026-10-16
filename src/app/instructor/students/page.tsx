@@ -132,32 +132,23 @@ export default function InstructorStudentsPage() {
         if (!window.confirm("هل أنت متأكد من استبعاد الطالب من جميع كورساتك؟")) return
 
         try {
-            // Find all enrollments for this student
-            const enrollmentsQ = query(collection(db, "enrollments"), where("student_id", "==", studentId))
-            const enrollmentsSnap = await getDocs(enrollmentsQ)
+            const res = await fetch("/api/instructor/students/kick", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ studentId }),
+            })
 
-            const batch = []
-            for (const enrollmentDoc of enrollmentsSnap.docs) {
-                const eData = enrollmentDoc.data()
-                // Check if this course belongs to the current instructor
-                const isInstructorCourse = instructorCourseIds.includes(eData.course_id)
-                if (isInstructorCourse) {
-                    batch.push(deleteDoc(doc(db, "enrollments", enrollmentDoc.id)))
-                }
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+                throw new Error(data.error || "فشل استبعاد الطالب")
             }
 
-            if (batch.length > 0) {
-                await Promise.all(batch)
-                toast.success("تم استبعاد الطالب من كورساتك بنجاح")
-            } else {
-                toast.error("لم يتم العثور على اشتراكات لهذا الطالب في كورساتك")
-            }
-
+            toast.success("تم استبعاد الطالب من كورساتك بنجاح")
             setIsDetailOpen(false)
             if (user?.uid) fetchStudentsData(user.uid) // Refresh list
-        } catch (error) {
+        } catch (error: any) {
             console.error("Kick error:", error)
-            toast.error("حدث خطأ أثناء استبعاد الطالب")
+            toast.error(error.message || "حدث خطأ أثناء استبعاد الطالب")
         }
     }
 

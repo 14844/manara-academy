@@ -80,6 +80,48 @@ export async function GET(request: NextRequest) {
                 }
             } else if (cleanPath.startsWith(`instructor_${user.uid}_`)) {
                 // Instructor accessing their own uploaded folder
+            } else if (cleanPath.startsWith('instructor_')) {
+                // Enrolled student accessing instructor-uploaded file
+                const parts = cleanPath.split('_')
+                const instructorUid = parts[1]
+                if (!instructorUid) {
+                    return new NextResponse("Forbidden", { status: 403 })
+                }
+
+                const reqCourseId = searchParams.get('courseId')
+                if (reqCourseId && /^[\w-]+$/.test(reqCourseId)) {
+                    const enrSnap = await adminDb.collection("enrollments").doc(`${user.uid}_${reqCourseId}`).get()
+                    if (!enrSnap.exists || enrSnap.data()?.status !== "active") {
+                        return new NextResponse("Forbidden", { status: 403 })
+                    }
+                    const cSnap = await adminDb.collection("courses").doc(reqCourseId).get()
+                    if (!cSnap.exists || cSnap.data()?.instructor_id !== instructorUid) {
+                        return new NextResponse("Forbidden", { status: 403 })
+                    }
+                } else {
+                    const enrollmentsSnap = await adminDb.collection("enrollments")
+                        .where("student_id", "==", user.uid)
+                        .where("status", "==", "active")
+                        .get()
+                    
+                    if (enrollmentsSnap.empty) {
+                        return new NextResponse("Forbidden", { status: 403 })
+                    }
+
+                    const enrolledCourseIds = enrollmentsSnap.docs.map(d => d.data().course_id).filter(Boolean)
+                    let isEnrolledWithInstructor = false
+                    for (const cId of enrolledCourseIds) {
+                        const cDoc = await adminDb.collection("courses").doc(cId).get()
+                        if (cDoc.exists && cDoc.data()?.instructor_id === instructorUid) {
+                            isEnrolledWithInstructor = true
+                            break
+                        }
+                    }
+
+                    if (!isEnrolledWithInstructor) {
+                        return new NextResponse("Forbidden", { status: 403 })
+                    }
+                }
             } else {
                 return new NextResponse("Forbidden", { status: 403 })
             }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { BUNNY_CONFIG } from "@/lib/bunny/config"
 import crypto from "crypto"
 import { getServerAuth } from "@/lib/server-auth"
+import { adminDb } from "@/lib/firebase/admin"
 
 export const runtime = 'nodejs'
 
@@ -45,8 +46,16 @@ export async function POST(request: NextRequest) {
         }
     }
 
-    // Isolate folders per instructor to prevent overwriting other instructors' files
-    const safeFolder = user.role === 'admin' ? folder : `instructor_${user.uid}_${folder}`
+    // Isolate folders per instructor, or per course if courseId is provided and authorized
+    const courseId = searchParams.get('courseId')
+    let safeFolder = user.role === 'admin' ? folder : `instructor_${user.uid}_${folder}`
+
+    if (courseId && /^[\w-]+$/.test(courseId)) {
+        const courseDoc = await adminDb.collection("courses").doc(courseId).get()
+        if (courseDoc.exists && (courseDoc.data()?.instructor_id === user.uid || user.role === "admin")) {
+            safeFolder = `courses/${courseId}/${folder}`
+        }
+    }
 
     try {
         if (isVideo) {

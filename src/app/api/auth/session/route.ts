@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 
 export async function POST(request: Request) {
-    const { idToken, deviceId } = await request.json();
+    const { idToken, deviceId, sessionId } = await request.json();
 
     if (!idToken) {
         return NextResponse.json({ error: 'Missing token' }, { status: 400 });
@@ -26,6 +26,13 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: "تم إيقاف هذا الحساب. يرجى التواصل مع الإدارة" }, { status: 403 });
             }
 
+            const updateData: any = {
+                last_login: new Date().toISOString(),
+            };
+            if (sessionId) {
+                updateData.active_session_id = sessionId;
+            }
+
             // Server-side device limit check for students
             if (profile.role !== "admin" && profile.role !== "instructor" && deviceId) {
                 const activeDevices: string[] = profile.active_devices || [];
@@ -37,16 +44,11 @@ export async function POST(request: Request) {
                             error: "عذراً، لقد وصلت للحد الأقصى للأجهزة (جهازين فقط). يرجى التواصل مع إدارة الأكاديمية.",
                         }, { status: 403 });
                     }
-                    await profileRef.update({
-                        active_devices: FieldValue.arrayUnion(deviceId),
-                        last_login: new Date().toISOString(),
-                    });
-                } else {
-                    await profileRef.update({
-                        last_login: new Date().toISOString(),
-                    });
+                    updateData.active_devices = FieldValue.arrayUnion(deviceId);
                 }
             }
+
+            await profileRef.update(updateData);
         }
 
         // Set session expiration to 5 days.

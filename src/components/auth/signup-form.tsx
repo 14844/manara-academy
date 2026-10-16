@@ -8,7 +8,6 @@ import * as z from "zod"
 import { auth, db } from "@/lib/firebase/config"
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth"
 import { doc, setDoc, collection, query, where, getDocs } from "firebase/firestore"
-import { generateUniqueStudentId } from "@/lib/profile-utils"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import {

@@ -132,12 +132,17 @@ export default function AdminPaymentsPage() {
     const handleReject = async (request: any) => {
         setIsActionLoading(true)
         try {
-            const requestRef = doc(db, "wallet_requests", request.id)
-            await updateDoc(requestRef, {
-                status: "rejected",
-                updated_at: new Date().toISOString(),
-                reviewed_at: new Date().toISOString()
+            const res = await fetch("/api/admin/payments/reject", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ requestId: request.id }),
             })
+
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+                throw new Error(data.error || "فشل رفض طلب الدفع")
+            }
+
             toast.info("تم رفض طلب الدفع")
             setSelectedRequest(null)
             setConfirmingApproval(false) // Reset confirmation state on reject

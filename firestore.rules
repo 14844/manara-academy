@@ -32,10 +32,10 @@ service cloud.firestore {
       );
     }
 
-    // Profiles: users read own profile; admin reads all.
+    // Profiles: users read own profile; admin reads all; instructors can read student profiles.
     // Client cannot write to sensitive fields: role, status, wallet_balance, active_devices, active_session_id.
     match /profiles/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
+      allow read: if isOwner(userId) || isAdmin() || isInstructor();
       allow create: if isOwner(userId)
                     && !('role' in request.resource.data)
                     && !('status' in request.resource.data)
@@ -63,7 +63,7 @@ service cloud.firestore {
         isAdmin() || (
           resource.data.student_id == request.auth.uid &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'progress', 'completed_lessons', 'last_lesson_id', 'updated_at'
+            'progress', 'completed_lessons', 'last_lesson_id', 'last_accessed_lesson', 'updated_at'
           ])
         )
       );
@@ -110,12 +110,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Courses: Publicly readable. Created by instructor (with their own uid) or admin.
+    // Courses: Publicly readable. Created by instructor (must be pending, zero students) or admin.
     // Instructor cannot tamper with students_count, status, is_published, or instructor_id.
     match /courses/{courseId} {
       allow read: if true;
       allow create: if isAuthenticated() && (
-        (isInstructor() && request.resource.data.instructor_id == request.auth.uid) || isAdmin()
+        isAdmin() || (
+          isInstructor() &&
+          request.resource.data.instructor_id == request.auth.uid &&
+          request.resource.data.status == "pending" &&
+          (!('students_count' in request.resource.data) || request.resource.data.students_count == 0)
+        )
       );
       allow update: if isAuthenticated() && (
         isAdmin() || (
@@ -135,13 +140,16 @@ service cloud.firestore {
     }
 
     // Submissions: Students create their own; instructors/admin read and grade.
+    // Prevent creating submission with spoofed instructor_id.
     match /submissions/{subId} {
       allow read: if isAuthenticated() && (
         resource.data.student_id == request.auth.uid ||
         resource.data.instructor_id == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isAuthenticated() && request.resource.data.student_id == request.auth.uid;
+      allow create: if isAuthenticated() &&
+        request.resource.data.student_id == request.auth.uid &&
+        get(/databases/$(database)/documents/courses/$(request.resource.data.course_id)).data.instructor_id == request.resource.data.instructor_id;
       allow update: if isAuthenticated() && (
         resource.data.instructor_id == request.auth.uid || isAdmin()
       );
@@ -159,20 +167,41 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Parent Reports & Schedules: Publicly readable by token; created by instructor or admin.
+    // Parent Reports: Access via token through server route /api/reports/[token].
+    // Authenticated access restricted to report owner instructor, student, or admin.
     match /parent_reports/{reportId} {
-      allow read: if true;
-      allow write: if isAuthenticated() && (isInstructor() || isAdmin());
+      allow read: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid ||
+        resource.data.student_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        (isInstructor() && request.resource.data.instructor_id == request.auth.uid) || isAdmin()
+      );
+      allow update, delete: if isAuthenticated() && (
+        (isInstructor() && resource.data.instructor_id == request.auth.uid) || isAdmin()
+      );
     }
 
+    // Report Schedules: Only the instructor who owns the schedule or admin.
     match /report_schedules/{scheduleId} {
-      allow read, write: if isAuthenticated() && (isInstructor() || isAdmin());
+      allow read: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid || isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        (isInstructor() && request.resource.data.instructor_id == request.auth.uid) || isAdmin()
+      );
+      allow update, delete: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid || isAdmin()
+      );
     }
 
-    // Internal activity logs: Admin can read. Logging is performed by server logger or authenticated client logger.
+    // Internal activity logs: Admin reads. Authenticated users log under their own UID.
     match /activity_logs/{logId} {
       allow read: if isAdmin();
-      allow create: if isAuthenticated();
+      allow create: if isAuthenticated() && (
+        !('user_id' in request.resource.data) || request.resource.data.user_id == request.auth.uid || isAdmin()
+      );
       allow update, delete: if false;
     }
 

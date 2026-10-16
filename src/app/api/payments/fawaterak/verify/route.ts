@@ -65,11 +65,26 @@ export async function POST(request: Request) {
         const txStatus = (data.status || "").toLowerCase();
 
         if (txStatus === "paid" || txStatus === "success") {
-            const fawaterakPaid = Number(data.paid_amount || data.total || data.cartTotal || 0);
+            const rawAmount =
+                data.paid_amount ??
+                data.paidAmount ??
+                data.amount ??
+                data.total ??
+                data.cartTotal ??
+                data.payment_data?.amount ??
+                data.payment_data?.paid_amount ??
+                data.invoice?.total ??
+                data.invoice?.paid_amount ??
+                data.invoice_total ??
+                null;
+
             const requestedAmount = Number(walletData.amount || 0);
 
-            if (fawaterakPaid < requestedAmount) {
-                return NextResponse.json({ error: "المبلغ المدفوع غير مطابق للطلب" }, { status: 400 });
+            if (rawAmount !== null && rawAmount !== undefined) {
+                const fawaterakPaid = Number(rawAmount);
+                if (!isNaN(fawaterakPaid) && fawaterakPaid > 0 && fawaterakPaid < requestedAmount) {
+                    return NextResponse.json({ error: "المبلغ المدفوع غير مطابق للطلب" }, { status: 400 });
+                }
             }
 
             const paidAmount = requestedAmount;

@@ -62,19 +62,31 @@ export function LoginForm() {
             )
 
             console.log("LoginForm: Login successful for:", userCredential.user.uid)
-            // Get ID token and set session cookie
+
+            // 1. Get or Generate Device ID and Session ID
+            let deviceId = localStorage.getItem('manara_device_id')
+            if (!deviceId) {
+                deviceId = crypto.randomUUID()
+                localStorage.setItem('manara_device_id', deviceId)
+            }
+            const sessionId = Date.now().toString()
+            localStorage.setItem('manara_active_session_id', sessionId)
+
+            // 2. Set server session and register device/session
             const idToken = await userCredential.user.getIdToken()
             const sessionResponse = await fetch('/api/auth/session', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ idToken })
+                body: JSON.stringify({ idToken, deviceId, sessionId })
             })
 
             if (!sessionResponse.ok) {
-                throw new Error("فشل إنشاء جلسة الدخول")
+                const errData = await sessionResponse.json().catch(() => ({}))
+                await auth.signOut()
+                throw new Error(errData.error || "فشل إنشاء جلسة الدخول")
             }
 
-            // Fetch user profile to determine role
+            // 3. Fetch user profile to determine role
             const profileRef = doc(db, "profiles", userCredential.user.uid)
             console.log("LoginForm: Fetching profile from Firestore...")
             const profileSnap = await getDoc(profileRef)
@@ -87,67 +99,7 @@ export function LoginForm() {
             }
 
             const profile = profileSnap.data()
-            console.log("LoginForm: Profile data:", profile);
             console.log("LoginForm: Profile retrieved, role:", profile?.role)
-
-            // --- DEVICE LIMIT LOGIC ---
-            // Skip device limit for admin and instructor roles
-            if (profile?.role !== 'admin' && profile?.role !== 'instructor') {
-                // 1. Get or Generate Device ID
-                let deviceId = localStorage.getItem('manara_device_id')
-                if (!deviceId) {
-                    deviceId = crypto.randomUUID()
-                    localStorage.setItem('manara_device_id', deviceId)
-                }
-
-                const activeDevices = profile?.active_devices || []
-                const isKnownDevice = activeDevices.includes(deviceId)
-
-                if (!isKnownDevice) {
-                    if (activeDevices.length >= 2) {
-                        console.warn("LoginForm: Max devices reached for UID:", userCredential.user.uid)
-                        toast.error("عذراً، لقد وصلت للحد الأقصى للأجهزة (جهازين فقط). يرجى التواصل مع إدارة الأكاديمية لفك حظر الأجهزة.")
-                        setIsLoading(false)
-                        // Sign out from Firebase Auth since the device is blocked
-                        await auth.signOut()
-                        return
-                    }
-
-                    // Register this device
-                    const { arrayUnion, updateDoc } = await import("firebase/firestore")
-                    
-                    // Generate a unique session ID for single session enforcement
-                    const sessionId = Date.now().toString()
-                    localStorage.setItem('manara_active_session_id', sessionId)
-
-                    await updateDoc(profileRef, {
-                        active_devices: arrayUnion(deviceId),
-                        active_session_id: sessionId,
-                        last_login: new Date().toISOString()
-                    })
-                    console.log("LoginForm: Device registered and session set:", deviceId, sessionId)
-                } else {
-                    // Just update last login and set a new session ID
-                    const { updateDoc } = await import("firebase/firestore")
-                    
-                    // Generate a unique session ID even for known devices
-                    const sessionId = Date.now().toString()
-                    localStorage.setItem('manara_active_session_id', sessionId)
-
-                    await updateDoc(profileRef, {
-                        active_session_id: sessionId,
-                        last_login: new Date().toISOString()
-                    })
-                    console.log("LoginForm: Session updated for known device:", sessionId)
-                }
-            } else {
-                // For admin/instructor, just update last login
-                const { updateDoc } = await import("firebase/firestore")
-                await updateDoc(profileRef, {
-                    last_login: new Date().toISOString()
-                })
-            }
-            // --- END DEVICE LIMIT LOGIC ---
 
             toast.success("تم تسجيل الدخول بنجاح")
 

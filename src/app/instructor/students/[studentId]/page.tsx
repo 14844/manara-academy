@@ -204,13 +204,22 @@ export default function StudentProfilePage() {
 
         setIsActionLoading(true)
         try {
-            const batch = enrollments.map(enr => deleteDoc(doc(db, "enrollments", enr.id)))
-            await Promise.all(batch)
+            const res = await fetch("/api/instructor/students/kick", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ studentId: studentId as string }),
+            })
+
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+                throw new Error(data.error || "فشل استبعاد الطالب")
+            }
+
             toast.success("تم استبعاد الطالب بنجاح")
             router.push("/instructor/students")
-        } catch (error) {
+        } catch (error: any) {
             console.error("Kick error:", error)
-            toast.error("حدث خطأ أثناء استبعاد الطالب")
+            toast.error(error.message || "حدث خطأ أثناء استبعاد الطالب")
         } finally {
             setIsActionLoading(false)
         }

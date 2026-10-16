@@ -77,15 +77,8 @@ export default function CourseDetailsPage() {
                 const docSnap = await getDoc(docRef)
                 if (docSnap.exists()) {
                     const courseData = { id: docSnap.id, ...docSnap.data() } as any
-                
-                // Fetch instructor verification from profiles
-                const instructorRef = doc(db, "profiles", courseData.instructor_id)
-                const instructorSnap = await getDoc(instructorRef)
-                if (instructorSnap.exists()) {
-                    courseData.instructor_verified = instructorSnap.data().is_verified
-                }
-                
-                setCourse(courseData)
+                    courseData.instructor_verified = courseData.instructor_verified || false
+                    setCourse(courseData)
                 } else {
                     toast.error("الكورس غير موجود")
                     router.push("/courses")
