@@ -33,19 +33,15 @@ service cloud.firestore {
     }
 
     // Profiles: users read own profile; admin reads all; instructors can read student profiles.
-    // Client cannot write to sensitive fields: role, status, wallet_balance, active_devices, active_session_id.
+    // Client create forbidden (handled by server). Owner can only update allowlisted fields.
     match /profiles/{userId} {
       allow read: if isOwner(userId) || isAdmin() || isInstructor();
-      allow create: if isOwner(userId)
-                    && !('role' in request.resource.data)
-                    && !('status' in request.resource.data)
-                    && !('wallet_balance' in request.resource.data)
-                    && !('active_devices' in request.resource.data)
-                    && !('active_session_id' in request.resource.data);
+      allow create: if false;
       allow update: if isAdmin() || (
         isOwner(userId) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'role', 'status', 'wallet_balance', 'active_devices', 'active_session_id'
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'full_name', 'phone', 'bio', 'specialty', 'avatar_url',
+          'grade_level', 'parent_phone', 'updated_at'
         ])
       );
       allow delete: if isAdmin();
@@ -81,11 +77,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Coupons: Owner instructor or admin can create/manage. usage_count cannot be edited from client.
+    // Coupons: Owner instructor or admin can create/manage.
+    // course_id required on create; instructor must own the course. usage_count cannot be edited from client.
     match /coupons/{couponId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && (
-        (isInstructor() && request.resource.data.instructor_id == request.auth.uid) || isAdmin()
+        isAdmin() || (
+          isInstructor() &&
+          request.resource.data.instructor_id == request.auth.uid &&
+          'course_id' in request.resource.data &&
+          (
+            request.resource.data.course_id == 'all' ||
+            get(/databases/$(database)/documents/courses/$(request.resource.data.course_id)).data.instructor_id == request.auth.uid
+          )
+        )
       );
       allow update: if isAuthenticated() && (
         (resource.data.instructor_id == request.auth.uid || isAdmin()) &&
@@ -100,18 +105,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Withdrawal requests: Instructor can read own & create with their own id. Admin reads all & updates status.
+    // Withdrawal requests: Instructor can read own. Admin reads all & updates status.
+    // Client create forbidden — withdrawals only via /api/instructor/withdrawals/request.
     match /withdrawal_requests/{requestId} {
       allow read: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && (
-        (isInstructor() && request.resource.data.instructor_id == request.auth.uid) || isAdmin()
-      );
+      allow create: if false;
       allow update: if isAdmin();
       allow delete: if false;
     }
 
-    // Courses: Publicly readable. Created by instructor (must be pending, zero students) or admin.
-    // Instructor cannot tamper with students_count, status, is_published, or instructor_id.
+    // Courses: Publicly readable. Created by instructor (must be pending, zero students, no is_published).
+    // Instructor cannot tamper with students_count, status, is_published, instructor_verified,
+    // rating, price (after create), or instructor_id.
     match /courses/{courseId} {
       allow read: if true;
       allow create: if isAuthenticated() && (
@@ -119,7 +124,10 @@ service cloud.firestore {
           isInstructor() &&
           request.resource.data.instructor_id == request.auth.uid &&
           request.resource.data.status == "pending" &&
-          (!('students_count' in request.resource.data) || request.resource.data.students_count == 0)
+          (!('students_count' in request.resource.data) || request.resource.data.students_count == 0) &&
+          !('is_published' in request.resource.data) &&
+          !('instructor_verified' in request.resource.data) &&
+          !('rating' in request.resource.data)
         )
       );
       allow update: if isAuthenticated() && (
@@ -127,11 +135,17 @@ service cloud.firestore {
           resource.data.instructor_id == request.auth.uid &&
           request.resource.data.instructor_id == resource.data.instructor_id &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'students_count', 'status', 'is_published'
+            'students_count', 'status', 'is_published', 'instructor_verified',
+            'rating', 'price'
           ])
         )
       );
-      allow delete: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
+      allow delete: if isAuthenticated() && (
+        isAdmin() || (
+          resource.data.instructor_id == request.auth.uid &&
+          (!('students_count' in resource.data) || resource.data.students_count == 0)
+        )
+      );
 
       // Private media: strictly server-side only
       match /private/{docId} {
@@ -156,15 +170,24 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Video progress: Student can read and write their own progress; admin can read.
+    // Video progress: Student can read/create/update their own progress; admin can read.
+    // Update/delete must verify existing doc belongs to user.
     match /video_progress/{progressId} {
       allow read: if isAuthenticated() && (
         resource.data.student_id == request.auth.uid || isAdmin()
       );
-      allow create, update: if isAuthenticated() && (
+      allow create: if isAuthenticated() && (
         request.resource.data.student_id == request.auth.uid || isAdmin()
       );
-      allow delete: if isAdmin();
+      allow update: if isAuthenticated() && (
+        isAdmin() || (
+          resource.data.student_id == request.auth.uid &&
+          request.resource.data.student_id == request.auth.uid
+        )
+      );
+      allow delete: if isAuthenticated() && (
+        isAdmin() || resource.data.student_id == request.auth.uid
+      );
     }
 
     // Parent Reports: Access via token through server route /api/reports/[token].
@@ -205,9 +228,9 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // System configurations: Publicly readable; written only by admin.
+    // System configurations: Only settings/support is publicly readable; rest require admin.
     match /settings/{settingId} {
-      allow read: if true;
+      allow read: if settingId == 'support' || isAdmin();
       allow write: if isAdmin();
     }
 
