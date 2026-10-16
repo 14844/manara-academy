@@ -2,6 +2,23 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getServerAuth } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
+import { checkRateLimit } from "@/lib/rate-limiter";
+import { BUNNY_CONFIG } from "@/lib/bunny/config";
+
+function isValidStorageUrl(urlStr: string): boolean {
+    if (!urlStr || typeof urlStr !== "string") return false;
+    if (urlStr.startsWith("/api/storage/") || urlStr.startsWith("/api/upload/")) {
+        return true;
+    }
+    try {
+        const parsed = new URL(urlStr);
+        const host = parsed.hostname.toLowerCase();
+        const pullHost = BUNNY_CONFIG.PULL_ZONE_URL ? new URL(BUNNY_CONFIG.PULL_ZONE_URL).hostname.toLowerCase() : "";
+        return host.endsWith("b-cdn.net") || host === "storage.bunnycdn.com" || (pullHost !== "" && host === pullHost);
+    } catch {
+        return false;
+    }
+}
 
 export async function POST(request: Request) {
     try {
@@ -13,16 +30,24 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "الحساب موقوف" }, { status: 403 });
         }
 
+        if (!checkRateLimit(`wallet_req_${user.uid}`, 5, 60000)) {
+            return NextResponse.json({ error: "تم إرسال عدة طلبات مؤخراً، يرجى الانتظار دقيقة والمحاولة مجدداً" }, { status: 429 });
+        }
+
         const body = await request.json();
         const { amount, senderNumber, screenshotUrl } = body;
 
         const numAmount = Number(amount);
-        if (!numAmount || numAmount <= 0) {
-            return NextResponse.json({ error: "المبلغ المدخل غير صالح" }, { status: 400 });
+        if (!Number.isFinite(numAmount) || numAmount <= 0 || numAmount > 50000) {
+            return NextResponse.json({ error: "المبلغ المدخل غير صالح (الحد الأقصى 50,000 ج.م)" }, { status: 400 });
         }
 
         if (!senderNumber || !screenshotUrl) {
             return NextResponse.json({ error: "بيانات التحويل وصورة الإيصال مطلوبة" }, { status: 400 });
+        }
+
+        if (!isValidStorageUrl(screenshotUrl)) {
+            return NextResponse.json({ error: "رابط صورة الإيصال غير صالح (يجب أن يكون مرفوعاً عبر المنصة)" }, { status: 400 });
         }
 
         const profileSnap = await adminDb.collection("profiles").doc(user.uid).get();

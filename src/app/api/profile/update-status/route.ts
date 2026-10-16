@@ -8,6 +8,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const currentStatus = user.status;
+    if (currentStatus === "blocked" || currentStatus === "suspended" || currentStatus === "rejected") {
+        return NextResponse.json({ error: "الحساب موقوف أو مرفوض، لا يمكن تحديث الحالة" }, { status: 403 });
+    }
+
     try {
         const body = await request.json();
         const { action, profile } = body;

@@ -76,7 +76,11 @@ export default function InstructorStudentsPage() {
             // Note: Firebase 'in' operator supports up to 10 elements. 
             // If there are more than 10 courses, we'd need to batch. 
             // For now, let's assume < 10 or fetch all and filter client-side if needed.
-            const enrollmentsQ = query(collection(db, "enrollments"), where("course_id", "in", instructorCourseIds))
+            const enrollmentsQ = query(
+                collection(db, "enrollments"),
+                where("instructor_id", "==", instructorId),
+                where("course_id", "in", instructorCourseIds)
+            )
             const enrollmentsSnap = await getDocs(enrollmentsQ)
             const allEnrollments = enrollmentsSnap.docs.map(doc => doc.data())
 
@@ -104,7 +108,11 @@ export default function InstructorStudentsPage() {
                 const pData = profileDoc.exists() ? profileDoc.data() : {}
 
                 // Fetch submissions
-                const subsQ = query(collection(db, "submissions"), where("student_id", "==", sid))
+                const subsQ = query(
+                    collection(db, "submissions"),
+                    where("instructor_id", "==", instructorId),
+                    where("student_id", "==", sid)
+                )
                 const subsSnap = await getDocs(subsQ)
                 const submissions = subsSnap.docs.map(doc => doc.data())
 

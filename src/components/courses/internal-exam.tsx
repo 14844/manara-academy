@@ -95,34 +95,35 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
         setScore(finalScore)
 
         try {
-            const user = auth.currentUser
-            if (user) {
-                const submissionRef = doc(collection(db, "submissions"))
-                await setDoc(submissionRef, {
-                    id: submissionRef.id,
-                    student_id: user.uid,
-                    student_name: user.displayName,
-                    course_id: courseId,
-                    lesson_id: lessonId,
-                    type: type,
-                    score: finalScore,
-                    answers: answers,
-                    needs_grading: hasEssayQuestions,
-                    submitted_at: serverTimestamp(),
-                })
+            const res = await fetch("/api/courses/exams/submit", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    courseId,
+                    lessonId,
+                    type,
+                    answers,
+                }),
+            })
+
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+                throw new Error(data.error || "فشل تسليم الاختبار")
             }
 
+            const earnedScore = data.score ?? finalScore
+            setScore(earnedScore)
             setIsFinished(true)
             setShowReview(true) // Open review automatically
-            if (hasEssayQuestions) {
+            if (data.needs_grading || hasEssayQuestions) {
                 toast.success("تم تسليم إجاباتك بنجاح! بانتظار تصحيح المدرس للأسئلة المقالية.")
             } else {
-                toast.success(`تم تسليم الاختبار بنجاح! درجتك: ${finalScore}%`)
+                toast.success(`تم تسليم الاختبار بنجاح! درجتك: ${earnedScore}%`)
             }
-            onComplete(finalScore)
-        } catch (error) {
+            onComplete(earnedScore)
+        } catch (error: any) {
             console.error("Error submitting exam:", error)
-            toast.error("حدث خطأ أثناء حفظ النتيجة")
+            toast.error(error.message || "حدث خطأ أثناء حفظ النتيجة")
         } finally {
             setIsSubmitting(false)
         }

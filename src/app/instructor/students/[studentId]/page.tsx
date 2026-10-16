@@ -171,6 +171,7 @@ export default function StudentProfilePage() {
             // 3. Fetch Enrollments for this student in these courses
             const enrollmentsQ = query(
                 collection(db, "enrollments"),
+                where("instructor_id", "==", instructorId),
                 where("student_id", "==", studentId),
                 where("course_id", "in", courseIds)
             )
@@ -184,6 +185,7 @@ export default function StudentProfilePage() {
             // 4. Fetch Submissions
             const subsQ = query(
                 collection(db, "submissions"),
+                where("instructor_id", "==", instructorId),
                 where("student_id", "==", studentId)
             )
             const subsSnap = await getDocs(subsQ)

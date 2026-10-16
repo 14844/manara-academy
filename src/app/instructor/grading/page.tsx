@@ -80,6 +80,7 @@ export default function InstructorGradingPage() {
             // unless we prefer multiple queries. For now, in-memory filter is safer for logic simplicity.
             const submissionsQ = query(
                 collection(db, "submissions"),
+                where("instructor_id", "==", instructorId),
                 where("needs_grading", "==", true)
             )
             const subsSnap = await getDocs(submissionsQ)

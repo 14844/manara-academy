@@ -50,7 +50,13 @@ service cloud.firestore {
     // Enrollments: Readable by student, course instructor, or admin.
     // Progress update allowed for enrolled student. Delete allowed for admin. Writes/purchases are server-side.
     match /enrollments/{enrollmentId} {
-      allow read: if isAuthenticated() && (
+      allow get: if isAuthenticated() && (
+        resource == null ||
+        resource.data.student_id == request.auth.uid ||
+        resource.data.instructor_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isAuthenticated() && (
         resource.data.student_id == request.auth.uid ||
         resource.data.instructor_id == request.auth.uid ||
         isAdmin()
@@ -173,8 +179,14 @@ service cloud.firestore {
     // Video progress: Student can read/create/update their own progress; admin can read.
     // Update/delete must verify existing doc belongs to user.
     match /video_progress/{progressId} {
-      allow read: if isAuthenticated() && (
-        resource.data.student_id == request.auth.uid || isAdmin()
+      allow get: if isAuthenticated() && (
+        resource == null ||
+        resource.data.student_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid ||
+        isAdmin()
       );
       allow create: if isAuthenticated() && (
         request.resource.data.student_id == request.auth.uid || isAdmin()

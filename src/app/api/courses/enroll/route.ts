@@ -79,10 +79,13 @@ export async function POST(request: Request) {
                 const now = new Date();
                 const validUntil = cData.valid_until ? new Date(cData.valid_until) : null;
                 const isExpired = validUntil && validUntil < now;
-                const isExhausted = cData.usage_limit && (cData.usage_count || 0) >= cData.usage_limit;
-                const isCourseMatch = !cData.course_id || cData.course_id === courseId;
+                const maxUses = cData.max_uses ?? cData.usage_limit ?? null;
+                const isExhausted = maxUses !== null && (cData.usage_count || 0) >= maxUses;
+                const isCourseMatch = cData.course_id === "all" || !cData.course_id || cData.course_id === courseId;
+                const isInstructorMatch = cData.course_id === "all" || !cData.instructor_id || cData.instructor_id === course.instructor_id;
+                const isActive = cData.active !== false && cData.is_active !== false;
 
-                if (isExpired || isExhausted || !isCourseMatch || cData.is_active === false) {
+                if (isExpired || isExhausted || !isCourseMatch || !isInstructorMatch || !isActive) {
                     throw new Error("COUPON_INVALID");
                 }
                 appliedCoupon = { id: cSnap.id, ...cData };

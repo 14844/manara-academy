@@ -14,13 +14,16 @@ export async function POST(request: Request) {
 
     try {
         const body = await request.json();
-        const grossAmount = Number(body.amount || 0);
-        const commission = Number(body.commission || 0);
-        const netAmount = Number(body.net_amount || 0);
+        const rawAmount = body.net_amount ?? body.amount;
+        const netAmount = Number(rawAmount);
 
-        if (netAmount <= 0) {
+        if (!Number.isFinite(netAmount) || netAmount <= 0) {
             return NextResponse.json({ error: "المبلغ المطلوب سحبه غير صالح" }, { status: 400 });
         }
+
+        // Calculate 5% platform commission strictly on server
+        const grossAmount = Math.round((netAmount / 0.95) * 100) / 100;
+        const commission = Math.round((grossAmount - netAmount) * 100) / 100;
 
         const profileRef = adminDb.collection("profiles").doc(user.uid);
         const withdrawalRef = adminDb.collection("withdrawal_requests").doc();

@@ -75,14 +75,28 @@ export default function AdminWithdrawalsPage() {
     }
 
     const handleApprove = async (request: any) => {
+        if (request.status !== "pending") {
+            toast.error("لا يمكن تأكيد الدفع لطلب ليس في حالة قيد الانتظار (pending)")
+            return
+        }
+
         if (!confirm("هل أنت متأكد من الموافقة على تحويل هذا المبلغ؟")) return
 
         setIsProcessing(true)
         try {
             const reqRef = doc(db, "withdrawal_requests", request.id)
-            await updateDoc(reqRef, {
-                status: "paid",
-                paid_at: new Date().toISOString()
+            await runTransaction(db, async (t) => {
+                const snap = await t.get(reqRef)
+                if (!snap.exists()) {
+                    throw new Error("NOT_FOUND")
+                }
+                if (snap.data().status !== "pending") {
+                    throw new Error("NOT_PENDING")
+                }
+                t.update(reqRef, {
+                    status: "paid",
+                    paid_at: new Date().toISOString()
+                })
             })
 
             toast.success("تم تأكيد الدفع بنجاح")

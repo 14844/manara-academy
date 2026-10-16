@@ -34,25 +34,11 @@ function getBaseApiUrl(): string {
  * Obtain an OAuth Bearer access token using Client ID & Client Secret
  */
 export async function getFawaterakAccessToken(): Promise<string> {
-    let clientId = process.env.FAWATERAK_CLIENT_ID;
-    let clientSecret = process.env.FAWATERAK_CLIENT_SECRET;
+    const clientId = process.env.FAWATERAK_CLIENT_ID;
+    const clientSecret = process.env.FAWATERAK_CLIENT_SECRET;
 
     if (!clientId || !clientSecret) {
-        try {
-            const { adminDb } = await import("@/lib/firebase/admin");
-            const docSnap = await adminDb.collection("settings").doc("fawaterak").get();
-            if (docSnap.exists) {
-                const data = docSnap.data();
-                clientId = data?.client_id || clientId;
-                clientSecret = data?.client_secret || clientSecret;
-            }
-        } catch (e) {
-            // ignore
-        }
-    }
-
-    if (!clientId || !clientSecret) {
-        throw new Error("بيانات فواتيرك غير مكتملة (يرجى إدخال Client ID و Client Secret في إعدادات المنصة أو ملف .env)");
+        throw new Error("بيانات فواتيرك غير مكتملة (يرجى إدخال FAWATERAK_CLIENT_ID و FAWATERAK_CLIENT_SECRET في ملف .env)");
     }
 
     // Check cached token
@@ -186,23 +172,7 @@ export async function createFawaterakTransaction({
 let cachedVendorKey = "";
 
 export async function getFawaterakVendorKey(): Promise<string> {
-    if (process.env.FAWATERAK_VENDOR_KEY) {
-        return process.env.FAWATERAK_VENDOR_KEY.trim();
-    }
-    if (cachedVendorKey) return cachedVendorKey;
-
-    try {
-        const { adminDb } = await import("@/lib/firebase/admin");
-        const docSnap = await adminDb.collection("settings").doc("fawaterak").get();
-        if (docSnap.exists) {
-            const key: string = (docSnap.data()?.vendor_key || "").toString().trim();
-            cachedVendorKey = key;
-            return key;
-        }
-    } catch (e) {
-        // ignore
-    }
-    return "";
+    return process.env.FAWATERAK_VENDOR_KEY ? process.env.FAWATERAK_VENDOR_KEY.trim() : "";
 }
 
 export async function verifyFawaterakWebhookHash({

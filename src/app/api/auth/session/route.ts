@@ -10,20 +10,27 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Missing token' }, { status: 400 });
     }
 
+    if (!deviceId || typeof deviceId !== "string" || !deviceId.trim()) {
+        return NextResponse.json({ error: "معرّف الجهاز مطلوب" }, { status: 400 });
+    }
+
     try {
         const decoded = await adminAuth.verifyIdToken(idToken);
         const uid = decoded.uid;
 
-        // Verify account status from Firestore
+        // Verify account status and handle device/session inside atomic transaction
         const profileRef = adminDb.collection("profiles").doc(uid);
-        const profileSnap = await profileRef.get();
-        if (profileSnap.exists) {
+
+        await adminDb.runTransaction(async (t) => {
+            const profileSnap = await t.get(profileRef);
+            if (!profileSnap.exists) return;
+
             const profile = profileSnap.data()!;
             if (profile.status === "pending") {
-                return NextResponse.json({ error: "حسابك قيد المراجعة حالياً من قبل الإدارة" }, { status: 403 });
+                throw new Error("STATUS_PENDING");
             }
-            if (profile.status === "blocked" || profile.status === "suspended") {
-                return NextResponse.json({ error: "تم إيقاف هذا الحساب. يرجى التواصل مع الإدارة" }, { status: 403 });
+            if (profile.status === "blocked" || profile.status === "suspended" || profile.status === "rejected") {
+                throw new Error("STATUS_STOPPED");
             }
 
             const updateData: any = {
@@ -33,23 +40,21 @@ export async function POST(request: Request) {
                 updateData.active_session_id = sessionId;
             }
 
-            // Server-side device limit check for students
-            if (profile.role !== "admin" && profile.role !== "instructor" && deviceId) {
+            // Server-side device limit check for students inside transaction
+            if (profile.role !== "admin" && profile.role !== "instructor") {
                 const activeDevices: string[] = profile.active_devices || [];
                 const isKnown = activeDevices.includes(deviceId);
 
                 if (!isKnown) {
                     if (activeDevices.length >= 2) {
-                        return NextResponse.json({
-                            error: "عذراً، لقد وصلت للحد الأقصى للأجهزة (جهازين فقط). يرجى التواصل مع إدارة الأكاديمية.",
-                        }, { status: 403 });
+                        throw new Error("DEVICE_LIMIT_REACHED");
                     }
                     updateData.active_devices = FieldValue.arrayUnion(deviceId);
                 }
             }
 
-            await profileRef.update(updateData);
-        }
+            t.update(profileRef, updateData);
+        });
 
         // Set session expiration to 5 days.
         const expiresIn = 60 * 60 * 24 * 5 * 1000;
@@ -65,7 +70,18 @@ export async function POST(request: Request) {
         });
 
         return NextResponse.json({ status: 'success' });
-    } catch (error) {
+    } catch (error: any) {
+        if (error.message === "STATUS_PENDING") {
+            return NextResponse.json({ error: "حسابك قيد المراجعة حالياً من قبل الإدارة" }, { status: 403 });
+        }
+        if (error.message === "STATUS_STOPPED") {
+            return NextResponse.json({ error: "تم رفض أو إيقاف هذا الحساب. يرجى التواصل مع الإدارة" }, { status: 403 });
+        }
+        if (error.message === "DEVICE_LIMIT_REACHED") {
+            return NextResponse.json({
+                error: "عذراً، لقد وصلت للحد الأقصى للأجهزة (جهازين فقط). يرجى التواصل مع إدارة الأكاديمية.",
+            }, { status: 403 });
+        }
         console.error('Session API Error:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }

@@ -35,8 +35,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Extract media paths from lessons into a private map
+    // Extract media paths and exam correct answers from lessons into private maps
     const mediaMap: Record<string, { video_path?: string; url?: string }> = {};
+    const examAnswersMap: Record<string, Record<string, any>> = {};
+
     const cleanModules = modules.map((mod: any) => ({
         ...mod,
         lessons: (mod.lessons || []).map((lesson: any) => {
@@ -47,6 +49,18 @@ export async function POST(request: Request) {
                 if (lesson.url) media.url = lesson.url;
                 if (Object.keys(media).length > 0) {
                     mediaMap[lessonId] = media;
+                }
+
+                if (Array.isArray(lesson.questions) && lesson.questions.length > 0) {
+                    examAnswersMap[lessonId] = {};
+                    lesson.questions = lesson.questions.map((q: any) => {
+                        if (q && q.id !== undefined && q.correctAnswer !== undefined) {
+                            examAnswersMap[lessonId][q.id] = q.correctAnswer;
+                            const { correctAnswer, ...safeQ } = q;
+                            return safeQ;
+                        }
+                        return q;
+                    });
                 }
             }
             // Strip sensitive media paths from the public document
@@ -64,6 +78,12 @@ export async function POST(request: Request) {
     // Write private media
     const mediaRef = adminDb.doc(`courses/${courseId}/private/media`);
     batch.set(mediaRef, mediaMap, { merge: true });
+
+    // Write private exam answers if any
+    if (Object.keys(examAnswersMap).length > 0) {
+        const answersRef = adminDb.doc(`courses/${courseId}/private/exam_answers`);
+        batch.set(answersRef, examAnswersMap, { merge: true });
+    }
 
     // Update public course document with cleaned modules
     batch.update(courseRef, {

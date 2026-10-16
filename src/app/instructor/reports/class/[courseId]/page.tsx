@@ -66,7 +66,11 @@ export default function ClassReportPage() {
             }
 
             // 2. Fetch Enrollments
-            const enrollmentsQ = query(collection(db, "enrollments"), where("course_id", "==", courseId))
+            const enrollmentsQ = query(
+                collection(db, "enrollments"),
+                where("instructor_id", "==", instructorId),
+                where("course_id", "==", courseId)
+            )
             const enrollmentsSnap = await getDocs(enrollmentsQ)
             const enrollments = enrollmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }))
 
@@ -88,6 +92,7 @@ export default function ClassReportPage() {
                 // Fetch submissions
                 const subsQ = query(
                     collection(db, "submissions"),
+                    where("instructor_id", "==", instructorId),
                     where("student_id", "==", enr.student_id),
                     where("course_id", "==", courseId)
                 )
