@@ -1,49 +1,46 @@
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebase/admin";
-import { cookies } from "next/headers";
-import { FieldValue } from "firebase-admin/firestore";
+import { adminDb } from "@/lib/firebase/admin";
 import { getFawaterakTransactionData } from "@/lib/payments/fawaterak";
 import { logServerActivity } from "@/lib/server-activity-logger";
+import { getServerAuth } from "@/lib/server-auth";
 
 export async function POST(request: Request) {
     try {
-        const body = await request.json();
-        const { intentKey, idToken } = body;
-
-        let uid = "";
-        if (idToken) {
-            try {
-                const decoded = await adminAuth.verifyIdToken(idToken);
-                uid = decoded.uid;
-            } catch (e) {}
-        }
-        if (!uid) {
-            const cookieStore = await cookies();
-            const session = cookieStore.get("session")?.value;
-            if (session) {
-                try {
-                    const decoded = await adminAuth.verifySessionCookie(session);
-                    uid = decoded.uid;
-                } catch (e) {}
-            }
-        }
-
-        if (!uid) {
+        const user = await getServerAuth(request);
+        if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
+
+        const body = await request.json();
+        const { intentKey } = body;
 
         if (!intentKey) {
             return NextResponse.json({ error: "Missing intentKey" }, { status: 400 });
         }
 
-        // 1. Check if already processed by Webhook
-        const existingTx = await adminDb
-            .collection("transactions")
-            .where("fawaterak_transaction_key", "==", intentKey)
+        // 1. Verify intentKey ownership from wallet_requests
+        const walletReqSnap = await adminDb
+            .collection("wallet_requests")
+            .where("fawaterak_intent_key", "==", intentKey)
             .limit(1)
             .get();
 
-        if (!existingTx.empty) {
+        if (walletReqSnap.empty) {
+            return NextResponse.json({ error: "طلب الشحن غير مسجل" }, { status: 404 });
+        }
+
+        const walletReqDoc = walletReqSnap.docs[0];
+        const walletData = walletReqDoc.data();
+
+        if (walletData.student_id !== user.uid) {
+            return NextResponse.json({ error: "غير مصرح لك بتأكيد هذا الدفع" }, { status: 403 });
+        }
+
+        // 2. Fixed doc id for unified idempotency check with webhook
+        const txRef = adminDb.collection("transactions").doc(intentKey);
+        const existingTx = await txRef.get();
+
+        if (existingTx.exists) {
             return NextResponse.json({
                 status: "success",
                 already_credited: true,
@@ -51,7 +48,7 @@ export async function POST(request: Request) {
             });
         }
 
-        // 2. Query Fawaterak API for status
+        // 3. Query Fawaterak API for status
         const txData = await getFawaterakTransactionData(intentKey);
         if (!txData || !txData.data) {
             return NextResponse.json({
@@ -64,32 +61,60 @@ export async function POST(request: Request) {
         const txStatus = (data.status || "").toLowerCase();
 
         if (txStatus === "paid" || txStatus === "success") {
-            const paidAmount = Number(data.paid_amount || data.total || data.cartTotal || 0);
+            const paidAmount = Number(walletData.amount || 0);
             const transactionId = data.id || data.transaction_id || intentKey;
             const paymentMethod = data.payment_method || "Online";
 
             if (paidAmount > 0) {
-                // Credit user
-                const profileRef = adminDb.collection("profiles").doc(uid);
-                const profileSnap = await profileRef.get();
-                const studentProfile = profileSnap.exists ? profileSnap.data() : null;
+                const profileRef = adminDb.collection("profiles").doc(user.uid);
+                let alreadyProcessed = false;
+                let studentProfile: any = null;
 
-                await profileRef.update({
-                    wallet_balance: FieldValue.increment(paidAmount),
-                    updated_at: new Date().toISOString(),
+                await adminDb.runTransaction(async (t) => {
+                    const txDoc = await t.get(txRef);
+                    if (txDoc.exists) {
+                        alreadyProcessed = true;
+                        return;
+                    }
+
+                    const profileSnap = await t.get(profileRef);
+                    studentProfile = profileSnap.exists ? profileSnap.data() : null;
+                    const currentBal = Number(studentProfile?.wallet_balance || 0);
+
+                    t.update(profileRef, {
+                        wallet_balance: currentBal + paidAmount,
+                        updated_at: new Date().toISOString(),
+                    });
+
+                    t.create(txRef, {
+                        type: "wallet_recharge",
+                        student_id: user.uid,
+                        student_name: studentProfile?.full_name || "طالب المنارة",
+                        amount: paidAmount,
+                        payment_method: "fawaterak",
+                        provider_method: paymentMethod,
+                        fawaterak_transaction_id: transactionId,
+                        fawaterak_transaction_key: intentKey,
+                        intent_key: intentKey,
+                        status: "completed",
+                        created_at: new Date().toISOString(),
+                    });
                 });
 
-                await adminDb.collection("transactions").add({
-                    type: "wallet_recharge",
-                    student_id: uid,
-                    student_name: studentProfile?.full_name || "طالب المنارة",
-                    amount: paidAmount,
-                    payment_method: "fawaterak",
-                    provider_method: paymentMethod,
+                if (alreadyProcessed) {
+                    return NextResponse.json({
+                        status: "success",
+                        already_credited: true,
+                        message: "تم شحن الرصيد مسبقاً!",
+                    });
+                }
+
+                await walletReqDoc.ref.update({
+                    status: "approved",
+                    approved_by: "fawaterak_verify",
                     fawaterak_transaction_id: transactionId,
-                    fawaterak_transaction_key: intentKey,
-                    status: "completed",
-                    created_at: new Date().toISOString(),
+                    payment_method_name: paymentMethod,
+                    updated_at: new Date().toISOString(),
                 });
 
                 // Log activity
@@ -97,9 +122,9 @@ export async function POST(request: Request) {
                     action: "wallet_recharge_fawaterak_verified",
                     category: "financial",
                     title: "تأكيد فوري لشحن محفظة (فواتيرك)",
-                    description: `تم التحقق وتأكيد دفع مبلغ ${paidAmount} ج.م للطالب "${studentProfile?.full_name || uid}" عبر فواتيرك وشحن المحفظة`,
+                    description: `تم التحقق وتأكيد دفع مبلغ ${paidAmount} ج.م للطالب "${studentProfile?.full_name || user.uid}" عبر فواتيرك وشحن المحفظة`,
                     status: "success",
-                    user_id: uid,
+                    user_id: user.uid,
                     user_name: studentProfile?.full_name || "طالب المنارة",
                     user_email: studentProfile?.email || "",
                     user_role: "student",

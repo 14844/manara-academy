@@ -205,9 +205,6 @@ export async function getFawaterakVendorKey(): Promise<string> {
     return "";
 }
 
-/**
- * Verify Fawaterak Webhook HMAC SHA256 Signature
- */
 export async function verifyFawaterakWebhookHash({
     transactionId,
     transactionKey,
@@ -221,12 +218,10 @@ export async function verifyFawaterakWebhookHash({
 }): Promise<boolean> {
     const vendorApiKey = await getFawaterakVendorKey();
     if (!vendorApiKey) {
-        // If vendor key is not set, log warning and accept
-        console.warn("FAWATERAK_VENDOR_KEY is not configured. Skipping HMAC signature check.");
-        return true;
+        throw new Error("VENDOR_KEY_NOT_CONFIGURED");
     }
 
-    if (!receivedHash) return false;
+    if (!receivedHash || !transactionId || !transactionKey) return false;
 
     try {
         const stringToSign = `TransactionId=${transactionId}&TransactionKey=${transactionKey}&PaymentMethod=${paymentMethod}`;
@@ -236,8 +231,7 @@ export async function verifyFawaterakWebhookHash({
             .digest("hex");
 
         return calculatedHash.toLowerCase() === receivedHash.trim().toLowerCase();
-    } catch (err) {
-        console.error("Error verifying webhook HMAC:", err);
+    } catch {
         return false;
     }
 }

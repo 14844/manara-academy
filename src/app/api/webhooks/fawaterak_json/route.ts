@@ -27,121 +27,104 @@ export async function POST(request: Request) {
         const status = (payload.status || "").toString().toLowerCase();
         const receivedHash = payload.transactionHashKey || payload.hashKey || "";
 
-        // Verify Hash if vendor key is present
-        const isValid = await verifyFawaterakWebhookHash({
-            transactionId,
-            transactionKey,
-            paymentMethod,
-            receivedHash,
-        });
+        // Verify Hash strictly
+        try {
+            const isValid = await verifyFawaterakWebhookHash({
+                transactionId,
+                transactionKey,
+                paymentMethod,
+                receivedHash,
+            });
 
-        if (!isValid) {
-            console.error("Fawaterak Webhook Signature Verification Failed!");
-            return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+            if (!isValid) {
+                return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+            }
+        } catch (hashErr: any) {
+            if (hashErr.message === "VENDOR_KEY_NOT_CONFIGURED") {
+                return NextResponse.json({ error: "Server configuration error: missing vendor key" }, { status: 500 });
+            }
+            return NextResponse.json({ error: "Signature verification failed" }, { status: 401 });
         }
 
         if (status !== "paid") {
-            console.log(`Fawaterak Webhook status is [${status}]. No balance credited.`);
             return NextResponse.json({ status: "acknowledged", payment_status: status });
         }
 
-        // Parse custom payload
-        let customData: any = {};
-        if (typeof payload.pay_load === "string") {
-            try {
-                customData = JSON.parse(payload.pay_load);
-            } catch (e) {
-                console.warn("Could not parse pay_load string:", payload.pay_load);
-            }
-        } else if (typeof payload.pay_load === "object" && payload.pay_load !== null) {
-            customData = payload.pay_load;
+        const intentKey = transactionKey;
+        if (!intentKey) {
+            return NextResponse.json({ error: "Missing intent_key" }, { status: 400 });
         }
 
-        const studentId = customData.student_id || payload.customerData?.customer_unique_id;
-        const paidAmount = Number(payload.paidAmount || payload.amount || customData.amount || 0);
-
-        if (!studentId || paidAmount <= 0) {
-            console.error("Missing studentId or invalid paidAmount in Fawaterak webhook:", { studentId, paidAmount });
-            return NextResponse.json({ error: "Invalid student or amount" }, { status: 400 });
-        }
-
-        // Idempotency check: has this transaction already been processed?
-        const existingTx = await adminDb
-            .collection("transactions")
-            .where("fawaterak_transaction_id", "==", transactionId)
+        // Fetch student_id and amount strictly from wallet_requests by intent_key (do not trust body)
+        const walletReqSnap = await adminDb
+            .collection("wallet_requests")
+            .where("fawaterak_intent_key", "==", intentKey)
             .limit(1)
             .get();
 
-        if (!existingTx.empty) {
-            console.log(`Transaction ${transactionId} already processed. Skipping duplicate crediting.`);
+        if (walletReqSnap.empty) {
+            return NextResponse.json({ error: "No matching wallet request found for intent" }, { status: 400 });
+        }
+
+        const walletReqDoc = walletReqSnap.docs[0];
+        const walletData = walletReqDoc.data();
+        const studentId = walletData.student_id;
+        const paidAmount = Number(walletData.amount || 0);
+
+        if (!studentId || paidAmount <= 0) {
+            return NextResponse.json({ error: "Invalid student or amount in recorded request" }, { status: 400 });
+        }
+
+        // Fixed document ID for atomic idempotency across verify and webhook
+        const txRef = adminDb.collection("transactions").doc(intentKey);
+        const profileRef = adminDb.collection("profiles").doc(studentId);
+
+        let alreadyProcessed = false;
+        let studentProfile: any = null;
+
+        await adminDb.runTransaction(async (t) => {
+            const txDoc = await t.get(txRef);
+            if (txDoc.exists) {
+                alreadyProcessed = true;
+                return;
+            }
+
+            const profileSnap = await t.get(profileRef);
+            studentProfile = profileSnap.exists ? profileSnap.data() : null;
+            const currentBal = Number(studentProfile?.wallet_balance || 0);
+
+            t.update(profileRef, {
+                wallet_balance: currentBal + paidAmount,
+                updated_at: new Date().toISOString(),
+            });
+
+            t.create(txRef, {
+                type: "wallet_recharge",
+                student_id: studentId,
+                student_name: studentProfile?.full_name || "طالب المنارة",
+                amount: paidAmount,
+                payment_method: "fawaterak",
+                provider_method: paymentMethod,
+                fawaterak_transaction_id: transactionId,
+                fawaterak_transaction_key: intentKey,
+                intent_key: intentKey,
+                status: "completed",
+                created_at: new Date().toISOString(),
+            });
+        });
+
+        if (alreadyProcessed) {
             return NextResponse.json({ status: "already_processed" });
         }
 
-        // 1. Atomically increment student's wallet balance
-        const profileRef = adminDb.collection("profiles").doc(studentId);
-        const profileSnap = await profileRef.get();
-        const studentProfile = profileSnap.exists ? profileSnap.data() : null;
-
-        await profileRef.update({
-            wallet_balance: FieldValue.increment(paidAmount),
+        await walletReqDoc.ref.update({
+            status: "approved",
+            approved_by: "fawaterak_webhook",
+            amount: paidAmount,
+            fawaterak_transaction_id: transactionId,
+            payment_method_name: paymentMethod,
             updated_at: new Date().toISOString(),
         });
-
-        // 2. Add to transactions audit collection
-        await adminDb.collection("transactions").add({
-            type: "wallet_recharge",
-            student_id: studentId,
-            student_name: studentProfile?.full_name || "طالب المنارة",
-            amount: paidAmount,
-            payment_method: "fawaterak",
-            provider_method: paymentMethod,
-            fawaterak_transaction_id: transactionId,
-            fawaterak_transaction_key: transactionKey,
-            status: "completed",
-            created_at: new Date().toISOString(),
-        });
-
-        // 3. Update or create wallet_requests for history
-        const pendingReqSnap = await adminDb
-            .collection("wallet_requests")
-            .where("student_id", "==", studentId)
-            .where("status", "==", "pending_payment")
-            .get();
-
-        if (!pendingReqSnap.empty) {
-            // Sort by created_at desc in memory to avoid needing Firestore composite index
-            const sortedDocs = [...pendingReqSnap.docs].sort((a, b) => {
-                const aTime = new Date(a.data().created_at || 0).getTime();
-                const bTime = new Date(b.data().created_at || 0).getTime();
-                return bTime - aTime;
-            });
-            const reqDoc = sortedDocs[0];
-            await reqDoc.ref.update({
-                status: "approved",
-                approved_by: "fawaterak_webhook",
-                amount: paidAmount,
-                fawaterak_transaction_id: transactionId,
-                payment_method_name: paymentMethod,
-                updated_at: new Date().toISOString(),
-            });
-        } else {
-            await adminDb.collection("wallet_requests").add({
-                student_id: studentId,
-                student_name: studentProfile?.full_name || "طالب المنارة",
-                student_email: studentProfile?.email || "",
-                student_unique_id: studentProfile?.student_id || "N/A",
-                amount: paidAmount,
-                sender_number: `فواتيرك (${paymentMethod})`,
-                payment_gateway: "fawaterak",
-                fawaterak_transaction_id: transactionId,
-                status: "approved",
-                approved_by: "fawaterak_webhook",
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-            });
-        }
-
-        console.log(`Successfully credited ${paidAmount} EGP to student ${studentId} via Fawaterak!`);
 
         // Record Activity Log
         await logServerActivity({
@@ -157,7 +140,7 @@ export async function POST(request: Request) {
             amount: paidAmount,
             metadata: {
                 transaction_id: transactionId,
-                transaction_key: transactionKey,
+                transaction_key: intentKey,
                 payment_method: paymentMethod,
                 amount: paidAmount,
             }
