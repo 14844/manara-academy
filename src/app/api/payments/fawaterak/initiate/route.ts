@@ -62,14 +62,18 @@ export async function POST(request: Request) {
                 { status: 429 }
             );
         }
-        const profileSnap = await adminDb.collection("profiles").doc(uid).get();
+        const [profileSnap, privateSnap] = await Promise.all([
+            adminDb.collection("profiles").doc(uid).get(),
+            adminDb.collection("profiles_private").doc(uid).get(),
+        ]);
         const profileData = profileSnap.exists ? profileSnap.data() : {};
+        const privateData = privateSnap.exists ? privateSnap.data() : {};
 
         const fullName = profileData?.full_name || displayName || "طالب المنارة";
         const [firstName, ...restName] = fullName.trim().split(" ");
         const lastName = restName.join(" ") || "المحترم";
-        const email = profileData?.email || userEmail || `student_${uid}@manara.academy`;
-        const phone = profileData?.phone_number || profileData?.phone || "01000000000";
+        const email = privateData?.email || profileData?.email || userEmail || `student_${uid}@manara.academy`;
+        const phone = privateData?.phone || privateData?.phone_number || profileData?.phone || profileData?.phone_number || "01000000000";
 
         // 3. Determine base URL
         const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "manara-academy.vercel.app";

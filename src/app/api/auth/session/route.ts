@@ -18,39 +18,48 @@ export async function POST(request: Request) {
         const decoded = await adminAuth.verifyIdToken(idToken);
         const uid = decoded.uid;
 
-        // Verify account status and handle device/session inside atomic transaction
+        // Verify account status and handle device/session inside atomic transaction on profiles_private
         const profileRef = adminDb.collection("profiles").doc(uid);
+        const profilePrivateRef = adminDb.collection("profiles_private").doc(uid);
 
         await adminDb.runTransaction(async (t) => {
-            const profileSnap = await t.get(profileRef);
+            const [profileSnap, privateSnap] = await Promise.all([
+                t.get(profileRef),
+                t.get(profilePrivateRef),
+            ]);
             if (!profileSnap.exists) return;
 
-            const profile = profileSnap.data()!;
-            if (profile.status === "blocked" || profile.status === "suspended" || profile.status === "rejected") {
+            const profile = profileSnap.data() || {};
+            const priv = privateSnap.exists ? privateSnap.data() || {} : {};
+
+            const status = priv.status || profile.status;
+            if (status === "blocked" || status === "suspended" || status === "rejected") {
                 throw new Error("STATUS_STOPPED");
             }
 
-            const updateData: any = {
-                last_login: new Date().toISOString(),
+            const now = new Date().toISOString();
+            const updatePrivateData: any = {
+                updated_at: now,
             };
             if (sessionId) {
-                updateData.active_session_id = sessionId;
+                updatePrivateData.active_session_id = sessionId;
             }
 
             // Server-side device limit check for students inside transaction
             if (profile.role !== "admin" && profile.role !== "instructor") {
-                const activeDevices: string[] = profile.active_devices || [];
+                const activeDevices: string[] = priv.active_devices || profile.active_devices || [];
                 const isKnown = activeDevices.includes(deviceId);
 
                 if (!isKnown) {
                     if (activeDevices.length >= 2) {
                         throw new Error("DEVICE_LIMIT_REACHED");
                     }
-                    updateData.active_devices = FieldValue.arrayUnion(deviceId);
+                    updatePrivateData.active_devices = FieldValue.arrayUnion(deviceId);
                 }
             }
 
-            t.update(profileRef, updateData);
+            t.set(profilePrivateRef, updatePrivateData, { merge: true });
+            t.update(profileRef, { last_login: now });
         });
 
         // Set session expiration to 5 days.

@@ -63,57 +63,95 @@ const SENSITIVE_FIELDS = [
 ];
 
 async function migrate() {
-    console.log("Fetching profiles from Firestore...");
-    const profilesSnap = await db.collection("profiles").get();
+    console.log("Fetching profiles and existing private profiles from Firestore...");
+    const [profilesSnap, privateSnap] = await Promise.all([
+        db.collection("profiles").get(),
+        db.collection("profiles_private").get(),
+    ]);
+
     const totalUsers = profilesSnap.size;
     console.log(`Found ${totalUsers} user profile documents in total.\n`);
 
+    // Map of existing private documents
+    const existingPrivateMap = new Map();
+    privateSnap.docs.forEach((doc) => {
+        existingPrivateMap.set(doc.id, doc.data());
+    });
+
     let migratedCount = 0;
     let upToDateCount = 0;
+    let autoActivatedCount = 0;
+    const usersMissingStatus = [];
     const failedUsers = [];
 
     for (const docSnap of profilesSnap.docs) {
         const uid = docSnap.id;
         const data = docSnap.data();
+        const existingPrivate = existingPrivateMap.get(uid) || {};
 
-        // Check which sensitive fields exist on profiles/{uid}
         const privatePayload = {};
         const fieldsToDelete = {};
 
+        // Migrate sensitive fields without overwriting newer/existing values in profiles_private
         for (const field of SENSITIVE_FIELDS) {
             if (data[field] !== undefined) {
-                privatePayload[field] = data[field];
+                // If profiles_private does not have this field yet, copy it
+                if (existingPrivate[field] === undefined) {
+                    privatePayload[field] = data[field];
+                }
+                // Mark for deletion from profiles
                 fieldsToDelete[field] = FieldValue.delete();
             }
         }
 
+        // Status check: find effective status
+        const effectiveStatus = existingPrivate.status ?? data.status;
+        const role = data.role || "student";
+
+        if (!effectiveStatus) {
+            usersMissingStatus.push({ uid, role, email: data.email || existingPrivate.email || "N/A" });
+
+            // If user is admin or instructor and missing status, set status: "active"
+            if (role === "admin" || role === "instructor") {
+                privatePayload.status = "active";
+                autoActivatedCount++;
+                console.log(`[User ${uid}] Auto-activating status: "active" for role: ${role}`);
+            }
+        }
+
         const keysToMove = Object.keys(privatePayload);
-        if (keysToMove.length === 0) {
+        const keysToDelete = Object.keys(fieldsToDelete);
+
+        if (keysToMove.length === 0 && keysToDelete.length === 0) {
             upToDateCount++;
             continue;
         }
 
-        console.log(`[User ${uid}] Fields to migrate: ${keysToMove.join(", ")}`);
+        console.log(`[User ${uid}] Fields to write to profiles_private: [${keysToMove.join(", ")}], Fields to delete from profiles: [${keysToDelete.join(", ")}]`);
 
         if (isDryRun) {
             migratedCount++;
         } else {
             try {
-                // 1. Write to profiles_private/{uid} first (merge to preserve any already existing data)
-                const privateRef = db.collection("profiles_private").doc(uid);
-                await privateRef.set(
-                    {
-                        ...privatePayload,
-                        updated_at: new Date().toISOString(),
-                    },
-                    { merge: true }
-                );
+                // 1. Write to profiles_private/{uid} first (only missing or updated fields)
+                if (keysToMove.length > 0) {
+                    const privateRef = db.collection("profiles_private").doc(uid);
+                    await privateRef.set(
+                        {
+                            ...privatePayload,
+                            updated_at: new Date().toISOString(),
+                        },
+                        { merge: true }
+                    );
+                }
 
-                // 2. Only after write succeeds, remove sensitive fields from profiles/{uid}
-                await docSnap.ref.update(fieldsToDelete);
+                // 2. Only after private write succeeds, remove sensitive fields from profiles/{uid}
+                if (keysToDelete.length > 0) {
+                    await docSnap.ref.update(fieldsToDelete);
+                }
 
                 migratedCount++;
-                console.log(`  ✓ Successfully migrated and cleaned profiles/${uid}`);
+                console.log(`  ✓ Successfully processed user ${uid}`);
             } catch (err) {
                 console.error(`  ✗ FAILED for user ${uid}:`, err.message);
                 failedUsers.push({ uid, error: err.message });
@@ -122,13 +160,22 @@ async function migrate() {
     }
 
     console.log("\n================ MIGRATION SUMMARY ================");
-    console.log(`Total users scanned:        ${totalUsers}`);
-    console.log(`Already up to date:        ${upToDateCount}`);
-    console.log(`${isDryRun ? "Users requiring migration: " : "Users successfully migrated:"} ${migratedCount}`);
-    console.log(`Failed users:              ${failedUsers.length}`);
+    console.log(`Total users scanned:                   ${totalUsers}`);
+    console.log(`Already up to date:                   ${upToDateCount}`);
+    console.log(`${isDryRun ? "Users requiring migration/update:    " : "Users successfully migrated/updated: "} ${migratedCount}`);
+    console.log(`Admins/Instructors auto-activated:    ${autoActivatedCount}`);
+    console.log(`Users missing status count:           ${usersMissingStatus.length}`);
+    console.log(`Failed users count:                   ${failedUsers.length}`);
+
+    if (usersMissingStatus.length > 0) {
+        console.log("\n--- List of users missing status ---");
+        usersMissingStatus.forEach((u) => {
+            console.log(` - UID: ${u.uid} | Role: ${u.role} | Email: ${u.email}`);
+        });
+    }
 
     if (failedUsers.length > 0) {
-        console.log("\nList of failed users:");
+        console.log("\n--- List of failed users ---");
         failedUsers.forEach((f) => console.log(` - UID: ${f.uid} | Error: ${f.error}`));
     }
     console.log("===================================================\n");
