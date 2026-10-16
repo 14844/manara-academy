@@ -169,10 +169,23 @@ export default function InstructorReportsPage() {
             const courseData = courses.find(c => c.id === courseId)
             const totalLessons = courseData?.modules?.reduce((acc: number, mod: any) => acc + (mod.lessons?.length || 0), 0) || 0
 
-            // Fetch student profiles and submissions
+            // Fetch student profiles and submissions via instructor API
+            let instructorStudentsMap: Record<string, any> = {}
+            try {
+                const sRes = await fetch("/api/instructor/students")
+                if (sRes.ok) {
+                    const sData = await sRes.json()
+                    instructorStudentsMap = sData.students || {}
+                }
+            } catch {}
+
             const studentsData = await Promise.all(enrollments.map(async (enr) => {
-                const profileDoc = await getDoc(doc(db, "profiles", enr.student_id))
-                const profile = profileDoc.exists() ? profileDoc.data() : {}
+                const apiStudent = instructorStudentsMap[enr.student_id]
+                let profile = apiStudent || {}
+                if (!apiStudent) {
+                    const profileDoc = await getDoc(doc(db, "profiles", enr.student_id))
+                    profile = profileDoc.exists() ? profileDoc.data() : {}
+                }
 
                 // Fetch student submissions for this course
                 const subsQ = query(
@@ -274,6 +287,15 @@ export default function InstructorReportsPage() {
 
             const pendingList: any[] = []
 
+            let instructorStudentsMap: Record<string, any> = {}
+            try {
+                const sRes = await fetch("/api/instructor/students")
+                if (sRes.ok) {
+                    const sData = await sRes.json()
+                    instructorStudentsMap = sData.students || {}
+                }
+            } catch {}
+
             for (const sched of activeSchedules) {
                 // Get all enrollments for this course
                 const eq = query(collection(db, "enrollments"), where("course_id", "==", sched.course_id))
@@ -285,11 +307,16 @@ export default function InstructorReportsPage() {
                 const totalLessons = courseData.modules?.reduce((acc: number, mod: any) => acc + (mod.lessons?.length || 0), 0) || 0
 
                 for (const enr of enrollments) {
-                    const profileDoc = await getDoc(doc(db, "profiles", enr.student_id))
-                    const profile = profileDoc.exists() ? profileDoc.data() : {}
+                    const apiStudent = instructorStudentsMap[enr.student_id]
+                    let profile = apiStudent || {}
+                    if (!apiStudent) {
+                        const profileDoc = await getDoc(doc(db, "profiles", enr.student_id))
+                        profile = profileDoc.exists() ? profileDoc.data() : {}
+                    }
 
                     // Check if parent phone is present
-                    if (!profile.parent_phone) continue
+                    const parentPhone = profile.parent_phone || profile.parentPhone
+                    if (!parentPhone) continue
 
                     // Check if a report was already sent this week for this course and student
                     // Avoid sending twice in the same week

@@ -35,43 +35,71 @@ export default function InstructorSettingsPage() {
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
             if (user) {
-                const docRef = doc(db, "profiles", user.uid)
-                const docSnap = await getDoc(docRef)
-                if (docSnap.exists()) {
-                    setProfile({
-                        ...docSnap.data(),
-                        email: user.email
-                    })
+                try {
+                    const res = await fetch("/api/profile/me");
+                    if (res.ok) {
+                        const data = await res.json();
+                        setProfile({
+                            full_name: data.full_name || "",
+                            specialty: data.specialty || "",
+                            bio: data.bio || "",
+                            phone: data.phone || "",
+                            email: data.email || user.email || "",
+                        });
+                    } else {
+                        const docRef = doc(db, "profiles", user.uid);
+                        const docSnap = await getDoc(docRef);
+                        if (docSnap.exists()) {
+                            setProfile({
+                                ...docSnap.data(),
+                                email: user.email,
+                            });
+                        }
+                    }
+                } catch {
+                    const docRef = doc(db, "profiles", user.uid);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        setProfile({
+                            ...docSnap.data(),
+                            email: user.email,
+                        });
+                    }
                 }
-                setIsLoading(false)
+                setIsLoading(false);
             }
-        })
-        return () => unsubscribe()
-    }, [])
+        });
+        return () => unsubscribe();
+    }, []);
 
     const handleSave = async (e: React.FormEvent) => {
-        e.preventDefault()
-        setIsSaving(true)
+        e.preventDefault();
+        setIsSaving(true);
         try {
-            const user = auth.currentUser
-            if (!user) return
+            const res = await fetch("/api/profile/me", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    full_name: profile.full_name,
+                    specialty: profile.specialty,
+                    bio: profile.bio,
+                    phone: profile.phone,
+                }),
+            });
 
-            await updateDoc(doc(db, "profiles", user.uid), {
-                full_name: profile.full_name,
-                specialty: profile.specialty,
-                bio: profile.bio,
-                phone: profile.phone,
-                updated_at: new Date().toISOString()
-            })
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.error || "فشل في تحديث البيانات");
+            }
 
-            toast.success("تم تحديث البروفايل بنجاح")
-        } catch (error) {
-            console.error("Update error:", error)
-            toast.error("فشل في تحديث البيانات")
+            toast.success("تم تحديث البروفايل بنجاح");
+        } catch (error: any) {
+            console.error("Update error:", error);
+            toast.error(error.message || "فشل في تحديث البيانات");
         } finally {
-            setIsSaving(false)
+            setIsSaving(false);
         }
-    }
+    };
 
     if (isLoading) {
         return (

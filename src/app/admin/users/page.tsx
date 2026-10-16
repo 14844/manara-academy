@@ -200,10 +200,20 @@ export default function AdminUsersPage() {
     const handleUpdateStatus = async (userId: string, newStatus: string) => {
         try {
             const targetUser = users.find(u => u.id === userId);
-            await updateDoc(doc(db, "profiles", userId), {
-                status: newStatus,
-                updated_at: new Date().toISOString()
-            })
+            const res = await fetch("/api/admin/users", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    userId,
+                    action: "update_status",
+                    status: newStatus,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.error || "فشل تحديث الحالة");
+            }
+
             setUsers(users.map(u => u.id === userId ? { ...u, status: newStatus } : u))
             toast.success(newStatus === 'approved' ? "تم تفعيل الحساب بنجاح" : "تم رفض الحساب")
 
@@ -227,24 +237,32 @@ export default function AdminUsersPage() {
                     new_status: newStatus,
                 }
             }).catch(() => {})
-        } catch (error) {
+        } catch (error: any) {
             console.error("Update status error:", error)
-            toast.error("حدث خطأ أثناء تحديث الحالة")
+            toast.error(error.message || "حدث خطأ أثناء تحديث الحالة")
         }
     }
 
     const handleResetDevices = async (userId: string) => {
         try {
-            const userRef = doc(db, "profiles", userId)
-            await updateDoc(userRef, {
-                active_devices: [],
-                updated_at: new Date().toISOString()
-            })
+            const res = await fetch("/api/admin/users", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    userId,
+                    action: "reset_devices",
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.error || "فشل تصفير الأجهزة");
+            }
+
             setUsers(users.map(u => u.id === userId ? { ...u, active_devices: [] } : u))
             toast.success("تم تصفير الأجهزة المسجلة بنجاح")
-        } catch (error) {
+        } catch (error: any) {
             console.error("Reset devices error:", error)
-            toast.error("حدث خطأ أثناء تصفير الأجهزة")
+            toast.error(error.message || "حدث خطأ أثناء تصفير الأجهزة")
         }
     }
 

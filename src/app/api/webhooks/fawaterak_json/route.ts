@@ -175,6 +175,6 @@ export async function POST(request: Request) {
             error_message: error.message,
         }).catch(() => {});
 
-        return NextResponse.json({ error: error.message || "Internal webhook error" }, { status: 500 });
+        return NextResponse.json({ error: "فشل معالجة إشعار الدفع" }, { status: 500 });
     }
 }

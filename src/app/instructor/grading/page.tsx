@@ -91,12 +91,25 @@ export default function InstructorGradingPage() {
 
             setPendingSubmissions(filteredSubs)
 
-            // 3. Fetch Student Profiles for these submissions
+            // 3. Fetch Student Profiles for these submissions via instructor API
+            let instructorStudentsMap: Record<string, any> = {}
+            try {
+                const sRes = await fetch("/api/instructor/students")
+                if (sRes.ok) {
+                    const sData = await sRes.json()
+                    instructorStudentsMap = sData.students || {}
+                }
+            } catch {}
+
             const studentIds = Array.from(new Set(filteredSubs.map(s => s.student_id)))
             const pMap = new Map()
             for (const sId of studentIds) {
-                const pDoc = await getDoc(doc(db, "profiles", sId))
-                if (pDoc.exists()) pMap.set(sId, pDoc.data())
+                if (instructorStudentsMap[sId]) {
+                    pMap.set(sId, instructorStudentsMap[sId])
+                } else {
+                    const pDoc = await getDoc(doc(db, "profiles", sId))
+                    if (pDoc.exists()) pMap.set(sId, pDoc.data())
+                }
             }
             setStudentProfiles(pMap)
 

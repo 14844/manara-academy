@@ -84,10 +84,23 @@ export default function ClassReportPage() {
             const cData = courseSnap.data()
             const totalLessons = cData.modules?.reduce((acc: number, mod: any) => acc + (mod.lessons?.length || 0), 0) || 0
 
-            // 3. Fetch Student profiles & submissions
+            // 3. Fetch Student profiles & submissions via instructor API
+            let instructorStudentsMap: Record<string, any> = {}
+            try {
+                const sRes = await fetch("/api/instructor/students")
+                if (sRes.ok) {
+                    const sData = await sRes.json()
+                    instructorStudentsMap = sData.students || {}
+                }
+            } catch {}
+
             const studentList = await Promise.all(enrollments.map(async (enr) => {
-                const profileSnap = await getDoc(doc(db, "profiles", enr.student_id))
-                const profile = profileSnap.exists() ? profileSnap.data() : {}
+                const apiStudent = instructorStudentsMap[enr.student_id]
+                let profile = apiStudent || {}
+                if (!apiStudent) {
+                    const profileSnap = await getDoc(doc(db, "profiles", enr.student_id))
+                    profile = profileSnap.exists() ? profileSnap.data() : {}
+                }
 
                 // Fetch submissions
                 const subsQ = query(

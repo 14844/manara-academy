@@ -49,62 +49,71 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
             }
 
             try {
-                // Real-time Session Monitoring
-                const { onSnapshot } = await import("firebase/firestore")
-                profileUnsubscribe = onSnapshot(doc(db, "profiles", user.uid), async (docSnap) => {
-                    if (docSnap.exists()) {
-                        const profile = docSnap.data()
-                        
-                        // Single Session Enforcement (Students only)
-                        if (profile.role === 'student' && !docSnap.metadata.fromCache) {
-                            const localSessionId = localStorage.getItem('manara_active_session_id')
-                            if (!localSessionId && profile.active_session_id) {
-                                localStorage.setItem('manara_active_session_id', String(profile.active_session_id))
-                            } else if (profile.active_session_id && localSessionId) {
-                                const profileSessionTime = Number(profile.active_session_id) || 0
-                                const localSessionTime = Number(localSessionId) || 0
-                                
-                                // Only conflict if another login created a STRICTLY NEWER session on a different device
-                                if (profileSessionTime > localSessionTime && String(profile.active_session_id) !== String(localSessionId)) {
-                                    console.warn("StatusGuard: Newer session detected on another device! Logging out...")
-                                    
-                                    // Perform logout cleanup
-                                    try {
-                                        await auth.signOut()
-                                        await fetch('/api/auth/session', { method: 'DELETE' })
-                                    } catch (err) {
-                                        console.error("Logout error:", err)
-                                    }
-                                    
-                                    localStorage.removeItem('manara_active_session_id')
-                                    
-                                    // FORCE hard redirect to login to kill all states
-                                    window.location.replace("/login?error=session_conflict")
-                                    return
-                                }
-                            }
-                        }
-
-                        // Handle Status Redirects
-                        if ((profile.status === 'pending' || !profile.status) && profile.role !== 'admin') {
-                            if (path !== '/pending-approval') {
-                                router.push("/pending-approval")
-                            }
-                        }
-                        else if (profile.status === 'rejected' || profile.status === 'blocked') {
-                            if (path !== '/restricted-access') {
-                                router.push("/restricted-access?reason=account")
-                            }
-                        }
-                        else {
-                            if (path === '/pending-approval' || path === '/restricted-access' || path === '/login' || path === '/signup') {
-                                const target = profile.role === 'instructor' ? "/instructor" : "/dashboard"
-                                router.push(target)
-                            }
-                        }
-                        setIsLoading(false)
+                // Fetch role from public profile
+                let role = "student";
+                try {
+                    const pubSnap = await getDoc(doc(db, "profiles", user.uid));
+                    if (pubSnap.exists()) {
+                        role = pubSnap.data()?.role || "student";
                     }
-                })
+                } catch (e) {
+                    console.error("StatusGuard: Error fetching public profile:", e);
+                }
+
+                // Real-time Session & Status Monitoring via profiles_private/{user.uid}
+                const { onSnapshot } = await import("firebase/firestore");
+                profileUnsubscribe = onSnapshot(doc(db, "profiles_private", user.uid), async (docSnap) => {
+                    const privateData = docSnap.exists() ? docSnap.data() : null;
+                    const status = privateData?.status || "pending";
+                    const activeSessionId = privateData?.active_session_id;
+
+                    // Single Session Enforcement (Students only)
+                    if (role === 'student' && !docSnap.metadata.fromCache) {
+                        const localSessionId = localStorage.getItem('manara_active_session_id');
+                        if (!localSessionId && activeSessionId) {
+                            localStorage.setItem('manara_active_session_id', String(activeSessionId));
+                        } else if (activeSessionId && localSessionId) {
+                            const profileSessionTime = Number(activeSessionId) || 0;
+                            const localSessionTime = Number(localSessionId) || 0;
+
+                            // Only conflict if another login created a STRICTLY NEWER session on a different device
+                            if (profileSessionTime > localSessionTime && String(activeSessionId) !== String(localSessionId)) {
+                                console.warn("StatusGuard: Newer session detected on another device! Logging out...");
+
+                                // Perform logout cleanup
+                                try {
+                                    await auth.signOut();
+                                    await fetch('/api/auth/session', { method: 'DELETE' });
+                                } catch (err) {
+                                    console.error("Logout error:", err);
+                                }
+
+                                localStorage.removeItem('manara_active_session_id');
+
+                                // FORCE hard redirect to login to kill all states
+                                window.location.replace("/login?error=session_conflict");
+                                return;
+                            }
+                        }
+                    }
+
+                    // Handle Status Redirects
+                    if (status === 'pending' && role !== 'admin') {
+                        if (path !== '/pending-approval') {
+                            router.push("/pending-approval");
+                        }
+                    } else if (status === 'rejected' || status === 'blocked') {
+                        if (path !== '/restricted-access') {
+                            router.push("/restricted-access?reason=account");
+                        }
+                    } else {
+                        if (path === '/pending-approval' || path === '/restricted-access' || path === '/login' || path === '/signup') {
+                            const target = role === 'instructor' ? "/instructor" : "/dashboard";
+                            router.push(target);
+                        }
+                    }
+                    setIsLoading(false);
+                });
             } catch (error) {
                 console.error("StatusGuard: Error setting up profile listener:", error)
                 setIsLoading(false)

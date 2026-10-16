@@ -50,7 +50,7 @@ export async function getServerAuth(request?: Request): Promise<ServerUser | nul
             uid: decoded.uid,
             email: decoded.email || privateData.email || profileData.email,
             role: (profileData.role as "student" | "instructor" | "admin") || "student",
-            status: privateData.status || profileData.status || "active",
+            status: privateData.status || profileData.status || "pending",
             profile: { ...profileData, ...privateData },
         };
     } catch {

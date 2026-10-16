@@ -79,11 +79,8 @@ export default function InstructorWithdrawalsPage() {
                 if (res.ok) {
                     profileData = await res.json()
                 }
-            } catch {}
-            if (profileData.wallet_balance === undefined) {
-                const profileRef = doc(db, "profiles", instructorId)
-                const profileSnap = await getDoc(profileRef)
-                profileData = profileSnap.data() || { wallet_balance: 0 }
+            } catch (err) {
+                console.error("Error fetching instructor profile:", err)
             }
             
             // 2. Fetch withdrawal requests

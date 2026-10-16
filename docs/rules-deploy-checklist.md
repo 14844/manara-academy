@@ -4,23 +4,66 @@
 
 ---
 
-## أولاً: خطوات ما قبل النشر (Pre-Deployment)
+## أولاً: خطوات النشر بالترتيب الإلزامي (Deployment Procedure)
 
-1. **تشغيل سكربت ترحيل وسائط الكورسات:**
-   - انقل روابط وفيديوهات الدروس القديمة من مستند الكورس العام إلى المستندات الفرعية المحمية `courses/{courseId}/private/media`:
-   ```bash
-   # معاينة التغييرات أولاً (Dry-run):
-   node scripts/migrate-course-media.mjs
-   
-   # تطبيق الترحيل الفعلي:
-   node scripts/migrate-course-media.mjs --apply
-   ```
-2. **التأكد من اكتمال المتغيرات البيئية:**
-   - التحقق من إعداد مفاتيح `FIREBASE_ADMIN_*` ومفاتيح `BUNNY_*` و `FAWATERAK_*` على السيرفر (Vercel).
-3. **نشر قواعد Firestore (عند الجاهزية التامة):**
-   ```bash
-   firebase deploy --only firestore:rules
-   ```
+> [!CAUTION]
+> **ترتيب التنفيذ إلزامي وحاسم لمنع تعطل المنصة:**
+> 1. النسخة الاحتياطية (Backup)
+> 2. ترحيل البيانات (Migration Dry-run ثم Apply)
+> 3. نشر كود التطبيق (Deploy Code to Vercel)
+> 4. نشر القواعد (Deploy Firestore Rules)
+
+---
+
+### الخطوة 1: أخذ نسخة احتياطية من قاعدة البيانات (Backup)
+قبل أي تعديل أو ترحيل، قم بأخذ نسخة كاملة من بيانات Firestore:
+- من لوحة تحكم [Google Cloud Console](https://console.cloud.google.com/datastore/databases):
+  اختر قاعدة البيانات -> Import/Export -> Export إلى Cloud Storage Bucket.
+- أو عبر سطر أوامر `gcloud`:
+  ```bash
+  gcloud firestore export gs://<YOUR_BACKUP_BUCKET>/firestore-backup-$(date +%Y%m%d)
+  ```
+
+---
+
+### الخطوة 2: تشغيل سكربتات الترحيل (Data Migration)
+
+#### أ) ترحيل الحقول الحساسة إلى `profiles_private`:
+ينقل الحقول الحساسة (`email`, `phone`, `parent_phone`, `wallet_balance`, `active_devices`, `active_session_id`, `status`, `student_id`) من `profiles/{uid}` إلى `profiles_private/{uid}` ثم يحذفها من `profiles`.
+```bash
+# 1. المعاينة أولاً للتأكد من عدد الحسابات (Dry-run الافتراضي):
+node scripts/migrate-profiles-private.mjs
+
+# 2. التطبيق الفعلي بعد مراجعة النتائج:
+node scripts/migrate-profiles-private.mjs --apply
+```
+
+#### ب) ترحيل وسائط الكورسات:
+ينقل وسائط الدروس القديمة إلى المستندات الفرعية المحمية `courses/{courseId}/private/media`:
+```bash
+# 1. معاينة التغييرات:
+node scripts/migrate-course-media.mjs
+
+# 2. تطبيق الترحيل:
+node scripts/migrate-course-media.mjs --apply
+```
+
+---
+
+### الخطوة 3: نشر كود التطبيق (Deploy Code to Vercel)
+> **هام جداً:** يجب نشر كود الواجهات والـ API routes أولاً والتأكد من استقرارها قبل نشر القواعد.
+
+1. دمج فرع `fix/security-phase3` إلى الفرع الرئيسي (main).
+2. التأكد من نجاح الـ Build ونشر الإصدار الجديد على Vercel.
+3. التأكد من أن جميع صفحات المنصة ومسارات الـ API الجديدة (`/api/profile/me`, `/api/admin/users`, `/api/instructor/students`) تعمل دون أخطاء.
+
+---
+
+### الخطوة 4: نشر قواعد الحماية (Deploy Firestore Rules)
+بعد التأكد من انتهاء الترحيل ونشر الكود بنجاح:
+```bash
+firebase deploy --only firestore:rules
+```
 
 ---
 
