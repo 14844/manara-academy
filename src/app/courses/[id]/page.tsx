@@ -145,7 +145,7 @@ export default function CourseDetailsPage() {
                 metadata: {
                     course_id: course.id,
                     course_title: course.title,
-                    price: coursePrice,
+                    price: Number(course.price) || 0,
                     final_paid: finalPrice,
                     instructor_share: finalPrice * 0.95,
                     platform_commission: finalPrice * 0.05,

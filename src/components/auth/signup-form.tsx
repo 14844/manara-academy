@@ -248,10 +248,11 @@ export function SignupForm() {
                 }),
             })
 
+            const regData = await registerRes.json().catch(() => ({}))
             if (!registerRes.ok) {
-                const regData = await registerRes.json().catch(() => ({}))
                 throw new Error(regData.error || "فشل تسجيل بيانات الحساب")
             }
+            const studentId = regData.studentId || "N/A"
 
             // 5. Set session cookie
             const sessionResponse = await fetch('/api/auth/session', {
