@@ -19,31 +19,39 @@ export async function POST(request: Request) {
         }
 
         const userRef = adminDb.collection("profiles").doc(targetUserId);
-        const userDoc = await userRef.get();
-        if (!userDoc.exists) {
-            return NextResponse.json({ error: "المستخدم غير موجود" }, { status: 404 });
-        }
 
-        const currentBalance = Number(userDoc.data()?.wallet_balance || 0);
-
-        if (type === "withdraw") {
-            if (numAmount > currentBalance) {
-                return NextResponse.json({ error: "المبلغ المطلوب أكبر من الرصيد الحالي" }, { status: 400 });
+        await adminDb.runTransaction(async (t) => {
+            const userDoc = await t.get(userRef);
+            if (!userDoc.exists) {
+                throw new Error("USER_NOT_FOUND");
             }
-            await userRef.update({
-                wallet_balance: currentBalance - numAmount,
-                updated_at: new Date().toISOString(),
-            });
-        } else {
-            // recharge
-            await userRef.update({
-                wallet_balance: FieldValue.increment(numAmount),
-                updated_at: new Date().toISOString(),
-            });
-        }
+            const currentBalance = Number(userDoc.data()?.wallet_balance || 0);
+
+            if (type === "withdraw") {
+                if (numAmount > currentBalance) {
+                    throw new Error("INSUFFICIENT_BALANCE");
+                }
+                t.update(userRef, {
+                    wallet_balance: currentBalance - numAmount,
+                    updated_at: new Date().toISOString(),
+                });
+            } else {
+                // recharge
+                t.update(userRef, {
+                    wallet_balance: FieldValue.increment(numAmount),
+                    updated_at: new Date().toISOString(),
+                });
+            }
+        });
 
         return NextResponse.json({ success: true });
-    } catch {
+    } catch (err: any) {
+        if (err.message === "USER_NOT_FOUND") {
+            return NextResponse.json({ error: "المستخدم غير موجود" }, { status: 404 });
+        }
+        if (err.message === "INSUFFICIENT_BALANCE") {
+            return NextResponse.json({ error: "المبلغ المطلوب أكبر من الرصيد الحالي" }, { status: 400 });
+        }
         return NextResponse.json({ error: "فشل تعديل الرصيد" }, { status: 500 });
     }
 }

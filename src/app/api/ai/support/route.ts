@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { checkRateLimit } from "@/lib/rate-limiter"
+import { checkRateLimit, getClientIp } from "@/lib/rate-limiter"
 
 interface ChatMessage {
     role: "user" | "assistant"
@@ -54,7 +54,7 @@ const KNOWLEDGE_BASE = [
 ]
 
 export async function POST(request: Request) {
-    const ip = request.headers.get("x-forwarded-for") || "client_ai";
+    const ip = getClientIp(request);
     if (!checkRateLimit(`ai_${ip}`, 20, 60000)) {
         return NextResponse.json({ reply: "لقد أرسلت عدة رسائل بسرعة. يرجى الانتظار دقيقة والمحاولة مجدداً." }, { status: 429 });
     }

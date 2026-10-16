@@ -28,6 +28,9 @@ export async function POST(request: Request) {
             if (reqData.status === "approved") {
                 throw new Error("ALREADY_APPROVED");
             }
+            if (reqData.status !== "pending") {
+                throw new Error("NOT_PENDING");
+            }
 
             const profileRef = adminDb.collection("profiles").doc(reqData.student_id);
             const profileSnap = await transaction.get(profileRef);
@@ -54,6 +57,9 @@ export async function POST(request: Request) {
     } catch (err: any) {
         if (err.message === "ALREADY_APPROVED") {
             return NextResponse.json({ error: "تم اعتماد هذا الطلب بالفعل مسبقاً" }, { status: 400 });
+        }
+        if (err.message === "NOT_PENDING") {
+            return NextResponse.json({ error: "لا يمكن اعتماد هذا الطلب لأنه ليس في حالة قيد الانتظار" }, { status: 400 });
         }
         return NextResponse.json({ error: err.message || "فشل اعتماد الطلب" }, { status: 500 });
     }

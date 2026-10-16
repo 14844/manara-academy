@@ -34,10 +34,8 @@ export async function POST(request: Request) {
         const course = courseSnap.data()!;
         const coursePrice = Number(course.price || 0);
 
-        // Validate coupon from server if provided
-        let appliedCoupon: any = null;
-        let finalPrice = coursePrice;
-
+        // Resolve coupon ref ahead of time (but validate inside transaction)
+        let couponRef: FirebaseFirestore.DocumentReference | null = null;
         if (couponCode && typeof couponCode === "string" && couponCode.trim()) {
             const cleanCode = couponCode.trim().toUpperCase();
             const couponSnap = await adminDb
@@ -45,33 +43,17 @@ export async function POST(request: Request) {
                 .where("code", "==", cleanCode)
                 .limit(1)
                 .get();
-
-            if (!couponSnap.empty) {
-                const cDoc = couponSnap.docs[0];
-                const cData = cDoc.data();
-                const now = new Date();
-                const validUntil = cData.valid_until ? new Date(cData.valid_until) : null;
-                const isExpired = validUntil && validUntil < now;
-                const isExhausted = cData.usage_limit && (cData.usage_count || 0) >= cData.usage_limit;
-                const isCourseMatch = !cData.course_id || cData.course_id === courseId;
-
-                if (!isExpired && !isExhausted && isCourseMatch && cData.is_active !== false) {
-                    appliedCoupon = { id: cDoc.id, ...cData };
-                    const discount = (coursePrice * Number(cData.discount_percent || 0)) / 100;
-                    finalPrice = Math.max(0, coursePrice - discount);
-                } else {
-                    return NextResponse.json({ error: "الكوبون غير صالح أو منتهي الصلاحية" }, { status: 400 });
-                }
-            } else {
+            if (couponSnap.empty) {
                 return NextResponse.json({ error: "كود الكوبون غير موجود" }, { status: 400 });
             }
+            couponRef = couponSnap.docs[0].ref;
         }
 
         const instructorRef = course.instructor_id ? adminDb.collection("profiles").doc(course.instructor_id) : null;
         const txLogRef = adminDb.collection("transactions").doc();
 
         // Run atomic transaction on server
-        await adminDb.runTransaction(async (t) => {
+        const result = await adminDb.runTransaction(async (t) => {
             const existingEnrollment = await t.get(enrollmentRef);
             if (existingEnrollment.exists) {
                 throw new Error("ALREADY_ENROLLED");
@@ -84,6 +66,30 @@ export async function POST(request: Request) {
             const studentData = studentSnap.data()!;
             const currentBalance = Number(studentData.wallet_balance || 0);
 
+            // Validate coupon inside transaction (TOCTOU-safe)
+            let appliedCoupon: any = null;
+            let finalPrice = coursePrice;
+
+            if (couponRef) {
+                const cSnap = await t.get(couponRef);
+                if (!cSnap.exists) {
+                    throw new Error("COUPON_NOT_FOUND");
+                }
+                const cData = cSnap.data()!;
+                const now = new Date();
+                const validUntil = cData.valid_until ? new Date(cData.valid_until) : null;
+                const isExpired = validUntil && validUntil < now;
+                const isExhausted = cData.usage_limit && (cData.usage_count || 0) >= cData.usage_limit;
+                const isCourseMatch = !cData.course_id || cData.course_id === courseId;
+
+                if (isExpired || isExhausted || !isCourseMatch || cData.is_active === false) {
+                    throw new Error("COUPON_INVALID");
+                }
+                appliedCoupon = { id: cSnap.id, ...cData };
+                const discount = (coursePrice * Number(cData.discount_percent || 0)) / 100;
+                finalPrice = Math.max(0, coursePrice - discount);
+            }
+
             if (finalPrice > 0) {
                 if (currentBalance < finalPrice) {
                     throw new Error(`INSUFFICIENT_BALANCE:${finalPrice}:${currentBalance}`);
@@ -95,8 +101,12 @@ export async function POST(request: Request) {
                     updated_at: new Date().toISOString(),
                 });
 
-                // Add 95% to instructor
+                // Add 95% to instructor (only if instructor profile exists)
                 if (instructorRef) {
+                    const instrSnap = await t.get(instructorRef);
+                    if (!instrSnap.exists) {
+                        throw new Error("INSTRUCTOR_NOT_FOUND");
+                    }
                     const instructorEarnings = finalPrice * 0.95;
                     const platformCommission = finalPrice * 0.05;
 
@@ -140,36 +150,37 @@ export async function POST(request: Request) {
                 coupon_used: appliedCoupon?.code || null,
             });
 
-            // Increment coupon usage
-            if (appliedCoupon) {
-                const cRef = adminDb.collection("coupons").doc(appliedCoupon.id);
-                t.update(cRef, { usage_count: FieldValue.increment(1) });
+            // Increment coupon usage inside transaction
+            if (appliedCoupon && couponRef) {
+                t.update(couponRef, { usage_count: FieldValue.increment(1) });
             }
 
             // Increment students_count
             t.update(courseRef, { students_count: FieldValue.increment(1) });
+
+            return { finalPrice, appliedCoupon };
         });
 
         // Log server activity
         await logServerActivity({
             action: "course_enrolled",
-            category: finalPrice > 0 ? "financial" : "course",
-            title: finalPrice > 0 ? "شراء واشتراك في كورس" : "اشتراك في كورس مجاني",
-            description: `تم اشتراك الطالب في كورس "${course.title}" بمبلغ ${finalPrice} ج.م`,
+            category: result.finalPrice > 0 ? "financial" : "course",
+            title: result.finalPrice > 0 ? "شراء واشتراك في كورس" : "اشتراك في كورس مجاني",
+            description: `تم اشتراك الطالب في كورس "${course.title}" بمبلغ ${result.finalPrice} ج.م`,
             status: "success",
             user_id: user.uid,
             user_name: user.profile?.full_name || user.email,
             user_email: user.email,
             user_role: "student",
-            amount: finalPrice,
+            amount: result.finalPrice,
             metadata: {
                 course_id: courseId,
-                paid_amount: finalPrice,
-                coupon: appliedCoupon?.code,
+                paid_amount: result.finalPrice,
+                coupon: result.appliedCoupon?.code,
             },
         });
 
-        return NextResponse.json({ success: true, enrollmentId, paidAmount: finalPrice });
+        return NextResponse.json({ success: true, enrollmentId, paidAmount: result.finalPrice });
     } catch (err: any) {
         if (err.message === "ALREADY_ENROLLED") {
             return NextResponse.json({ error: "أنت مسجل بالفعل في هذا الكورس" }, { status: 400 });
@@ -177,6 +188,12 @@ export async function POST(request: Request) {
         if (err.message?.startsWith("INSUFFICIENT_BALANCE")) {
             const [, needed, current] = err.message.split(":");
             return NextResponse.json({ error: `رصيدك غير كافٍ. تحتاج إلى ${needed} ج.م بينما رصيدك ${current} ج.م.` }, { status: 400 });
+        }
+        if (err.message === "COUPON_INVALID") {
+            return NextResponse.json({ error: "الكوبون غير صالح أو منتهي الصلاحية" }, { status: 400 });
+        }
+        if (err.message === "COUPON_NOT_FOUND" || err.message === "INSTRUCTOR_NOT_FOUND") {
+            return NextResponse.json({ error: "خطأ في البيانات، تواصل مع الدعم" }, { status: 400 });
         }
         return NextResponse.json({ error: err.message || "فشل الاشتراك في الكورس" }, { status: 500 });
     }

@@ -48,4 +48,5 @@ saas-e-learning-platform-firebase-adminsdk-fbsvc-ace8865a3c.json
 !next.config.json
 !components.json
 !nest-cli.json
+!firebase.json
 outreach/
