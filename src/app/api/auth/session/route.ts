@@ -26,9 +26,6 @@ export async function POST(request: Request) {
             if (!profileSnap.exists) return;
 
             const profile = profileSnap.data()!;
-            if (profile.status === "pending") {
-                throw new Error("STATUS_PENDING");
-            }
             if (profile.status === "blocked" || profile.status === "suspended" || profile.status === "rejected") {
                 throw new Error("STATUS_STOPPED");
             }
@@ -71,9 +68,6 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ status: 'success' });
     } catch (error: any) {
-        if (error.message === "STATUS_PENDING") {
-            return NextResponse.json({ error: "حسابك قيد المراجعة حالياً من قبل الإدارة" }, { status: 403 });
-        }
         if (error.message === "STATUS_STOPPED") {
             return NextResponse.json({ error: "تم رفض أو إيقاف هذا الحساب. يرجى التواصل مع الإدارة" }, { status: 403 });
         }
