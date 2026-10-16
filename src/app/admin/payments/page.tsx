@@ -54,6 +54,12 @@ export default function AdminPaymentsPage() {
 
     async function fetchStudentBalance(uid: string) {
         try {
+            const privRef = doc(db, "profiles_private", uid)
+            const privSnap = await getDoc(privRef)
+            if (privSnap.exists()) {
+                setStudentBalance(privSnap.data().wallet_balance || 0)
+                return
+            }
             const docRef = doc(db, "profiles", uid)
             const snap = await getDoc(docRef)
             if (snap.exists()) {

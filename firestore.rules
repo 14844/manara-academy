@@ -32,23 +32,35 @@ service cloud.firestore {
       );
     }
 
-    // Profiles: Anyone can read profiles so students, instructors, and visitors can load profiles without permission recursion errors.
+    // Profiles (PUBLIC fields only): full_name, avatar_url, bio, specialty, role, is_verified, grade_level, school_name, created_at, updated_at
+    // get: any authenticated user. list: admin only.
     // Client create forbidden (handled by server). Owner can only update allowlisted fields.
     match /profiles/{userId} {
-      allow read: if true;
+      allow get: if isAuthenticated();
+      allow list: if isAdmin();
       allow create: if false;
       allow update: if isAdmin() || (
         isOwner(userId) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'full_name', 'phone', 'bio', 'specialty', 'avatar_url',
-          'grade_level', 'parent_phone', 'updated_at'
+          'full_name', 'bio', 'specialty', 'avatar_url',
+          'grade_level', 'updated_at'
         ])
       );
       allow delete: if isAdmin();
     }
 
+    // Profiles Private (SENSITIVE fields): email, phone, parent_phone, wallet_balance,
+    // active_devices, active_session_id, status, student_id
+    // Only the owner or admin can read. All writes are server-side only.
+    match /profiles_private/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow write: if false;
+    }
+
     // Enrollments: Readable by student, course instructor, or admin.
-    // Progress update allowed for enrolled student. Delete allowed for admin. Writes/purchases are server-side.
+    // Progress update NOT allowed from client (must go through /api/courses/progress).
+    // Delete allowed for admin. Writes/purchases are server-side.
     match /enrollments/{enrollmentId} {
       allow get: if isAuthenticated() && (
         resource == null ||
@@ -61,14 +73,7 @@ service cloud.firestore {
         resource.data.instructor_id == request.auth.uid ||
         isAdmin()
       );
-      allow update: if isAuthenticated() && (
-        isAdmin() || (
-          resource.data.student_id == request.auth.uid &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'progress', 'completed_lessons', 'last_lesson_id', 'last_accessed_lesson', 'updated_at'
-          ])
-        )
-      );
+      allow update: if isAdmin();
       allow delete: if isAdmin();
       allow create: if false;
     }
@@ -83,10 +88,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Coupons: Owner instructor or admin can create/manage.
+    // Coupons: Only coupon owner (instructor) and admin can read/manage.
     // course_id required on create; instructor must own the course. usage_count cannot be edited from client.
     match /coupons/{couponId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid || isAdmin()
+      );
       allow create: if isAuthenticated() && (
         isAdmin() || (
           isInstructor() &&
@@ -159,17 +166,14 @@ service cloud.firestore {
       }
     }
 
-    // Submissions: Students create their own; instructors/admin read and grade.
-    // Prevent creating submission with spoofed instructor_id.
+    // Submissions: All creates go through /api/courses/exams/submit. Instructors/admin read and grade.
     match /submissions/{subId} {
       allow read: if isAuthenticated() && (
         resource.data.student_id == request.auth.uid ||
         resource.data.instructor_id == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isAuthenticated() &&
-        request.resource.data.student_id == request.auth.uid &&
-        get(/databases/$(database)/documents/courses/$(request.resource.data.course_id)).data.instructor_id == request.resource.data.instructor_id;
+      allow create: if false;
       allow update: if isAuthenticated() && (
         resource.data.instructor_id == request.auth.uid || isAdmin()
       );
@@ -204,6 +208,7 @@ service cloud.firestore {
 
     // Parent Reports: Access via token through server route /api/reports/[token].
     // Authenticated access restricted to report owner instructor, student, or admin.
+    // Create requires instructor to have the student enrolled in one of their courses.
     match /parent_reports/{reportId} {
       allow read: if isAuthenticated() && (
         resource.data.instructor_id == request.auth.uid ||
@@ -211,7 +216,12 @@ service cloud.firestore {
         isAdmin()
       );
       allow create: if isAuthenticated() && (
-        (isInstructor() && request.resource.data.instructor_id == request.auth.uid) || isAdmin()
+        isAdmin() || (
+          isInstructor() &&
+          request.resource.data.instructor_id == request.auth.uid &&
+          exists(/databases/$(database)/documents/enrollments/$(request.resource.data.student_id + '_' + request.resource.data.course_id)) &&
+          get(/databases/$(database)/documents/enrollments/$(request.resource.data.student_id + '_' + request.resource.data.course_id)).data.instructor_id == request.auth.uid
+        )
       );
       allow update, delete: if isAuthenticated() && (
         (isInstructor() && resource.data.instructor_id == request.auth.uid) || isAdmin()
@@ -231,10 +241,10 @@ service cloud.firestore {
       );
     }
 
-    // Internal activity logs: Admin reads. Clients can record logs safely.
+    // Internal activity logs: Admin reads. Client create BLOCKED — must go through /api/logs/record.
     match /activity_logs/{logId} {
       allow read: if isAdmin();
-      allow create: if true;
+      allow create: if false;
       allow update, delete: if false;
     }
 

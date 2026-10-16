@@ -19,28 +19,32 @@ export async function POST(request: Request) {
         }
 
         const userRef = adminDb.collection("profiles").doc(targetUserId);
+        const userPrivateRef = adminDb.collection("profiles_private").doc(targetUserId);
 
         await adminDb.runTransaction(async (t) => {
-            const userDoc = await t.get(userRef);
+            const [userDoc, userPrivateDoc] = await Promise.all([
+                t.get(userRef),
+                t.get(userPrivateRef),
+            ]);
             if (!userDoc.exists) {
                 throw new Error("USER_NOT_FOUND");
             }
-            const currentBalance = Number(userDoc.data()?.wallet_balance || 0);
+            const currentBalance = Number(userPrivateDoc.data()?.wallet_balance ?? userDoc.data()?.wallet_balance ?? 0);
 
             if (type === "withdraw") {
                 if (numAmount > currentBalance) {
                     throw new Error("INSUFFICIENT_BALANCE");
                 }
-                t.update(userRef, {
+                t.set(userPrivateRef, {
                     wallet_balance: currentBalance - numAmount,
                     updated_at: new Date().toISOString(),
-                });
+                }, { merge: true });
             } else {
                 // recharge
-                t.update(userRef, {
+                t.set(userPrivateRef, {
                     wallet_balance: FieldValue.increment(numAmount),
                     updated_at: new Date().toISOString(),
-                });
+                }, { merge: true });
             }
         });
 

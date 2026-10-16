@@ -73,9 +73,18 @@ export default function InstructorWithdrawalsPage() {
             setIsLoading(true)
             
             // 1. Fetch Instructor Profile for real-time balance
-            const profileRef = doc(db, "profiles", instructorId)
-            const profileSnap = await getDoc(profileRef)
-            const profileData = profileSnap.data() || { wallet_balance: 0 }
+            let profileData: any = { wallet_balance: 0 }
+            try {
+                const res = await fetch("/api/profile/me")
+                if (res.ok) {
+                    profileData = await res.json()
+                }
+            } catch {}
+            if (profileData.wallet_balance === undefined) {
+                const profileRef = doc(db, "profiles", instructorId)
+                const profileSnap = await getDoc(profileRef)
+                profileData = profileSnap.data() || { wallet_balance: 0 }
+            }
             
             // 2. Fetch withdrawal requests
             const requestsQ = query(

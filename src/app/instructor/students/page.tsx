@@ -102,10 +102,23 @@ export default function InstructorStudentsPage() {
             }
 
             // 4. Fetch profiles & entries
+            let instructorApiStudents: Record<string, any> = {}
+            try {
+                const apiRes = await fetch("/api/instructor/students")
+                if (apiRes.ok) {
+                    const apiData = await apiRes.json()
+                    instructorApiStudents = apiData.students || {}
+                }
+            } catch {}
+
             const studentIds = Object.keys(studentGroups)
             const studentData = await Promise.all(studentIds.map(async (sid) => {
-                const profileDoc = await getDoc(doc(db, "profiles", sid))
-                const pData = profileDoc.exists() ? profileDoc.data() : {}
+                const apiStudent = instructorApiStudents[sid]
+                let pData = apiStudent || {}
+                if (!apiStudent) {
+                    const profileDoc = await getDoc(doc(db, "profiles", sid))
+                    pData = profileDoc.exists() ? profileDoc.data() : {}
+                }
 
                 // Fetch submissions
                 const subsQ = query(
@@ -120,8 +133,8 @@ export default function InstructorStudentsPage() {
                     ...studentGroups[sid],
                     email: pData.email || studentGroups[sid].enrollments[0]?.student_email || "غير متوفر",
                     phone: pData.phone || studentGroups[sid].enrollments[0]?.student_phone || "غير متوفر",
-                    parentPhone: pData.parent_phone || "غير متوفر",
-                    avatar: pData.avatar_url || null,
+                    parentPhone: pData.parent_phone || pData.parentPhone || "غير متوفر",
+                    avatar: pData.avatar_url || pData.avatar || null,
                     status: pData.status || "active",
                     submissions: submissions.filter(s => instructorCourseIds.includes(s.course_id))
                 }

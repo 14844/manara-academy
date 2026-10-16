@@ -110,7 +110,8 @@ export async function GET(request: Request) {
                 origin: new URL(request.url).origin,
             });
         } else if (videoPath.includes("drive.google.com")) {
-            return NextResponse.json({ type: "drive", url: videoPath });
+            const drivePreview = videoPath.replace(/\/view(\?.*)?$/, "/preview").replace(/\/edit(\?.*)?$/, "/preview");
+            return NextResponse.json({ type: "drive", url: drivePreview });
         } else if (videoPath.startsWith("bunny_stream://")) {
             const guid = videoPath.split("://")[1];
             const securityKey = BUNNY_CONFIG.SECURITY_KEY;

@@ -36,10 +36,24 @@ export function Navbar() {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
             setUser(currentUser)
             if (currentUser) {
-                const docRef = doc(db, "profiles", currentUser.uid)
-                const docSnap = await getDoc(docRef)
-                if (docSnap.exists()) {
-                    setProfile(docSnap.data())
+                try {
+                    const res = await fetch("/api/profile/me");
+                    if (res.ok) {
+                        const data = await res.json();
+                        setProfile(data);
+                    } else {
+                        const docRef = doc(db, "profiles", currentUser.uid);
+                        const docSnap = await getDoc(docRef);
+                        if (docSnap.exists()) {
+                            setProfile(docSnap.data());
+                        }
+                    }
+                } catch {
+                    const docRef = doc(db, "profiles", currentUser.uid);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        setProfile(docSnap.data());
+                    }
                 }
             } else {
                 setProfile(null)

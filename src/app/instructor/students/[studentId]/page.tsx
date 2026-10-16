@@ -145,9 +145,24 @@ export default function StudentProfilePage() {
         setIsLoading(true)
         try {
             // 1. Fetch Student Profile
-            const profileSnap = await getDoc(doc(db, "profiles", studentId as string))
-            if (profileSnap.exists()) {
-                setStudentProfile(profileSnap.data())
+            let studentData: any = null
+            try {
+                const apiRes = await fetch(`/api/instructor/students?studentId=${studentId}`)
+                if (apiRes.ok) {
+                    const apiJson = await apiRes.json()
+                    studentData = apiJson.student
+                }
+            } catch {}
+
+            if (!studentData) {
+                const profileSnap = await getDoc(doc(db, "profiles", studentId as string))
+                if (profileSnap.exists()) {
+                    studentData = profileSnap.data()
+                }
+            }
+
+            if (studentData) {
+                setStudentProfile(studentData)
             } else {
                 toast.error("بروفايل الطالب غير موجود")
                 router.push("/instructor/students")

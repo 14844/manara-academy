@@ -29,8 +29,17 @@ export default function StudentDashboard() {
             if (currentUser) {
                 try {
                     // 0. Fetch profile
-                    const pDoc = await getDoc(doc(db, "profiles", currentUser.uid))
-                    const userData = pDoc.exists() ? pDoc.data() : null
+                    let userData = null
+                    try {
+                        const pRes = await fetch("/api/profile/me")
+                        if (pRes.ok) {
+                            userData = await pRes.json()
+                        }
+                    } catch {}
+                    if (!userData) {
+                        const pDoc = await getDoc(doc(db, "profiles", currentUser.uid))
+                        userData = pDoc.exists() ? pDoc.data() : null
+                    }
                     if (userData) setProfile(userData)
 
                     // 1. Fetch enrollments

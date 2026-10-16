@@ -25,6 +25,7 @@ export async function POST(request: Request) {
         const enrollmentRef = adminDb.collection("enrollments").doc(enrollmentId);
         const courseRef = adminDb.collection("courses").doc(courseId);
         const studentRef = adminDb.collection("profiles").doc(user.uid);
+        const studentPrivateRef = adminDb.collection("profiles_private").doc(user.uid);
 
         // Fetch course from server
         const courseSnap = await courseRef.get();
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
             couponRef = couponSnap.docs[0].ref;
         }
 
-        const instructorRef = course.instructor_id ? adminDb.collection("profiles").doc(course.instructor_id) : null;
+        const instructorPrivateRef = course.instructor_id ? adminDb.collection("profiles_private").doc(course.instructor_id) : null;
         const txLogRef = adminDb.collection("transactions").doc();
 
         // Run atomic transaction on server
@@ -59,12 +60,16 @@ export async function POST(request: Request) {
                 throw new Error("ALREADY_ENROLLED");
             }
 
-            const studentSnap = await t.get(studentRef);
+            const [studentSnap, studentPrivateSnap] = await Promise.all([
+                t.get(studentRef),
+                t.get(studentPrivateRef),
+            ]);
             if (!studentSnap.exists) {
                 throw new Error("STUDENT_NOT_FOUND");
             }
             const studentData = studentSnap.data()!;
-            const currentBalance = Number(studentData.wallet_balance || 0);
+            const studentPrivateData = studentPrivateSnap.exists ? studentPrivateSnap.data()! : {};
+            const currentBalance = Number(studentPrivateData.wallet_balance ?? studentData.wallet_balance ?? 0);
 
             // Validate coupon inside transaction (TOCTOU-safe)
             let appliedCoupon: any = null;
@@ -98,25 +103,21 @@ export async function POST(request: Request) {
                     throw new Error(`INSUFFICIENT_BALANCE:${finalPrice}:${currentBalance}`);
                 }
 
-                // Deduct from student
-                t.update(studentRef, {
+                // Deduct from student's private profile
+                t.set(studentPrivateRef, {
                     wallet_balance: currentBalance - finalPrice,
                     updated_at: new Date().toISOString(),
-                });
+                }, { merge: true });
 
                 // Add 95% to instructor (only if instructor profile exists)
-                if (instructorRef) {
-                    const instrSnap = await t.get(instructorRef);
-                    if (!instrSnap.exists) {
-                        throw new Error("INSTRUCTOR_NOT_FOUND");
-                    }
+                if (instructorPrivateRef) {
                     const instructorEarnings = finalPrice * 0.95;
                     const platformCommission = finalPrice * 0.05;
 
-                    t.update(instructorRef, {
+                    t.set(instructorPrivateRef, {
                         wallet_balance: FieldValue.increment(instructorEarnings),
                         updated_at: new Date().toISOString(),
-                    });
+                    }, { merge: true });
 
                     // Audit log
                     t.create(txLogRef, {
@@ -140,7 +141,7 @@ export async function POST(request: Request) {
                 id: enrollmentId,
                 student_id: user.uid,
                 student_name: studentData.full_name || user.email,
-                student_unique_id: studentData.student_id || "N/A",
+                student_unique_id: studentPrivateData.student_id || studentData.student_id || "N/A",
                 course_id: courseId,
                 course_title: course.title,
                 instructor_id: course.instructor_id || "",
@@ -198,6 +199,7 @@ export async function POST(request: Request) {
         if (err.message === "COUPON_NOT_FOUND" || err.message === "INSTRUCTOR_NOT_FOUND") {
             return NextResponse.json({ error: "خطأ في البيانات، تواصل مع الدعم" }, { status: 400 });
         }
-        return NextResponse.json({ error: err.message || "فشل الاشتراك في الكورس" }, { status: 500 });
+        console.error("Course enroll error:", err);
+        return NextResponse.json({ error: "فشل الاشتراك في الكورس" }, { status: 500 });
     }
 }

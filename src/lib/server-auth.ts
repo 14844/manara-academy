@@ -39,15 +39,19 @@ export async function getServerAuth(request?: Request): Promise<ServerUser | nul
             return null;
         }
 
-        const profileDoc = await adminDb.collection("profiles").doc(decoded.uid).get();
+        const [profileDoc, privateDoc] = await Promise.all([
+            adminDb.collection("profiles").doc(decoded.uid).get(),
+            adminDb.collection("profiles_private").doc(decoded.uid).get(),
+        ]);
         const profileData = profileDoc.data() || {};
+        const privateData = privateDoc.data() || {};
 
         return {
             uid: decoded.uid,
-            email: decoded.email || profileData.email,
+            email: decoded.email || privateData.email || profileData.email,
             role: (profileData.role as "student" | "instructor" | "admin") || "student",
-            status: profileData.status || "pending",
-            profile: profileData,
+            status: privateData.status || profileData.status || "active",
+            profile: { ...profileData, ...privateData },
         };
     } catch {
         return null;

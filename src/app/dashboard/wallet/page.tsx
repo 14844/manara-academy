@@ -65,6 +65,12 @@ function WalletContent() {
 
     async function fetchProfile(uid: string) {
         try {
+            const res = await fetch("/api/profile/me")
+            if (res.ok) {
+                const data = await res.json()
+                setProfile(data)
+                return
+            }
             const pDoc = await getDoc(doc(db, "profiles", uid))
             if (pDoc.exists()) setProfile(pDoc.data())
         } catch (e) {

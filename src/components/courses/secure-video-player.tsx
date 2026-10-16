@@ -644,13 +644,15 @@ export function SecureVideoPlayer({
                     <div className="space-y-1">
                         <p className="text-sm font-bold font-arabic">{error}</p>
                         {diagInfo && <p className="text-[9px] text-zinc-400 font-mono mt-1">{diagInfo}</p>}
-                        <p className="text-[10px] opacity-60 font-mono break-all max-w-xs">{directVideoUrl}</p>
+                        {videoType !== "drive" && (
+                            <p className="text-[10px] opacity-60 font-mono break-all max-w-xs">{directVideoUrl}</p>
+                        )}
                     </div>
                     <div className="flex gap-2">
                         <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="font-arabic h-9 px-4">
                             إعادة المحاولة
                         </Button>
-                        {directVideoUrl && (
+                        {directVideoUrl && videoType !== "drive" && (
                             <Button variant="secondary" size="sm" asChild className="font-arabic h-9 px-4">
                                 <a href={directVideoUrl} target="_blank" rel="noopener noreferrer">فتح الرابط المباشر</a>
                             </Button>

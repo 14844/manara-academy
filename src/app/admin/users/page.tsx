@@ -57,6 +57,12 @@ export default function AdminUsersPage() {
     async function fetchUsers() {
         setLoading(true)
         try {
+            const res = await fetch("/api/admin/users")
+            if (res.ok) {
+                const data = await res.json()
+                setUsers(data.users || [])
+                return
+            }
             const q = query(collection(db, "profiles"), orderBy("created_at", "desc"))
             const querySnapshot = await getDocs(q)
             const usersData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))

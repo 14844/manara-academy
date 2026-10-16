@@ -93,6 +93,7 @@ export async function POST(request: Request) {
 
             if (paidAmount > 0) {
                 const profileRef = adminDb.collection("profiles").doc(user.uid);
+                const profilePrivateRef = adminDb.collection("profiles_private").doc(user.uid);
                 let alreadyProcessed = false;
                 let studentProfile: any = null;
 
@@ -103,14 +104,18 @@ export async function POST(request: Request) {
                         return;
                     }
 
-                    const profileSnap = await t.get(profileRef);
+                    const [profileSnap, privateSnap] = await Promise.all([
+                        t.get(profileRef),
+                        t.get(profilePrivateRef),
+                    ]);
                     studentProfile = profileSnap.exists ? profileSnap.data() : null;
-                    const currentBal = Number(studentProfile?.wallet_balance || 0);
+                    const privateData = privateSnap.exists ? privateSnap.data() : null;
+                    const currentBal = Number(privateData?.wallet_balance ?? studentProfile?.wallet_balance ?? 0);
 
-                    t.update(profileRef, {
+                    t.set(profilePrivateRef, {
                         wallet_balance: currentBal + paidAmount,
                         updated_at: new Date().toISOString(),
-                    });
+                    }, { merge: true });
 
                     t.create(txRef, {
                         type: "wallet_recharge",
@@ -178,6 +183,6 @@ export async function POST(request: Request) {
         });
     } catch (err: any) {
         console.error("Fawaterak verify error:", err);
-        return NextResponse.json({ error: err.message || "Verification error" }, { status: 500 });
+        return NextResponse.json({ error: "حدث خطأ أثناء التحقق من حالة الدفع" }, { status: 500 });
     }
 }

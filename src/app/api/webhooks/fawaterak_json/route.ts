@@ -90,6 +90,7 @@ export async function POST(request: Request) {
         // Fixed document ID for atomic idempotency across verify and webhook
         const txRef = adminDb.collection("transactions").doc(intentKey);
         const profileRef = adminDb.collection("profiles").doc(studentId);
+        const profilePrivateRef = adminDb.collection("profiles_private").doc(studentId);
 
         let alreadyProcessed = false;
         let studentProfile: any = null;
@@ -101,14 +102,18 @@ export async function POST(request: Request) {
                 return;
             }
 
-            const profileSnap = await t.get(profileRef);
+            const [profileSnap, privateSnap] = await Promise.all([
+                t.get(profileRef),
+                t.get(profilePrivateRef),
+            ]);
             studentProfile = profileSnap.exists ? profileSnap.data() : null;
-            const currentBal = Number(studentProfile?.wallet_balance || 0);
+            const privateData = privateSnap.exists ? privateSnap.data() : null;
+            const currentBal = Number(privateData?.wallet_balance ?? studentProfile?.wallet_balance ?? 0);
 
-            t.update(profileRef, {
+            t.set(profilePrivateRef, {
                 wallet_balance: currentBal + paidAmount,
                 updated_at: new Date().toISOString(),
-            });
+            }, { merge: true });
 
             t.create(txRef, {
                 type: "wallet_recharge",

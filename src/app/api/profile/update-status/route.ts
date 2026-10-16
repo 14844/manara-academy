@@ -25,39 +25,37 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: "البريد الإلكتروني لم يتم تأكيده بعد" }, { status: 400 });
             }
 
-            await profileRef.update({
+            const privateRef = adminDb.collection("profiles_private").doc(user.uid);
+            await privateRef.set({
                 status: "pending",
                 updated_at: new Date().toISOString(),
-            });
+            }, { merge: true });
 
             return NextResponse.json({ success: true });
         }
 
         if (action === "update_profile") {
-            const allowedFields = [
-                "full_name",
-                "phone",
-                "parent_phone",
-                "grade_level",
-                "specialty",
-                "bio",
-                "avatar_url",
-            ];
+            const publicFields = ["full_name", "grade_level", "specialty", "bio", "avatar_url"];
+            const privateFields = ["phone", "parent_phone"];
 
-            const updateData: Record<string, any> = {
-                status: "pending", // Re-trigger admin approval upon profile edit
-                updated_at: new Date().toISOString(),
-            };
+            const now = new Date().toISOString();
+            const publicUpdate: Record<string, any> = { updated_at: now };
+            const privateUpdate: Record<string, any> = { status: "pending", updated_at: now };
 
             if (profile && typeof profile === "object") {
-                for (const key of allowedFields) {
-                    if (key in profile) {
-                        updateData[key] = profile[key];
-                    }
+                for (const key of publicFields) {
+                    if (key in profile) publicUpdate[key] = profile[key];
+                }
+                for (const key of privateFields) {
+                    if (key in profile) privateUpdate[key] = profile[key];
                 }
             }
 
-            await profileRef.update(updateData);
+            const privateRef = adminDb.collection("profiles_private").doc(user.uid);
+            await Promise.all([
+                profileRef.update(publicUpdate),
+                privateRef.set(privateUpdate, { merge: true }),
+            ]);
             return NextResponse.json({ success: true });
         }
 

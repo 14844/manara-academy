@@ -32,10 +32,13 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "الحساب مسجل بالفعل مسبقاً" }, { status: 409 });
         }
 
-        // Phone uniqueness check via Admin SDK
+        // Phone uniqueness check via Admin SDK across both profiles and profiles_private
         if (phone) {
-            const phoneSnap = await adminDb.collection("profiles").where("phone", "==", phone).limit(1).get();
-            if (!phoneSnap.empty) {
+            const [phoneSnap, privPhoneSnap] = await Promise.all([
+                adminDb.collection("profiles").where("phone", "==", phone).limit(1).get(),
+                adminDb.collection("profiles_private").where("phone", "==", phone).limit(1).get(),
+            ]);
+            if (!phoneSnap.empty || !privPhoneSnap.empty) {
                 // Delete orphaned auth user
                 await adminAuth.deleteUser(uid).catch(() => {});
                 return NextResponse.json({ error: "رقم الهاتف هذا مسجل بالفعل بحساب آخر" }, { status: 400 });
@@ -57,28 +60,39 @@ export async function POST(request: Request) {
             return `MANARA-${nextId}`;
         });
 
-        // Create profile document with create() - strictly fails if already exists
+        const now = new Date().toISOString();
+
+        // Create PUBLIC profile (non-sensitive fields only)
         await profileRef.create({
             id: uid,
-            student_id: studentId,
-            email: email,
             full_name: fullName || "",
             role: safeRole,
-            phone: phone || "",
-            parent_phone: parentPhone || null,
             grade_level: gradeLevel || null,
             specialty: specialty || null,
             bio: bio || null,
+            avatar_url: null,
+            is_verified: false,
+            created_at: now,
+            updated_at: now,
+        });
+
+        // Create PRIVATE profile (sensitive fields)
+        const privateRef = adminDb.collection("profiles_private").doc(uid);
+        await privateRef.create({
+            email: email,
+            phone: phone || "",
+            parent_phone: parentPhone || null,
+            student_id: studentId,
             status: "pending",
             wallet_balance: 0,
             active_devices: deviceId ? [deviceId] : [],
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+            created_at: now,
+            updated_at: now,
         });
 
         return NextResponse.json({ success: true, studentId });
     } catch (err: any) {
         console.error("register-profile error:", err);
-        return NextResponse.json({ error: err.message || "Failed to register profile" }, { status: 500 });
+        return NextResponse.json({ error: "فشل إنشاء الحساب. حاول مجدداً." }, { status: 500 });
     }
 }

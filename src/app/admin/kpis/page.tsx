@@ -86,7 +86,18 @@ export default function AdminKpisPage() {
             setEnrollments(enrSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
             setWithdrawalRequests(withSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
             setWalletRequests(walSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
-            setProfiles(profSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
+            let usersList: any[] = []
+            try {
+                const uRes = await fetch("/api/admin/users")
+                if (uRes.ok) {
+                    const uData = await uRes.json()
+                    usersList = uData.users || []
+                }
+            } catch {}
+            if (!usersList.length) {
+                usersList = profSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+            }
+            setProfiles(usersList)
             setCourses(coursesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
         } catch (error: any) {
             console.error("Error fetching KPI data:", error)

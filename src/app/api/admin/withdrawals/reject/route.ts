@@ -29,7 +29,7 @@ export async function POST(request: Request) {
                 throw new Error("REQUEST_NOT_PENDING");
             }
 
-            const instructorRef = adminDb.collection("profiles").doc(reqData.instructor_id);
+            const instructorPrivateRef = adminDb.collection("profiles_private").doc(reqData.instructor_id);
             const netAmount = Number(reqData.net_amount || reqData.amount || 0);
 
             transaction.update(reqRef, {
@@ -40,14 +40,14 @@ export async function POST(request: Request) {
                 updated_at: new Date().toISOString(),
             });
 
-            transaction.update(instructorRef, {
+            transaction.set(instructorPrivateRef, {
                 wallet_balance: FieldValue.increment(netAmount),
                 updated_at: new Date().toISOString(),
-            });
+            }, { merge: true });
         });
 
         return NextResponse.json({ success: true });
     } catch (err: any) {
-        return NextResponse.json({ error: err.message || "فشل رفض الطلب" }, { status: 500 });
+        return NextResponse.json({ error: "فشل رفض الطلب" }, { status: 500 });
     }
 }

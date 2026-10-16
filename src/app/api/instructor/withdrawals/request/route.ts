@@ -26,24 +26,28 @@ export async function POST(request: Request) {
         const commission = Math.round((grossAmount - netAmount) * 100) / 100;
 
         const profileRef = adminDb.collection("profiles").doc(user.uid);
+        const profilePrivateRef = adminDb.collection("profiles_private").doc(user.uid);
         const withdrawalRef = adminDb.collection("withdrawal_requests").doc();
 
         await adminDb.runTransaction(async (t) => {
-            const pSnap = await t.get(profileRef);
+            const [pSnap, privSnap] = await Promise.all([
+                t.get(profileRef),
+                t.get(profilePrivateRef),
+            ]);
             if (!pSnap.exists) {
                 throw new Error("PROFILE_NOT_FOUND");
             }
 
-            const currentBalance = Number(pSnap.data()?.wallet_balance || 0);
+            const currentBalance = Number(privSnap.data()?.wallet_balance ?? pSnap.data()?.wallet_balance ?? 0);
             if (currentBalance < netAmount) {
                 throw new Error("INSUFFICIENT_BALANCE");
             }
 
             // Deduct immediately from wallet inside transaction
-            t.update(profileRef, {
+            t.set(profilePrivateRef, {
                 wallet_balance: currentBalance - netAmount,
                 updated_at: new Date().toISOString(),
-            });
+            }, { merge: true });
 
             // Create withdrawal request
             t.set(withdrawalRef, {

@@ -32,18 +32,14 @@ export async function POST(request: Request) {
                 throw new Error("NOT_PENDING");
             }
 
-            const profileRef = adminDb.collection("profiles").doc(reqData.student_id);
-            const profileSnap = await transaction.get(profileRef);
-            if (!profileSnap.exists) {
-                throw new Error("PROFILE_NOT_FOUND");
-            }
+            const profilePrivateRef = adminDb.collection("profiles_private").doc(reqData.student_id);
 
             const amount = Number(reqData.amount || 0);
 
-            transaction.update(profileRef, {
+            transaction.set(profilePrivateRef, {
                 wallet_balance: FieldValue.increment(amount),
                 updated_at: new Date().toISOString(),
-            });
+            }, { merge: true });
 
             transaction.update(requestRef, {
                 status: "approved",
@@ -61,6 +57,6 @@ export async function POST(request: Request) {
         if (err.message === "NOT_PENDING") {
             return NextResponse.json({ error: "لا يمكن اعتماد هذا الطلب لأنه ليس في حالة قيد الانتظار" }, { status: 400 });
         }
-        return NextResponse.json({ error: err.message || "فشل اعتماد الطلب" }, { status: 500 });
+        return NextResponse.json({ error: "فشل اعتماد الطلب" }, { status: 500 });
     }
 }

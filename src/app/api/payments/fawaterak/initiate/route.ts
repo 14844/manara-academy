@@ -113,7 +113,7 @@ export async function POST(request: Request) {
     } catch (error: any) {
         console.error("Fawaterak initiate error:", error);
         return NextResponse.json(
-            { error: error.message || "حدث خطأ أثناء التواصل مع بوابة فواتيرك" },
+            { error: "حدث خطأ أثناء التواصل مع بوابة فواتيرك" },
             { status: 500 }
         );
     }
