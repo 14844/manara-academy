@@ -86,9 +86,20 @@ export default function ManageCoursePage() {
         setIsSaving(true)
         try {
             console.log("Saving course data, thumbnail_url:", course?.thumbnail_url)
+            // Save media privately via server route, then update remaining public fields
+            const mediaRes = await fetch("/api/courses/save-media", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ courseId: id, modules }),
+            })
+            if (!mediaRes.ok) {
+                const err = await mediaRes.json().catch(() => ({}))
+                throw new Error(err.error || "Failed to save media")
+            }
+            // Update non-module course fields (thumbnail, title, etc.) via client SDK
+            const { modules: _m, video_path: _vp, ...safeFields } = course || {}
             await updateDoc(doc(db, "courses", id as string), {
-                ...course,
-                modules: modules,
+                ...safeFields,
                 updated_at: new Date().toISOString()
             })
             toast.success("تم حفظ التعديلات بنجاح")

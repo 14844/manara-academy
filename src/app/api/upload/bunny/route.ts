@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
 
     const isVideo = contentType.startsWith('video/')
     const allowedVideoTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo']
-    const allowedDocTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml', 'application/pdf']
+    const allowedDocTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']
 
     if (isVideo) {
         if (!allowedVideoTypes.includes(contentType)) {

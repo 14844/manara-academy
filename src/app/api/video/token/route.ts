@@ -30,6 +30,11 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: "Missing params" }, { status: 400 });
     }
 
+    const safeId = /^[\w-]+$/;
+    if (!safeId.test(courseId) || !safeId.test(lessonId)) {
+        return NextResponse.json({ error: "Invalid params" }, { status: 400 });
+    }
+
     // 1. التحقق من التسجيل ونشاط الحساب (تخطي للمسؤول والمدرس صاحب الكورس)
     if (user.role !== "admin") {
         const courseRef = adminDb.doc(`courses/${courseId}`);

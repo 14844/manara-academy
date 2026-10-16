@@ -16,9 +16,18 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Missing path' }, { status: 400 });
     }
 
+    if (!courseId || !/^[\w-]+$/.test(courseId)) {
+        return NextResponse.json({ error: 'Invalid or missing courseId' }, { status: 400 });
+    }
+
+    const cleanPath = path.replace(/^\/+/, '');
+    if (cleanPath.includes('..') || cleanPath.includes('\0')) {
+        return NextResponse.json({ error: 'Invalid path' }, { status: 400 });
+    }
+
     if (user.role !== "admin") {
-        if (!courseId) {
-            return NextResponse.json({ error: 'Missing courseId' }, { status: 400 });
+        if (!cleanPath.startsWith(`courses/${courseId}/`)) {
+            return NextResponse.json({ error: 'Path must belong to the specified course' }, { status: 403 });
         }
         const enrollment = await adminDb.collection("enrollments").doc(`${user.uid}_${courseId}`).get();
         if (!enrollment.exists || enrollment.data()?.status !== "active") {
@@ -28,18 +37,17 @@ export async function GET(request: Request) {
 
     try {
         const bucket = adminStorage.bucket();
-        const file = bucket.file(path);
+        const file = bucket.file(cleanPath);
 
-        // Generate a signed URL that expires in 1 hour
+        // Generate a signed URL that expires in 15 minutes (900 seconds)
         const [url] = await file.getSignedUrl({
             version: 'v4',
             action: 'read',
-            expires: Date.now() + 60 * 60 * 1000, // 1 hour
+            expires: Date.now() + 15 * 60 * 1000,
         });
 
         return NextResponse.json({ url });
-    } catch (error) {
-        console.error('Sign URL Error:', error);
+    } catch {
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
 }
