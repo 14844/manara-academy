@@ -1,36 +1,55 @@
 import { NextRequest, NextResponse } from "next/server"
 import { BUNNY_CONFIG } from "@/lib/bunny/config"
 import crypto from "crypto"
+import { getServerAuth } from "@/lib/server-auth"
 
 export const runtime = 'nodejs'
 
-function signUrl(path: string, securityKey: string, expirationSeconds: number = 3600 * 24) {
-    // Current time + expiration in seconds
-    const expires = Math.floor(Date.now() / 1000) + expirationSeconds;
-    
-    // BunnyCDN Token Authentication: md5(securityKey + path + expires)
-    // IMPORTANT: path must start with / for the signature to match Bunny's expectation
-    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    const hash = crypto.createHash('md5')
-        .update(securityKey + normalizedPath + expires)
-        .digest('hex');
-    
-    return `${normalizedPath}?token=${hash}&expires=${expires}`;
-}
-
 export async function POST(request: NextRequest) {
+    const user = await getServerAuth(request)
+    if (!user || (user.role !== "instructor" && user.role !== "admin")) {
+        return NextResponse.json({ error: "غير مصرح لك برفع الملفات" }, { status: 403 })
+    }
+    if (user.status === "blocked" || user.status === "suspended") {
+        return NextResponse.json({ error: "الحساب موقوف" }, { status: 403 })
+    }
+
     const { searchParams } = new URL(request.url)
-    const fileName = searchParams.get('fileName') || 'Untitled'
-    const folder = searchParams.get('folder') || 'general'
+    const rawFileName = searchParams.get('fileName') || 'Untitled'
+    const rawFolder = searchParams.get('folder') || 'general'
     const contentType = request.headers.get('content-type') || 'application/octet-stream'
-    
-    // Determine if it's a video for Stream or other file for Storage
+
+    // Clean folder and fileName: only alphanumeric, dot, dash, underscore
+    const fileName = rawFileName.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+    const folder = rawFolder.replace(/[^a-zA-Z0-9\-_]/g, '_')
+
+    if (!fileName || fileName.includes('..') || folder.includes('..')) {
+        return NextResponse.json({ error: "اسم الملف أو المجلد غير صالح" }, { status: 400 })
+    }
+
     const isVideo = contentType.startsWith('video/')
-    
+    const allowedVideoTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo']
+    const allowedDocTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml', 'application/pdf']
+
+    if (isVideo) {
+        if (!allowedVideoTypes.includes(contentType)) {
+            return NextResponse.json({ error: "نوع الفيديو غير مدعوم" }, { status: 400 })
+        }
+    } else {
+        if (!allowedDocTypes.includes(contentType)) {
+            return NextResponse.json({ error: "نوع الملف غير مسموح به" }, { status: 400 })
+        }
+        const contentLength = Number(request.headers.get('content-length') || 0)
+        if (contentLength > 50 * 1024 * 1024) {
+            return NextResponse.json({ error: "حجم الملف يتجاوز الحد الأقصى (50MB)" }, { status: 400 })
+        }
+    }
+
+    // Isolate folders per instructor to prevent overwriting other instructors' files
+    const safeFolder = user.role === 'admin' ? folder : `instructor_${user.uid}_${folder}`
+
     try {
         if (isVideo) {
-            // ── VIDEO STREAM UPLOAD ───────────────────────────────────────────
-            // 1. Create video entry
             const createUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.VIDEO_LIBRARY_ID}/videos`
             const createRes = await fetch(createUrl, {
                 method: 'POST',
@@ -41,26 +60,22 @@ export async function POST(request: NextRequest) {
                 },
                 body: JSON.stringify({ 
                     title: fileName,
-                    tags: [folder, 'instructor_upload']
+                    tags: [safeFolder, `instructor_${user.uid}`]
                 })
             })
 
             if (!createRes.ok) {
-                const errText = await createRes.text();
-                console.error("Bunny Stream Create Error:", errText);
-                return NextResponse.json({ error: `فشل إنشاء سجل الفيديو: ${errText}` }, { status: createRes.status });
+                return NextResponse.json({ error: "فشل إنشاء سجل الفيديو" }, { status: createRes.status })
             }
             
             const { guid } = await createRes.json()
 
-            // 2. Generate Signature for Direct Browser Upload
-            // Algorithm: HEX(SHA256(libraryId + apiKey + expiration + videoId))
-            const expiration = Math.floor(Date.now() / 1000) + 3600; // 1 hour
-            const libId = (BUNNY_CONFIG.VIDEO_LIBRARY_ID || "").trim();
-            const apiKey = (BUNNY_CONFIG.STREAM_API_KEY || "").trim();
-            const signatureInput = `${libId}${apiKey}${expiration}${guid}`;
+            const expiration = Math.floor(Date.now() / 1000) + 3600 // 1 hour
+            const libId = (BUNNY_CONFIG.VIDEO_LIBRARY_ID || "").trim()
+            const apiKey = (BUNNY_CONFIG.STREAM_API_KEY || "").trim()
+            const signatureInput = `${libId}${apiKey}${expiration}${guid}`
             
-            const signature = crypto.createHash('sha256').update(signatureInput).digest('hex');
+            const signature = crypto.createHash('sha256').update(signatureInput).digest('hex')
 
             return NextResponse.json({ 
                 success: true, 
@@ -71,11 +86,9 @@ export async function POST(request: NextRequest) {
                 type: 'stream'
             })
         } else {
-            // ── STANDARD STORAGE UPLOAD (Images/Docs) ─────────────────────────
-            const filePath = `${folder}/${fileName}`
+            const filePath = `${safeFolder}/${fileName}`
             const bunnyUrl = `https://${BUNNY_CONFIG.STORAGE_ENDPOINT}/${BUNNY_CONFIG.STORAGE_ZONE_NAME}/${filePath}`
             
-            // Proxy to Bunny Storage
             const response = await fetch(bunnyUrl, {
                 method: 'PUT',
                 headers: {
@@ -88,13 +101,9 @@ export async function POST(request: NextRequest) {
             })
 
             if (!response.ok) {
-                const errText = await response.text().catch(() => "Unknown error");
-                console.error("Bunny Storage Error:", errText)
-                return NextResponse.json({ success: false, error: `فشل الرفع لمساحة التخزين: ${errText}` }, { status: response.status })
+                return NextResponse.json({ success: false, error: "فشل الرفع لمساحة التخزين" }, { status: response.status })
             }
 
-            // Create a clean public URL using our Ultimate Proxy
-            // This ensures the image is fetched via the server with full permissions
             const proxyUrl = `/api/storage/sign?url=${encodeURIComponent(filePath)}`
 
             return NextResponse.json({ 
@@ -103,8 +112,7 @@ export async function POST(request: NextRequest) {
                 type: 'storage'
             })
         }
-    } catch (error: any) {
-        console.error("Upload API Critical Error:", error)
-        return NextResponse.json({ error: `خطأ داخلي في الخادم: ${error.message}` }, { status: 500 })
+    } catch {
+        return NextResponse.json({ error: "خطأ داخلي في الخادم" }, { status: 500 })
     }
 }

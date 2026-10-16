@@ -1,66 +1,69 @@
 import { NextRequest, NextResponse } from "next/server"
 import { BUNNY_CONFIG } from "@/lib/bunny/config"
-import crypto from "crypto"
+import { getServerAuth } from "@/lib/server-auth"
+import { adminDb } from "@/lib/firebase/admin"
 
 export const runtime = 'nodejs'
 
-function signUrl(path: string, securityKey: string, expirationSeconds: number = 3600 * 5) {
-    const expires = Math.floor(Date.now() / 1000) + expirationSeconds;
-    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    const hash = crypto.createHash('md5')
-        .update(securityKey + normalizedPath + expires)
-        .digest('hex');
-    
-    return `${normalizedPath}?token=${hash}&expires=${expires}`;
-}
-
 export async function GET(request: NextRequest) {
+    const user = await getServerAuth(request)
+    if (!user || user.status === "blocked" || user.status === "suspended") {
+        return new NextResponse("Unauthorized", { status: 401 })
+    }
+
     const { searchParams } = new URL(request.url)
     const url = searchParams.get('url')
     
     if (!url) return new NextResponse("Missing URL", { status: 400 })
+    if (url.includes('..')) return new NextResponse("Invalid Path", { status: 400 })
 
     try {
-        // 1. Extract path from full URL
         const pullZoneHost = new URL(BUNNY_CONFIG.PULL_ZONE_URL || "https://manara-academy.b-cdn.net").host
         let path = ""
-        
-        // Handle double proxying (if URL is already /api/storage/sign?url=...)
-        if (url.includes('/api/storage/sign?url=')) {
-            const nestedUrl = new URL(url, request.url).searchParams.get('url')
-            if (nestedUrl) return GET(new NextRequest(new URL(`/api/storage/sign?url=${encodeURIComponent(nestedUrl)}`, request.url)))
-        }
 
         if (url.includes(pullZoneHost)) {
             path = new URL(url).pathname
         } else if (url.startsWith('https://storage.bunnycdn.com')) {
-             // Already a storage URL, extract path
-             const parts = url.split('/')
-             path = '/' + parts.slice(4).join('/')
-        } else if (!url.startsWith('http')) {
-            path = url.startsWith('/') ? url : `/${url}`
+            const parts = url.split('/')
+            path = '/' + parts.slice(4).join('/')
+        } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            path = url
         } else {
-             // Not our pull zone or unknown, redirect just in case
-             return NextResponse.redirect(url)
+            return new NextResponse("Invalid or unsupported URL", { status: 400 })
         }
 
-        // 2. Clean path (remove tokens/query)
-        const cleanPath = path.split('?')[0].replace(/^\//, '')
-        
-        // 3. Construct Direct Storage URL
-        const storageUrl = `https://${BUNNY_CONFIG.STORAGE_ENDPOINT}/${BUNNY_CONFIG.STORAGE_ZONE_NAME}/${cleanPath}`
-        
-        console.log("Ultimate Proxy Fetching from Storage:", storageUrl)
+        const cleanPath = path.split('?')[0].replace(/^\/+/, '')
+        if (cleanPath.includes('..')) {
+            return new NextResponse("Invalid Path", { status: 400 })
+        }
 
-        // 4. Fetch from Storage using ACCESS_KEY (Full Permissions)
-        const accessKey = BUNNY_CONFIG.ACCESS_KEY;
-        
+        // Check course authorization if courseId is passed or in path
+        const courseId = searchParams.get('courseId') || (cleanPath.startsWith('courses/') ? cleanPath.split('/')[1] : null)
+        if (user.role !== "admin") {
+            if (courseId) {
+                const courseDoc = await adminDb.collection("courses").doc(courseId).get()
+                const isCourseInstructor = courseDoc.exists && courseDoc.data()?.instructor_id === user.uid
+                if (!isCourseInstructor) {
+                    const enrollmentDoc = await adminDb.collection("enrollments").doc(`${user.uid}_${courseId}`).get()
+                    if (!enrollmentDoc.exists) {
+                        return new NextResponse("Forbidden", { status: 403 })
+                    }
+                    const enrData = enrollmentDoc.data()
+                    if (enrData?.status === "blocked" || enrData?.status === "suspended") {
+                        return new NextResponse("Forbidden", { status: 403 })
+                    }
+                }
+            } else if (user.role === "student" && cleanPath.startsWith('courses/')) {
+                return new NextResponse("Forbidden", { status: 403 })
+            }
+        }
+
+        const accessKey = BUNNY_CONFIG.ACCESS_KEY
         if (!accessKey) {
-            console.error("[Proxy] ERROR: BUNNY_ACCESS_KEY is missing from environment variables!");
-            return new NextResponse("Server Configuration Error: Missing Access Key", { status: 500 });
+            return new NextResponse("Server Configuration Error", { status: 500 })
         }
 
-        console.log(`[Proxy] Requesting: ${storageUrl}`);
+        const storageUrl = `https://${BUNNY_CONFIG.STORAGE_ENDPOINT}/${BUNNY_CONFIG.STORAGE_ZONE_NAME}/${cleanPath}`
         let response = await fetch(storageUrl, {
             method: 'GET',
             headers: {
@@ -69,40 +72,30 @@ export async function GET(request: NextRequest) {
             }
         })
 
-        // 4.1 Fallback to global endpoint if region-specific fails
         if (!response.ok && BUNNY_CONFIG.STORAGE_ENDPOINT !== "storage.bunnycdn.com") {
-             const fallbackUrl = `https://storage.bunnycdn.com/${BUNNY_CONFIG.STORAGE_ZONE_NAME}/${cleanPath}`;
-             console.log(`[Proxy] Retrying with global endpoint: ${fallbackUrl}`);
-             response = await fetch(fallbackUrl, {
-                 method: 'GET',
-                 headers: {
-                     'AccessKey': BUNNY_CONFIG.ACCESS_KEY || '',
-                     'accept': '*/*'
-                 }
-             });
+            const fallbackUrl = `https://storage.bunnycdn.com/${BUNNY_CONFIG.STORAGE_ZONE_NAME}/${cleanPath}`
+            response = await fetch(fallbackUrl, {
+                method: 'GET',
+                headers: {
+                    'AccessKey': accessKey,
+                    'accept': '*/*'
+                }
+            })
         }
 
         if (!response.ok) {
-            const errText = await response.text().catch(() => "Unknown error");
-            console.error(`[Proxy] Bunny Error (${response.status}):`, errText);
-            console.log(`[Proxy] Attempted AccessKey: ${BUNNY_CONFIG.ACCESS_KEY?.substring(0, 5)}...`);
-            console.log(`[Proxy] Attempted Zone: ${BUNNY_CONFIG.STORAGE_ZONE_NAME}`);
-            
-            return new NextResponse(`Error fetching asset: ${response.status} - ${errText}`, { status: response.status })
+            return new NextResponse("Asset not found", { status: response.status })
         }
 
-        // 5. Stream response back with correct headers
         const blob = await response.blob()
         return new NextResponse(blob, {
             headers: {
-                'Content-Type': response.headers.get('Content-Type') || 'image/jpeg',
-                'Cache-Control': 'public, max-age=3600, s-maxage=3600',
-                'Access-Control-Allow-Origin': '*'
+                'Content-Type': response.headers.get('Content-Type') || 'application/octet-stream',
+                'Cache-Control': 'private, no-cache, no-store, must-revalidate',
             }
         })
 
-    } catch (e: any) {
-        console.error("Ultimate Proxy Error:", e.message)
-        return new NextResponse(`Proxy Error: ${e.message}`, { status: 500 })
+    } catch {
+        return new NextResponse("Error fetching asset", { status: 500 })
     }
 }
