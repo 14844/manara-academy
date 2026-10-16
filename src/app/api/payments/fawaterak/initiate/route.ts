@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { createFawaterakTransaction } from "@/lib/payments/fawaterak";
 import { cookies } from "next/headers";
+import { checkRateLimit } from "@/lib/rate-limiter";
 
 export async function POST(request: Request) {
     try {
@@ -54,7 +55,13 @@ export async function POST(request: Request) {
             );
         }
 
-        // 2. Fetch student profile
+        // Rate limit: 10 initiate requests per 2 minutes per user
+        if (!checkRateLimit(`pay_init_${uid}`, 10, 120000)) {
+            return NextResponse.json(
+                { error: "تم تجاوز الحد الأقصى للمحاولات، يرجى الانتظار قليلاً" },
+                { status: 429 }
+            );
+        }
         const profileSnap = await adminDb.collection("profiles").doc(uid).get();
         const profileData = profileSnap.exists ? profileSnap.data() : {};
 
