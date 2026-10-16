@@ -35,6 +35,16 @@ export async function POST(request: Request) {
         const course = courseSnap.data()!;
         const coursePrice = Number(course.price || 0);
 
+        // Prevent instructor from enrolling in their own course
+        if (course.instructor_id === user.uid) {
+            return NextResponse.json({ error: "لا يمكنك الاشتراك في كورسك الخاص" }, { status: 400 });
+        }
+
+        // Prevent instructors from purchasing courses (wallet is for withdrawals only)
+        if (user.role === "instructor" && coursePrice > 0) {
+            return NextResponse.json({ error: "محفظة المدرس مخصصة للسحب فقط ولا يمكن استخدامها لشراء الكورسات" }, { status: 403 });
+        }
+
         // Resolve coupon ref ahead of time (but validate inside transaction)
         let couponRef: FirebaseFirestore.DocumentReference | null = null;
         if (couponCode && typeof couponCode === "string" && couponCode.trim()) {

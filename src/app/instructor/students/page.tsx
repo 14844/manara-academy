@@ -62,24 +62,20 @@ export default function InstructorStudentsPage() {
             // 1. Get all courses by this instructor
             const coursesQ = query(collection(db, "courses"), where("instructor_id", "==", instructorId))
             const coursesSnap = await getDocs(coursesQ)
-            const instructorCourseIds = coursesSnap.docs.map(doc => doc.id)
-            setInstructorCourseIds(instructorCourseIds)
+            const myCourseIds = coursesSnap.docs.map(doc => doc.id)
+            setInstructorCourseIds(myCourseIds)
             const coursesMap = new Map(coursesSnap.docs.map(doc => [doc.id, doc.data()]))
 
-            if (instructorCourseIds.length === 0) {
+            if (myCourseIds.length === 0) {
                 setStudents([])
                 setIsLoading(false)
                 return
             }
 
-            // 2. Get all enrollments for these courses
-            // Note: Firebase 'in' operator supports up to 10 elements. 
-            // If there are more than 10 courses, we'd need to batch. 
-            // For now, let's assume < 10 or fetch all and filter client-side if needed.
+            // 2. Get all enrollments for this instructor (single-field query, no 'in' limit)
             const enrollmentsQ = query(
                 collection(db, "enrollments"),
-                where("instructor_id", "==", instructorId),
-                where("course_id", "in", instructorCourseIds)
+                where("instructor_id", "==", instructorId)
             )
             const enrollmentsSnap = await getDocs(enrollmentsQ)
             const allEnrollments = enrollmentsSnap.docs.map(doc => doc.data())
@@ -91,43 +87,57 @@ export default function InstructorStudentsPage() {
                 if (!studentGroups[enr.student_id]) {
                     studentGroups[enr.student_id] = {
                         id: enr.student_id,
-                        name: enr.student_name,
+                        name: enr.student_name || "طالب",
                         enrollments: []
                     }
                 }
                 studentGroups[enr.student_id].enrollments.push({
                     ...enr,
-                    courseTitle: coursesMap.get(enr.course_id)?.title || "كورس غير معروف"
+                    courseTitle: coursesMap.get(enr.course_id)?.title || enr.course_title || "كورس غير معروف"
                 })
             }
 
-            // 4. Fetch profiles & entries
+            // 4. Fetch profiles via API route (reads from profiles_private securely)
             let instructorApiStudents: Record<string, any> = {}
             try {
                 const apiRes = await fetch("/api/instructor/students")
                 if (apiRes.ok) {
                     const apiData = await apiRes.json()
                     instructorApiStudents = apiData.students || {}
+                } else {
+                    const errData = await apiRes.json().catch(() => ({}))
+                    console.warn("Students API returned error:", errData.error || apiRes.status)
                 }
-            } catch {}
+            } catch (e) {
+                console.warn("Students API unreachable:", e)
+            }
 
             const studentIds = Object.keys(studentGroups)
             const studentData = await Promise.all(studentIds.map(async (sid) => {
                 const apiStudent = instructorApiStudents[sid]
                 let pData = apiStudent || {}
                 if (!apiStudent) {
-                    const profileDoc = await getDoc(doc(db, "profiles", sid))
-                    pData = profileDoc.exists() ? profileDoc.data() : {}
+                    try {
+                        const profileDoc = await getDoc(doc(db, "profiles", sid))
+                        pData = profileDoc.exists() ? profileDoc.data() : {}
+                    } catch {
+                        pData = {}
+                    }
                 }
 
                 // Fetch submissions
-                const subsQ = query(
-                    collection(db, "submissions"),
-                    where("instructor_id", "==", instructorId),
-                    where("student_id", "==", sid)
-                )
-                const subsSnap = await getDocs(subsQ)
-                const submissions = subsSnap.docs.map(doc => doc.data())
+                let submissions: any[] = []
+                try {
+                    const subsQ = query(
+                        collection(db, "submissions"),
+                        where("instructor_id", "==", instructorId),
+                        where("student_id", "==", sid)
+                    )
+                    const subsSnap = await getDocs(subsQ)
+                    submissions = subsSnap.docs.map(doc => doc.data())
+                } catch (e) {
+                    console.warn(`Failed to load submissions for student ${sid}:`, e)
+                }
 
                 return {
                     ...studentGroups[sid],
@@ -136,14 +146,14 @@ export default function InstructorStudentsPage() {
                     parentPhone: pData.parent_phone || pData.parentPhone || "غير متوفر",
                     avatar: pData.avatar_url || pData.avatar || null,
                     status: pData.status || "active",
-                    submissions: submissions.filter(s => instructorCourseIds.includes(s.course_id))
+                    submissions: submissions.filter(s => myCourseIds.includes(s.course_id))
                 }
             }))
 
             setStudents(studentData)
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error fetching instructor students:", error)
-            toast.error("فشل تحميل بيانات الطلاب")
+            toast.error(`فشل تحميل بيانات الطلاب: ${error.message || "خطأ في الاتصال بالخادم"}`)
         } finally {
             setIsLoading(false)
         }

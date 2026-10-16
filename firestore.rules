@@ -88,12 +88,10 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Coupons: Only coupon owner (instructor) and admin can read/manage.
-    // course_id required on create; instructor must own the course. usage_count cannot be edited from client.
+    // Coupons: Any authenticated user can read (students need to validate codes).
+    // Create: instructor owns the course. Update: owner/admin (usage_count protected). Delete: owner/admin.
     match /coupons/{couponId} {
-      allow read: if isAuthenticated() && (
-        resource.data.instructor_id == request.auth.uid || isAdmin()
-      );
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated() && (
         isAdmin() || (
           isInstructor() &&
