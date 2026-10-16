@@ -468,14 +468,15 @@ export default function InstructorReportsPage() {
                 exams: examsList
             }
 
-            // Generate report in parent_reports
-            const docRef = await addDoc(collection(db, "parent_reports"), reportPayload)
+            // Generate report in parent_reports with cryptographically secure random token (>= 32 chars)
+            const reportToken = (crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, ''))
+            await setDoc(doc(db, "parent_reports", reportToken), reportPayload)
 
             // Update log list
-            const newReport = { id: docRef.id, ...reportPayload }
+            const newReport = { id: reportToken, ...reportPayload }
             setSentReports(prev => [newReport, ...prev])
 
-            const magicUrl = window.location.origin + "/report/" + docRef.id
+            const magicUrl = window.location.origin + "/report/" + reportToken
             setGeneratedLink(magicUrl)
 
             setIsCreateSheetOpen(false)

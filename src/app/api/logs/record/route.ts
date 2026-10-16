@@ -1,32 +1,33 @@
 import { NextResponse } from "next/server";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { getServerAuth } from "@/lib/server-auth";
-import { checkRateLimit } from "@/lib/rate-limiter";
+import { checkRateLimitAsync, getClientIp } from "@/lib/rate-limiter";
 
 export async function POST(request: Request) {
     try {
+        const clientIp = getClientIp(request);
         const user = await getServerAuth(request);
-        if (!user) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        }
 
-        // Rate limit: 60 logs per minute per user
-        if (!checkRateLimit(`logs_${user.uid}`, 60, 60000)) {
+        const rateKey = user ? `logs_${user.uid}` : `logs_anon_${clientIp}`;
+        const rateCheck = await checkRateLimitAsync(rateKey, 60, 60);
+        if (!rateCheck.success) {
             return NextResponse.json({ error: "Too many requests" }, { status: 429 });
         }
 
         const body = await request.json();
+
+        // Enforce safe server attributes
         const logId = await logServerActivity({
             ...body,
-            user_id: user.uid,
-            user_role: user.role,
-            user_name: user.profile?.full_name || body.user_name || user.email,
-            user_email: user.email,
+            user_id: user?.uid || body.user_id || "guest",
+            user_role: user?.role || body.user_role || "guest",
+            user_name: user?.profile?.full_name || body.user_name || user?.email || "زائر",
+            user_email: user?.email || body.user_email || "",
         });
 
         return NextResponse.json({ success: true, logId });
     } catch (error: any) {
         console.error("Error in /api/logs/record:", error);
-        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+        return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
     }
 }

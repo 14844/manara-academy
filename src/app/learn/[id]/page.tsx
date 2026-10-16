@@ -169,37 +169,32 @@ export default function LearnPage() {
 
     const handleLessonComplete = async (lessonId: string) => {
         try {
-            // Get current enrollment to see existing completed lessons
-            const enrollmentRef = doc(db, "enrollments", `${user.uid}_${id}`)
-            const enrollmentSnap = await getDoc(enrollmentRef)
-
-            if (enrollmentSnap.exists()) {
-                const data = enrollmentSnap.data()
-                const completedLessons = data.completed_lessons || []
-
-                if (!completedLessons.includes(lessonId)) {
-                    const newCompleted = [...completedLessons, lessonId]
-                    const totalLessons = course?.modules?.flatMap((m: any) => m.lessons).length || 1
-                    const newProgress = Math.round((newCompleted.length / totalLessons) * 100)
-
-                    await updateDoc(enrollmentRef, {
-                        completed_lessons: newCompleted,
-                        progress: newProgress,
-                        last_lesson_id: lessonId,
-                        last_accessed_lesson: lessonId,
-                        updated_at: new Date().toISOString()
-                    })
-
-                    setCompletedLessons(newCompleted)
-                    setProgress(newProgress)
-                    toast.success("تم إكمال الدرس وتحديث التقدم!")
-                } else {
-                    toast.info("هذا الدرس مكتمل بالفعل")
-                }
+            if (completedLessons.includes(lessonId)) {
+                toast.info("هذا الدرس مكتمل بالفعل")
+                return
             }
-        } catch (error) {
+
+            const res = await fetch("/api/courses/progress", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    courseId: id,
+                    lessonId: lessonId,
+                }),
+            })
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}))
+                throw new Error(errData.error || "فشل تحديث التقدم")
+            }
+
+            const data = await res.json()
+            setCompletedLessons(data.completed_lessons || [...completedLessons, lessonId])
+            setProgress(data.progress ?? progress)
+            toast.success("تم إكمال الدرس وتحديث التقدم! 🎉")
+        } catch (error: any) {
             console.error("Update progress error:", error)
-            toast.error("فشل في تحديث التقدم")
+            toast.error(error.message || "فشل في تحديث التقدم")
         }
     }
 
