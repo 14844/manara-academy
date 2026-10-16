@@ -72,6 +72,11 @@ service cloud.firestore {
       allow write: if isAuthenticated() && (
         resource == null || resource.data.instructor_id == request.auth.uid
       );
+
+      // Private media: strictly server-side only
+      match /private/{docId} {
+        allow read, write: if false;
+      }
     }
 
     // Internal logs: strictly server-side
