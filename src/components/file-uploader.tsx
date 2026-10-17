@@ -90,93 +90,59 @@ export function FileUploader({
             const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
             const fileName = `${Date.now()}_${sanitizedName}`
 
-            const courseParam = courseId ? `&courseId=${encodeURIComponent(courseId)}` : ''
-
+            // Map folder properly for Supabase structure
+            let targetFolder = folder
             if (isVideo) {
-                // ── STEP 1: Get Upload Signature/Metadata from our API ──
-                const authUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}${courseParam}`
-                const authRes = await fetch(authUrl, { 
-                    method: 'POST',
-                    headers: { 'Content-Type': file.type }
-                    // For videos, we do NOT send the body here - we just get the signature
-                })
+                targetFolder = "videos"
+            } else if (folder === "general" || folder === "attachments" || folder === "course_files") {
+                targetFolder = "files"
+            }
 
-                const authData = await authRes.json()
-                if (!authRes.ok || !authData.success) {
-                    throw new Error(authData.error || "فشل الحصول على تصريح الرفع")
+            const courseParam = courseId ? `&courseId=${encodeURIComponent(courseId)}` : ''
+            const uploadUrl = `/api/upload/supabase?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(targetFolder)}${courseParam}`
+
+            const xhr = new XMLHttpRequest()
+            xhr.open('POST', uploadUrl, true)
+            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+
+            xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) {
+                    const pct = Math.round((event.loaded / event.total) * 100)
+                    setProgress(pct)
                 }
+            }
 
-                // ── STEP 2: Execute Video Upload via TUS (Professional) ──
-                const upload = new tus.Upload(file, {
-                    endpoint: "https://video.bunnycdn.com/tusupload",
-                    retryDelays: [0, 3000, 5000, 10000, 20000],
-                    headers: {
-                        AuthorizationSignature: authData.signature,
-                        AuthorizationExpire: authData.expiration.toString(),
-                        VideoId: authData.guid,
-                        LibraryId: authData.libraryId.toString(),
-                    },
-                    metadata: {
-                        filename: file.name,
-                        filetype: file.type,
-                    },
-                    onError: (error) => {
-                        setIsUploading(false)
-                        console.error("TUS Upload Error:", error)
-                        toast.error(`خطأ في الرفع: ${error.message}`)
-                    },
-                    onProgress: (bytesUploaded, bytesTotal) => {
-                        const percentage = (bytesUploaded / bytesTotal) * 100
-                        setProgress(percentage)
-                    },
-                    onSuccess: () => {
-                        setIsUploading(false)
-                        setIsComplete(true)
-                        onUploadComplete(`bunny_stream://${authData.guid}`)
-                        toast.success("تم الرفع الاحترافي لـ Bunny Stream بنجاح")
-                    },
-                })
-
-                // Start the upload
-                upload.start()
-            } else {
-                // ── DIRECT PROXIED UPLOAD (Images/Docs) ───────────────────────
-                // For non-videos, we send the file body in a single POST request
-                const xhr = new XMLHttpRequest()
-                const uploadUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}${courseParam}`
-                
-                xhr.open('POST', uploadUrl, true)
-                xhr.setRequestHeader('Content-Type', file.type)
-
-                xhr.upload.onprogress = (event) => {
-                    if (event.lengthComputable) {
-                        setProgress((event.loaded / event.total) * 100)
-                    }
-                }
-
-                xhr.onload = () => {
-                    setIsUploading(false)
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        try {
-                            const response = JSON.parse(xhr.responseText)
+            xhr.onload = () => {
+                setIsUploading(false)
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try {
+                        const response = JSON.parse(xhr.responseText)
+                        if (response.success && response.url) {
                             setIsComplete(true)
                             onUploadComplete(response.url)
-                            toast.success("تم الرفع (تخزين) بنجاح")
-                        } catch (e) {
-                            toast.error("خطأ في معالجة رد السيرفر")
+                            toast.success(isVideo ? "تم رفع الفيديو بنجاح 🎬" : "تم رفع الملف بنجاح 📁")
+                        } else {
+                            toast.error(response.error || "فشل معالجة رد الرفع")
                         }
-                    } else {
+                    } catch (e) {
+                        toast.error("خطأ في معالجة رد السيرفر")
+                    }
+                } else {
+                    try {
+                        const err = JSON.parse(xhr.responseText)
+                        toast.error(err.error || `فشل الرفع: ${xhr.status}`)
+                    } catch {
                         toast.error(`فشل الرفع: ${xhr.status}`)
                     }
                 }
-                
-                xhr.onerror = () => {
-                    setIsUploading(false)
-                    toast.error("خطأ في الاتصال بالسيرفر")
-                }
-                
-                xhr.send(file)
             }
+
+            xhr.onerror = () => {
+                setIsUploading(false)
+                toast.error("خطأ في الاتصال بالسيرفر أثناء الرفع")
+            }
+
+            xhr.send(file)
         } catch (err: any) {
             setIsUploading(false)
             toast.error(err.message || "حدث خطأ غير متوقع")

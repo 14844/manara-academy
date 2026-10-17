@@ -122,14 +122,87 @@ export async function GET(request: NextRequest) {
                         return new NextResponse("Forbidden", { status: 403 })
                     }
                 }
+            } else if (cleanPath.startsWith('avatars/') || cleanPath.startsWith('thumbnails/') || cleanPath.startsWith('questions/')) {
+                // Public/educational assets accessible to authenticated users
+            } else if (cleanPath.startsWith('payment_proofs/')) {
+                // Payment proof receipts: only the student who uploaded or admin can access
+                const isStudentOwner = cleanPath.includes(`_${user.uid}_`)
+                if (!isStudentOwner) {
+                    return new NextResponse("Forbidden", { status: 403 })
+                }
+            } else if (cleanPath.startsWith('files/courses/') || cleanPath.startsWith('videos/courses/')) {
+                const parts = cleanPath.split('/')
+                const courseId = parts[2]
+                if (!courseId) return new NextResponse("Forbidden", { status: 403 })
+
+                const courseDoc = await adminDb.collection("courses").doc(courseId).get()
+                if (!courseDoc.exists) return new NextResponse("Course not found", { status: 404 })
+
+                const isCourseInstructor = courseDoc.data()?.instructor_id === user.uid
+                if (!isCourseInstructor) {
+                    const enrollmentDoc = await adminDb.collection("enrollments").doc(`${user.uid}_${courseId}`).get()
+                    if (!enrollmentDoc.exists || enrollmentDoc.data()?.status !== "active") {
+                        return new NextResponse("Forbidden", { status: 403 })
+                    }
+                }
+            } else if (cleanPath.startsWith('files/instructor_') || cleanPath.startsWith('videos/instructor_')) {
+                const parts = cleanPath.split('/')
+                const subParts = parts[1]?.split('_') || []
+                const instructorUid = subParts[1]
+                if (!instructorUid) return new NextResponse("Forbidden", { status: 403 })
+
+                if (instructorUid !== user.uid) {
+                    // Check if student is enrolled in any of this instructor's courses
+                    const enrollmentsSnap = await adminDb.collection("enrollments")
+                        .where("student_id", "==", user.uid)
+                        .where("instructor_id", "==", instructorUid)
+                        .where("status", "==", "active")
+                        .limit(1)
+                        .get()
+                    if (enrollmentsSnap.empty) {
+                        return new NextResponse("Forbidden", { status: 403 })
+                    }
+                }
             } else {
                 return new NextResponse("Forbidden", { status: 403 })
             }
         }
 
+        // 1. Try Supabase Storage first
+        try {
+            const { supabaseAdmin, SUPABASE_BUCKET } = await import("@/lib/supabase/config")
+            const { data: fileData, error: downloadError } = await supabaseAdmin.storage
+                .from(SUPABASE_BUCKET)
+                .download(cleanPath)
+
+            if (fileData && !downloadError) {
+                let contentType = fileData.type || 'application/octet-stream'
+                if (contentType.includes("image/svg+xml")) {
+                    contentType = 'application/octet-stream'
+                }
+
+                const isPdf = cleanPath.toLowerCase().endsWith(".pdf") || contentType.includes("pdf")
+                const headers: Record<string, string> = {
+                    'Content-Type': contentType,
+                    'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+                    'X-Content-Type-Options': 'nosniff',
+                    'Content-Security-Policy': 'sandbox',
+                }
+
+                if (isPdf) {
+                    headers['Content-Disposition'] = 'inline'
+                }
+
+                return new NextResponse(fileData, { headers })
+            }
+        } catch (supabaseErr) {
+            console.warn("Supabase download skipped, falling back to legacy storage:", supabaseErr)
+        }
+
+        // 2. Fallback to legacy Bunny Storage for older files
         const accessKey = BUNNY_CONFIG.ACCESS_KEY
         if (!accessKey) {
-            return new NextResponse("Server Configuration Error", { status: 500 })
+            return new NextResponse("Asset not found", { status: 404 })
         }
 
         const storageUrl = `https://${BUNNY_CONFIG.STORAGE_ENDPOINT}/${BUNNY_CONFIG.STORAGE_ZONE_NAME}/${cleanPath}`
@@ -157,7 +230,6 @@ export async function GET(request: NextRequest) {
         }
 
         let contentType = response.headers.get('Content-Type') || 'application/octet-stream'
-        // Block SVG XSS: never serve SVG as image/svg+xml
         if (contentType.includes("image/svg+xml")) {
             contentType = 'application/octet-stream'
         }

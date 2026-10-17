@@ -112,6 +112,28 @@ export async function GET(request: Request) {
         } else if (videoPath.includes("drive.google.com")) {
             const drivePreview = videoPath.replace(/\/view(\?.*)?$/, "/preview").replace(/\/edit(\?.*)?$/, "/preview");
             return NextResponse.json({ type: "drive", url: drivePreview });
+        } else if (videoPath.startsWith("supabase://") || videoPath.includes("supabase.co") || videoPath.startsWith("videos/")) {
+            const { supabaseAdmin, SUPABASE_BUCKET } = await import("@/lib/supabase/config");
+            let cleanStoragePath = videoPath.replace(/^supabase:\/\//, "");
+            if (cleanStoragePath.includes("supabase.co/storage/v1/object/")) {
+                const parts = cleanStoragePath.split(/supabase\.co\/storage\/v1\/object\/(?:public|sign)\//);
+                if (parts[1]) {
+                    cleanStoragePath = parts[1].split("?")[0];
+                    if (cleanStoragePath.startsWith(`${SUPABASE_BUCKET}/`)) {
+                        cleanStoragePath = cleanStoragePath.slice(SUPABASE_BUCKET.length + 1);
+                    }
+                }
+            }
+
+            const { data: signedData, error: signErr } = await supabaseAdmin.storage
+                .from(SUPABASE_BUCKET)
+                .createSignedUrl(cleanStoragePath, expirationSeconds);
+
+            if (signErr || !signedData?.signedUrl) {
+                return NextResponse.json({ error: "فشل إنشاء رابط الفيديو الآمن" }, { status: 500 });
+            }
+
+            return NextResponse.json({ type: "direct", url: signedData.signedUrl });
         } else if (videoPath.startsWith("bunny_stream://")) {
             const guid = videoPath.split("://")[1];
             const securityKey = BUNNY_CONFIG.SECURITY_KEY;

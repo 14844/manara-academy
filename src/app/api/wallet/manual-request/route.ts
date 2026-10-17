@@ -13,6 +13,9 @@ function isValidStorageUrl(urlStr: string): boolean {
     try {
         const parsed = new URL(urlStr);
         const host = parsed.hostname.toLowerCase();
+        if (host.endsWith("supabase.co") || host.endsWith("supabase.in")) {
+            return true;
+        }
         const pullHost = BUNNY_CONFIG.PULL_ZONE_URL ? new URL(BUNNY_CONFIG.PULL_ZONE_URL).hostname.toLowerCase() : "";
         return host.endsWith("b-cdn.net") || host === "storage.bunnycdn.com" || (pullHost !== "" && host === pullHost);
     } catch {

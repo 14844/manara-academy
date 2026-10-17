@@ -190,12 +190,12 @@ function WalletContent() {
 
         setSubmitting(true)
         try {
-            // Upload screenshot to Bunny.net via our API
+            // Upload screenshot to Supabase Storage via secure server API
             const fileExt = file.name.split('.').pop()
             const fileName = `${user.uid}_${Date.now()}.${fileExt}`
             const folder = "payment_proofs"
 
-            const uploadRes = await fetch(`/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`, {
+            const uploadRes = await fetch(`/api/upload/supabase?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`, {
                 method: 'POST',
                 body: file,
                 headers: {
