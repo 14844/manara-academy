@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin, SUPABASE_BUCKET } from "@/lib/supabase/config"
+import { supabaseAdmin, SUPABASE_BUCKET } from "@/lib/supabase/admin"
 import { getServerAuth } from "@/lib/server-auth"
 import { adminDb } from "@/lib/firebase/admin"
 
@@ -143,19 +143,19 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: `فشل الرفع لمساحة التخزين: ${uploadError.message}` }, { status: 500 })
         }
 
-        // For public assets (avatars, thumbnails), we can return the direct public URL
-        // For protected assets (videos, files, payment_proofs), we return proxy or signed URL
+        // For public assets (avatars, thumbnails), return public URL
+        // For sensitive/protected assets (videos, files, payment_proofs, questions), return short-lived signed URL (15 minutes)
         let finalUrl = ""
-        if (rawFolder === "avatars" || rawFolder === "thumbnails" || rawFolder === "questions") {
+        if (rawFolder === "avatars" || rawFolder === "thumbnails") {
             const { data: publicUrlData } = supabaseAdmin.storage
                 .from(SUPABASE_BUCKET)
                 .getPublicUrl(storagePath)
             finalUrl = publicUrlData.publicUrl
         } else {
-            // Protected asset: generate signed URL (valid for 24 hours for upload preview)
+            // Protected asset: generate short-lived signed URL (valid for 15 minutes = 900s)
             const { data: signedData, error: signError } = await supabaseAdmin.storage
                 .from(SUPABASE_BUCKET)
-                .createSignedUrl(storagePath, 86400) // 24 hours
+                .createSignedUrl(storagePath, 900)
 
             finalUrl = signedData?.signedUrl || `/api/storage/sign?url=${encodeURIComponent(storagePath)}`
         }

@@ -94,7 +94,6 @@ export default function NewCoursePage() {
                 id: courseRef.id,
                 instructor_id: auth.currentUser.uid,
                 instructor_name: instructorName,
-                instructor_verified: isVerified,
                 title: values.title,
                 description: values.description,
                 category: values.category,

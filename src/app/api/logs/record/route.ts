@@ -16,13 +16,45 @@ export async function POST(request: Request) {
 
         const body = await request.json();
 
-        // Enforce safe server attributes
+        // Reject any financial fields from client
+        if (
+            body.amount !== undefined ||
+            body.balance !== undefined ||
+            body.wallet_balance !== undefined ||
+            body.price !== undefined ||
+            body.instructor_share !== undefined ||
+            body.platform_commission !== undefined
+        ) {
+            return NextResponse.json({ error: "غير مصرح بتسجيل بيانات مالية من العميل" }, { status: 400 });
+        }
+
+        // Allowlist and sanitize safe client logging fields
+        const safeAction = typeof body.action === "string" ? body.action.slice(0, 100) : "client_action";
+        const safeDetails = typeof body.details === "string" ? body.details.slice(0, 500) : "";
+        const safeMetadata = typeof body.metadata === "object" && body.metadata !== null && !Array.isArray(body.metadata)
+            ? { ...body.metadata }
+            : {};
+
+        // Strip any potential financial keys from metadata
+        delete safeMetadata.amount;
+        delete safeMetadata.balance;
+        delete safeMetadata.wallet_balance;
+        delete safeMetadata.price;
+        delete safeMetadata.instructor_share;
+        delete safeMetadata.platform_commission;
+
+        // Enforce safe server attributes and strictly category="client"
         const logId = await logServerActivity({
-            ...body,
-            user_id: user?.uid || body.user_id || "guest",
-            user_role: user?.role || body.user_role || "guest",
-            user_name: user?.profile?.full_name || body.user_name || user?.email || "زائر",
-            user_email: user?.email || body.user_email || "",
+            action: safeAction,
+            category: "client",
+            title: typeof body.title === "string" ? body.title.slice(0, 100) : safeAction,
+            description: safeDetails || (typeof body.description === "string" ? body.description.slice(0, 500) : safeAction),
+            status: "info",
+            metadata: safeMetadata,
+            user_id: user?.uid || "guest",
+            user_role: (user?.role as any) || "guest",
+            user_name: user?.profile?.full_name || user?.email || "زائر",
+            user_email: user?.email || "",
         });
 
         return NextResponse.json({ success: true, logId });

@@ -65,9 +65,20 @@ export async function POST(request: Request) {
             }
             // Strip sensitive media paths from the public document
             const { video_path, url, ...rest } = lesson;
-            // Keep url for file-type lessons (non-video) since they need it for display
+            // Store only the clean storage path for file-type lessons in the public document
             if (lesson.type === "file" && url) {
-                return { ...rest, url };
+                let cleanPath = url;
+                try {
+                    if (url.startsWith("http://") || url.startsWith("https://")) {
+                        const parsed = new URL(url);
+                        cleanPath = parsed.pathname.replace(/^\/+/, "");
+                    } else if (url.includes("?")) {
+                        cleanPath = url.split("?")[0].replace(/^\/+/, "");
+                    }
+                } catch {
+                    cleanPath = url;
+                }
+                return { ...rest, url: cleanPath };
             }
             return rest;
         }),

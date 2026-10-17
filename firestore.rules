@@ -32,6 +32,14 @@ service cloud.firestore {
       );
     }
 
+    function isAccountActive() {
+      return isAuthenticated() && (
+        isAdmin() ||
+        request.auth.token.status == 'active' ||
+        get(/databases/$(database)/documents/profiles_private/$(request.auth.uid)).data.status == 'active'
+      );
+    }
+
     // Profiles (PUBLIC fields only): full_name, avatar_url, bio, specialty, role, is_verified, grade_level, school_name, created_at, updated_at
     // get: any authenticated user. list: admin only.
     // Client create forbidden (handled by server). Owner can only update allowlisted fields.
@@ -88,24 +96,33 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Coupons: Any authenticated user can read (students need to validate codes).
-    // Create: instructor owns the course. Update: owner/admin (usage_count protected). Delete: owner/admin.
+    // Coupons: Read restricted to coupon owner and admin.
+    // Create: admin or active instructor owning the course (course_id == 'all' only for admin).
+    // Update: owner/admin (course_id, instructor_id, and usage_count protected; discount_percent between 1 and 100).
     match /coupons/{couponId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && (
-        isAdmin() || (
-          isInstructor() &&
-          request.resource.data.instructor_id == request.auth.uid &&
-          'course_id' in request.resource.data &&
-          (
-            request.resource.data.course_id == 'all' ||
+      allow read: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isAccountActive() &&
+        request.resource.data.discount_percent is number &&
+        request.resource.data.discount_percent >= 1 &&
+        request.resource.data.discount_percent <= 100 && (
+          isAdmin() || (
+            isInstructor() &&
+            request.resource.data.instructor_id == request.auth.uid &&
+            'course_id' in request.resource.data &&
+            request.resource.data.course_id != 'all' &&
             get(/databases/$(database)/documents/courses/$(request.resource.data.course_id)).data.instructor_id == request.auth.uid
           )
+        );
+      allow update: if isAuthenticated() && isAccountActive() && (
+        isAdmin() || (
+          resource.data.instructor_id == request.auth.uid &&
+          request.resource.data.instructor_id == resource.data.instructor_id &&
+          request.resource.data.course_id == resource.data.course_id &&
+          request.resource.data.discount_percent is number &&
+          request.resource.data.discount_percent >= 1 &&
+          request.resource.data.discount_percent <= 100 &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['usage_count'])
         )
-      );
-      allow update: if isAuthenticated() && (
-        (resource.data.instructor_id == request.auth.uid || isAdmin()) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['usage_count'])
       );
       allow delete: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
     }
@@ -130,7 +147,7 @@ service cloud.firestore {
     // rating, price (after create), or instructor_id.
     match /courses/{courseId} {
       allow read: if true;
-      allow create: if isAuthenticated() && (
+      allow create: if isAuthenticated() && isAccountActive() && (
         isAdmin() || (
           isInstructor() &&
           request.resource.data.instructor_id == request.auth.uid &&
@@ -141,7 +158,7 @@ service cloud.firestore {
           !('rating' in request.resource.data)
         )
       );
-      allow update: if isAuthenticated() && (
+      allow update: if isAuthenticated() && isAccountActive() && (
         isAdmin() || (
           resource.data.instructor_id == request.auth.uid &&
           request.resource.data.instructor_id == resource.data.instructor_id &&
@@ -213,7 +230,7 @@ service cloud.firestore {
         resource.data.student_id == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isAuthenticated() && (
+      allow create: if isAuthenticated() && isAccountActive() && (
         isAdmin() || (
           isInstructor() &&
           request.resource.data.instructor_id == request.auth.uid &&
@@ -221,7 +238,10 @@ service cloud.firestore {
           get(/databases/$(database)/documents/enrollments/$(request.resource.data.student_id + '_' + request.resource.data.course_id)).data.instructor_id == request.auth.uid
         )
       );
-      allow update, delete: if isAuthenticated() && (
+      allow update: if isAuthenticated() && isAccountActive() && (
+        (isInstructor() && resource.data.instructor_id == request.auth.uid) || isAdmin()
+      );
+      allow delete: if isAuthenticated() && (
         (isInstructor() && resource.data.instructor_id == request.auth.uid) || isAdmin()
       );
     }

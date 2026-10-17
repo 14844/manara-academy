@@ -52,11 +52,19 @@ export async function GET(request: NextRequest) {
             return new NextResponse("Invalid Path", { status: 400 })
         }
 
-        // Strict path-based authorization: path must start with courses/<id>/ or instructor_<uid>_
+        // Strict course-specific authorization
         if (user.role !== "admin") {
-            if (cleanPath.startsWith('courses/')) {
-                const parts = cleanPath.split('/')
-                const courseId = parts[1]
+            const reqCourseId = searchParams.get('courseId')
+
+            if (cleanPath.startsWith('courses/') || cleanPath.startsWith('files/courses/') || cleanPath.startsWith('videos/courses/')) {
+                let courseId = ""
+                if (cleanPath.startsWith('courses/')) {
+                    courseId = cleanPath.split('/')[1]
+                } else if (cleanPath.startsWith('files/courses/')) {
+                    courseId = cleanPath.split('/')[2]
+                } else if (cleanPath.startsWith('videos/courses/')) {
+                    courseId = cleanPath.split('/')[2]
+                }
 
                 if (!courseId || !/^[\w-]+$/.test(courseId)) {
                     return new NextResponse("Invalid Course ID", { status: 400 })
@@ -70,57 +78,40 @@ export async function GET(request: NextRequest) {
                 const isCourseInstructor = courseDoc.data()?.instructor_id === user.uid
                 if (!isCourseInstructor) {
                     const enrollmentDoc = await adminDb.collection("enrollments").doc(`${user.uid}_${courseId}`).get()
-                    if (!enrollmentDoc.exists) {
-                        return new NextResponse("Forbidden", { status: 403 })
-                    }
-                    const enrData = enrollmentDoc.data()
-                    if (enrData?.status !== "active") {
-                        return new NextResponse("Forbidden", { status: 403 })
+                    if (!enrollmentDoc.exists || enrollmentDoc.data()?.status !== "active") {
+                        return new NextResponse("Forbidden: ليس لديك اشتراك نشط في هذا الكورس", { status: 403 })
                     }
                 }
-            } else if (cleanPath.startsWith(`instructor_${user.uid}_`)) {
-                // Instructor accessing their own uploaded folder
-            } else if (cleanPath.startsWith('instructor_')) {
-                // Enrolled student accessing instructor-uploaded file
-                const parts = cleanPath.split('_')
-                const instructorUid = parts[1]
+            } else if (cleanPath.startsWith(`instructor_${user.uid}_`) || cleanPath.startsWith(`files/instructor_${user.uid}/`) || cleanPath.startsWith(`videos/instructor_${user.uid}/`)) {
+                // Instructor accessing their own uploaded assets
+            } else if (cleanPath.startsWith('instructor_') || cleanPath.startsWith('files/instructor_') || cleanPath.startsWith('videos/instructor_')) {
+                // Must specify courseId and be actively enrolled in THAT specific course
+                let instructorUid = ""
+                if (cleanPath.startsWith('instructor_')) {
+                    instructorUid = cleanPath.split('_')[1]
+                } else {
+                    const parts = cleanPath.split('/')
+                    instructorUid = parts[1]?.split('_')[1] || ""
+                }
+
                 if (!instructorUid) {
                     return new NextResponse("Forbidden", { status: 403 })
                 }
 
-                const reqCourseId = searchParams.get('courseId')
-                if (reqCourseId && /^[\w-]+$/.test(reqCourseId)) {
-                    const enrSnap = await adminDb.collection("enrollments").doc(`${user.uid}_${reqCourseId}`).get()
-                    if (!enrSnap.exists || enrSnap.data()?.status !== "active") {
-                        return new NextResponse("Forbidden", { status: 403 })
-                    }
-                    const cSnap = await adminDb.collection("courses").doc(reqCourseId).get()
-                    if (!cSnap.exists || cSnap.data()?.instructor_id !== instructorUid) {
-                        return new NextResponse("Forbidden", { status: 403 })
-                    }
-                } else {
-                    const enrollmentsSnap = await adminDb.collection("enrollments")
-                        .where("student_id", "==", user.uid)
-                        .where("status", "==", "active")
-                        .get()
-                    
-                    if (enrollmentsSnap.empty) {
-                        return new NextResponse("Forbidden", { status: 403 })
-                    }
+                if (!reqCourseId || !/^[\w-]+$/.test(reqCourseId)) {
+                    return new NextResponse("Forbidden: يجب تحديد معرّف الكورس للوصول إلى هذا الملف", { status: 403 })
+                }
 
-                    const enrolledCourseIds = enrollmentsSnap.docs.map(d => d.data().course_id).filter(Boolean)
-                    let isEnrolledWithInstructor = false
-                    for (const cId of enrolledCourseIds) {
-                        const cDoc = await adminDb.collection("courses").doc(cId).get()
-                        if (cDoc.exists && cDoc.data()?.instructor_id === instructorUid) {
-                            isEnrolledWithInstructor = true
-                            break
-                        }
-                    }
+                // Verify the course belongs to this instructor
+                const cSnap = await adminDb.collection("courses").doc(reqCourseId).get()
+                if (!cSnap.exists || cSnap.data()?.instructor_id !== instructorUid) {
+                    return new NextResponse("Forbidden: الملف لا ينتمي إلى الكورس المحدد", { status: 403 })
+                }
 
-                    if (!isEnrolledWithInstructor) {
-                        return new NextResponse("Forbidden", { status: 403 })
-                    }
+                // Verify the student has an active enrollment in THIS specific course
+                const enrSnap = await adminDb.collection("enrollments").doc(`${user.uid}_${reqCourseId}`).get()
+                if (!enrSnap.exists || enrSnap.data()?.status !== "active") {
+                    return new NextResponse("Forbidden: ليس لديك اشتراك نشط في هذا الكورس", { status: 403 })
                 }
             } else if (cleanPath.startsWith('avatars/') || cleanPath.startsWith('thumbnails/') || cleanPath.startsWith('questions/')) {
                 // Public/educational assets accessible to authenticated users
@@ -130,39 +121,6 @@ export async function GET(request: NextRequest) {
                 if (!isStudentOwner) {
                     return new NextResponse("Forbidden", { status: 403 })
                 }
-            } else if (cleanPath.startsWith('files/courses/') || cleanPath.startsWith('videos/courses/')) {
-                const parts = cleanPath.split('/')
-                const courseId = parts[2]
-                if (!courseId) return new NextResponse("Forbidden", { status: 403 })
-
-                const courseDoc = await adminDb.collection("courses").doc(courseId).get()
-                if (!courseDoc.exists) return new NextResponse("Course not found", { status: 404 })
-
-                const isCourseInstructor = courseDoc.data()?.instructor_id === user.uid
-                if (!isCourseInstructor) {
-                    const enrollmentDoc = await adminDb.collection("enrollments").doc(`${user.uid}_${courseId}`).get()
-                    if (!enrollmentDoc.exists || enrollmentDoc.data()?.status !== "active") {
-                        return new NextResponse("Forbidden", { status: 403 })
-                    }
-                }
-            } else if (cleanPath.startsWith('files/instructor_') || cleanPath.startsWith('videos/instructor_')) {
-                const parts = cleanPath.split('/')
-                const subParts = parts[1]?.split('_') || []
-                const instructorUid = subParts[1]
-                if (!instructorUid) return new NextResponse("Forbidden", { status: 403 })
-
-                if (instructorUid !== user.uid) {
-                    // Check if student is enrolled in any of this instructor's courses
-                    const enrollmentsSnap = await adminDb.collection("enrollments")
-                        .where("student_id", "==", user.uid)
-                        .where("instructor_id", "==", instructorUid)
-                        .where("status", "==", "active")
-                        .limit(1)
-                        .get()
-                    if (enrollmentsSnap.empty) {
-                        return new NextResponse("Forbidden", { status: 403 })
-                    }
-                }
             } else {
                 return new NextResponse("Forbidden", { status: 403 })
             }
@@ -170,7 +128,7 @@ export async function GET(request: NextRequest) {
 
         // 1. Try Supabase Storage first
         try {
-            const { supabaseAdmin, SUPABASE_BUCKET } = await import("@/lib/supabase/config")
+            const { supabaseAdmin, SUPABASE_BUCKET } = await import("@/lib/supabase/admin")
             const { data: fileData, error: downloadError } = await supabaseAdmin.storage
                 .from(SUPABASE_BUCKET)
                 .download(cleanPath)

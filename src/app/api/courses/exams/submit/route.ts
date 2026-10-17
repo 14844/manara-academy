@@ -23,6 +23,21 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "يجب أن تكون مسجلاً في الكورس لتسليم الاختبار" }, { status: 403 });
         }
 
+        // Limit: Max 3 attempts per lesson for each student
+        const priorSubsSnap = await adminDb
+            .collection("submissions")
+            .where("student_id", "==", user.uid)
+            .where("course_id", "==", courseId)
+            .where("lesson_id", "==", lessonId)
+            .get();
+
+        if (priorSubsSnap.size >= 3) {
+            return NextResponse.json(
+                { error: "لقد استنفدت الحد الأقصى للمحاولات (3 محاولات) لهذا الاختبار" },
+                { status: 400 }
+            );
+        }
+
         // Fetch course and lesson questions
         const courseRef = adminDb.collection("courses").doc(courseId);
         const courseSnap = await courseRef.get();

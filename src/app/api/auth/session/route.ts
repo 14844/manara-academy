@@ -38,12 +38,11 @@ export async function POST(request: Request) {
             }
 
             const now = new Date().toISOString();
+            const effectiveSessionId = sessionId || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
             const updatePrivateData: any = {
                 updated_at: now,
+                active_session_id: effectiveSessionId,
             };
-            if (sessionId) {
-                updatePrivateData.active_session_id = sessionId;
-            }
 
             // Server-side device limit check for students inside transaction
             if (profile.role !== "admin" && profile.role !== "instructor") {
@@ -75,6 +74,15 @@ export async function POST(request: Request) {
             path: '/',
         });
 
+        const effectiveSessionId = sessionId || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        cookieStore.set('session_id', effectiveSessionId, {
+            maxAge: expiresIn / 1000,
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+        });
+
         return NextResponse.json({ status: 'success' });
     } catch (error: any) {
         if (error.message === "STATUS_STOPPED") {
@@ -93,5 +101,6 @@ export async function POST(request: Request) {
 export async function DELETE() {
     const cookieStore = await cookies();
     cookieStore.delete('session');
+    cookieStore.delete('session_id');
     return NextResponse.json({ status: 'success' });
 }

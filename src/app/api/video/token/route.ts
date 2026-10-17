@@ -107,13 +107,19 @@ export async function GET(request: Request) {
             return NextResponse.json({
                 type: "youtube",
                 token,
+                embed: true,
                 origin: new URL(request.url).origin,
             });
         } else if (videoPath.includes("drive.google.com")) {
-            const drivePreview = videoPath.replace(/\/view(\?.*)?$/, "/preview").replace(/\/edit(\?.*)?$/, "/preview");
-            return NextResponse.json({ type: "drive", url: drivePreview });
+            // Extract file ID to prevent leaking any raw query strings or view parameters
+            const match = videoPath.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || videoPath.match(/id=([a-zA-Z0-9_-]+)/);
+            const fileId = match ? match[1] : null;
+            const driveEmbedUrl = fileId 
+                ? `https://drive.google.com/file/d/${fileId}/preview`
+                : videoPath.replace(/\/view(\?.*)?$/, "/preview").replace(/\/edit(\?.*)?$/, "/preview");
+            return NextResponse.json({ type: "drive", url: driveEmbedUrl, embed: true });
         } else if (videoPath.startsWith("supabase://") || videoPath.includes("supabase.co") || videoPath.startsWith("videos/")) {
-            const { supabaseAdmin, SUPABASE_BUCKET } = await import("@/lib/supabase/config");
+            const { supabaseAdmin, SUPABASE_BUCKET } = await import("@/lib/supabase/admin");
             let cleanStoragePath = videoPath.replace(/^supabase:\/\//, "");
             if (cleanStoragePath.includes("supabase.co/storage/v1/object/")) {
                 const parts = cleanStoragePath.split(/supabase\.co\/storage\/v1\/object\/(?:public|sign)\//);

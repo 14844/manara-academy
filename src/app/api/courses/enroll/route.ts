@@ -33,6 +33,9 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "الكورس غير موجود" }, { status: 404 });
         }
         const course = courseSnap.data()!;
+        if (course.status !== "approved" || course.is_published === false) {
+            return NextResponse.json({ error: "الكورس غير متاح للاشتراك حالياً" }, { status: 400 });
+        }
         const coursePrice = Number(course.price || 0);
 
         // Prevent instructor from enrolling in their own course
@@ -97,14 +100,20 @@ export async function POST(request: Request) {
                 const maxUses = cData.max_uses ?? cData.usage_limit ?? null;
                 const isExhausted = maxUses !== null && (cData.usage_count || 0) >= maxUses;
                 const isCourseMatch = cData.course_id === "all" || !cData.course_id || cData.course_id === courseId;
-                const isInstructorMatch = cData.course_id === "all" || !cData.instructor_id || cData.instructor_id === course.instructor_id;
+                
+                // Coupon must belong to course instructor unless created by admin
+                const isAdminCoupon = cData.is_admin === true || cData.instructor_id === "admin" || (cData.course_id === "all" && !cData.instructor_id);
+                const isInstructorMatch = isAdminCoupon || (cData.instructor_id === course.instructor_id);
+                
+                const discountPercent = Number(cData.discount_percent);
+                const isDiscountValid = !isNaN(discountPercent) && discountPercent >= 0 && discountPercent <= 100;
                 const isActive = cData.active !== false && cData.is_active !== false;
 
-                if (isExpired || isExhausted || !isCourseMatch || !isInstructorMatch || !isActive) {
+                if (isExpired || isExhausted || !isCourseMatch || !isInstructorMatch || !isDiscountValid || !isActive) {
                     throw new Error("COUPON_INVALID");
                 }
                 appliedCoupon = { id: cSnap.id, ...cData };
-                const discount = (coursePrice * Number(cData.discount_percent || 0)) / 100;
+                const discount = (coursePrice * discountPercent) / 100;
                 finalPrice = Math.max(0, coursePrice - discount);
             }
 
