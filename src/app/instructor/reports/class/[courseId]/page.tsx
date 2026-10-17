@@ -65,76 +65,36 @@ export default function ClassReportPage() {
                 return
             }
 
-            // 2. Fetch Enrollments
-            const enrollmentsQ = query(
-                collection(db, "enrollments"),
-                where("instructor_id", "==", instructorId),
-                where("course_id", "==", courseId)
-            )
-            const enrollmentsSnap = await getDocs(enrollmentsQ)
-            const enrollments = enrollmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }))
-
-            if (enrollments.length === 0) {
-                setStudents([])
-                setIsLoading(false)
-                return
+            // 2. Fetch Enrollments & students via secure server API
+            const res = await fetch(`/api/instructor/reports/students?courseId=${courseId}`)
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}))
+                throw new Error(errData.error || "فشل في تحميل بيانات تقرير الفصل")
             }
-
-            // Calculate total lessons
-            const cData = courseSnap.data()
-            const totalLessons = cData.modules?.reduce((acc: number, mod: any) => acc + (mod.lessons?.length || 0), 0) || 0
-
-            // 3. Fetch Student profiles & submissions via instructor API
-            let instructorStudentsMap: Record<string, any> = {}
-            try {
-                const sRes = await fetch("/api/instructor/students")
-                if (sRes.ok) {
-                    const sData = await sRes.json()
-                    instructorStudentsMap = sData.students || {}
-                }
-            } catch {}
-
-            const studentList = await Promise.all(enrollments.map(async (enr) => {
-                const apiStudent = instructorStudentsMap[enr.student_id]
-                let profile = apiStudent || {}
-                if (!apiStudent) {
-                    const profileSnap = await getDoc(doc(db, "profiles", enr.student_id))
-                    profile = profileSnap.exists() ? profileSnap.data() : {}
-                }
-
-                // Fetch submissions
-                const subsQ = query(
-                    collection(db, "submissions"),
-                    where("instructor_id", "==", instructorId),
-                    where("student_id", "==", enr.student_id),
-                    where("course_id", "==", courseId)
-                )
-                const subsSnap = await getDocs(subsQ)
-                const submissions = subsSnap.docs.map(doc => doc.data())
-
-                const avgScore = submissions.length > 0
-                    ? Math.round(submissions.reduce((acc: number, curr: any) => acc + (curr.score || 0), 0) / submissions.length)
+            const data = await res.json()
+            const studentList = (data.students || []).map((s: any) => {
+                const avgScore = s.submissions && s.submissions.length > 0
+                    ? Math.round(s.submissions.reduce((acc: number, curr: any) => acc + (curr.score || 0), 0) / s.submissions.length)
                     : 0
-
                 return {
-                    id: enr.student_id,
-                    name: profile.full_name || enr.student_name || "طالب غير معروف",
-                    email: profile.email || "غير متوفر",
-                    avatar: profile.avatar_url || null,
-                    phone: profile.phone || "غير متوفر",
-                    progress: enr.progress || 0,
-                    completedLessons: enr.completed_lessons?.length || 0,
-                    totalLessons: totalLessons,
-                    lastAccessed: enr.last_accessed || null,
+                    id: s.id,
+                    name: s.name,
+                    email: s.email,
+                    avatar: s.avatar,
+                    phone: s.phone,
+                    progress: s.progress,
+                    completedLessons: s.completedLessons,
+                    totalLessons: s.totalLessons,
+                    lastAccessed: s.lastAccessed,
                     averageScore: avgScore,
-                    submissionsCount: submissions.length
+                    submissionsCount: s.submissions ? s.submissions.length : 0
                 }
-            }))
+            })
 
             setStudents(studentList)
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error fetching class report data:", error)
-            toast.error("فشل في تحميل بيانات تقرير الفصل")
+            toast.error(error.message || "فشل في تحميل بيانات تقرير الفصل")
         } finally {
             setIsLoading(false)
         }

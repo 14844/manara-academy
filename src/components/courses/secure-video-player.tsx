@@ -930,11 +930,11 @@ export function SecureVideoPlayer({
                         style={{ position: 'absolute' }}
                         className="pointer-events-none z-[100] select-none"
                     >
-                        <div className="bg-black/20 backdrop-blur-[1px] px-3 py-1.5 rounded-lg border border-white/20 flex flex-col items-center shadow-2xl">
-                            <span className="text-[12px] md:text-sm font-black text-white/50 tracking-widest drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] select-none font-mono">
-                                ID: {studentId}
+                        <div className="bg-black/40 backdrop-blur-[2px] px-3.5 py-1.5 rounded-lg border border-white/20 flex flex-col items-center shadow-2xl">
+                            <span className="text-[12px] md:text-sm font-black text-white/80 tracking-wider drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] select-none font-mono">
+                                كود الطالب: {studentId}
                             </span>
-                            <span className="text-[9px] text-white/30 select-none font-medium">
+                            <span className="text-[10px] text-white/60 select-none font-medium">
                                 {userEmail}
                             </span>
                         </div>
@@ -943,10 +943,10 @@ export function SecureVideoPlayer({
                     {/* Watermark ثابت خافت جداً في الخلفية */}
                     <div className="absolute inset-0 pointer-events-none z-[90] select-none overflow-hidden opacity-[0.08]">
                         <div className="absolute top-[15%] left-[10%] -rotate-12 text-white/40 font-bold text-lg md:text-xl whitespace-nowrap">
-                            MANARA ACADEMY - {studentId}
+                            أكاديمية المنارة • {studentId}
                         </div>
                         <div className="absolute bottom-[15%] right-[10%] -rotate-12 text-white/40 font-bold text-lg md:text-xl whitespace-nowrap">
-                            PROPERTY OF: {userEmail}
+                            {userEmail}
                         </div>
                     </div>
                 </>

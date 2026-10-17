@@ -67,17 +67,37 @@ export default function LearnPage() {
         async function fetchCourseAndEnrollment() {
             if (!id || !user) return
             try {
-                // 0. Fetch profile
-                const pDoc = await getDoc(doc(db, "profiles", user.uid))
-                if (pDoc.exists()) setProfile(pDoc.data())
+                // 0. Fetch profile and private profile (for fixed student_id and email)
+                const [pDoc, privDoc] = await Promise.all([
+                    getDoc(doc(db, "profiles", user.uid)),
+                    getDoc(doc(db, "profiles_private", user.uid)).catch(() => null)
+                ])
+                const pData = pDoc.exists() ? pDoc.data() : {}
+                const privData = privDoc && privDoc.exists() ? privDoc.data() : {}
+                const fullProfile = { ...pData, ...privData }
+                setProfile(fullProfile)
 
-                // 1. Check enrollment (Bypass for admin)
+                // 1. Fetch course first so we know if the user is the instructor owner
+                const courseRef = doc(db, "courses", id as string)
+                const courseSnap = await getDoc(courseRef)
+
+                if (!courseSnap.exists()) {
+                    router.push("/courses")
+                    return
+                }
+
+                const courseData = { id: courseSnap.id, ...courseSnap.data() } as any
+                setCourse(courseData)
+
+                const isInstructorOwner = courseData.instructor_id === user.uid
+                const isAdmin = fullProfile.role === 'admin'
+                const isPreviewMode = isAdmin || isInstructorOwner
+
+                // 2. Check enrollment
                 const enrollmentRef = doc(db, "enrollments", `${user.uid}_${id}`)
                 const enrollmentSnap = await getDoc(enrollmentRef)
 
-                const isAdmin = pDoc.exists() ? pDoc.data()?.role === 'admin' : false
-
-                if (!enrollmentSnap.exists() && !isAdmin) {
+                if (!enrollmentSnap.exists() && !isPreviewMode) {
                     router.push(`/restricted-access?reason=course&courseId=${id}`)
                     return
                 }
@@ -87,30 +107,22 @@ export default function LearnPage() {
                     setProgress(enrollmentData.progress || 0)
                     setCompletedLessons(enrollmentData.completed_lessons || [])
                 } else {
-                    // Admin preview mode
+                    // Preview mode (admin or instructor owner)
                     setProgress(0)
                     setCompletedLessons([])
                 }
 
-                // 2. Fetch course
-                const courseRef = doc(db, "courses", id as string)
-                const courseSnap = await getDoc(courseRef)
+                // Set initial lesson (first module, first lesson)
+                if (courseData.modules?.[0]?.lessons?.[0]) {
+                    setCurrentLesson(courseData.modules[0].lessons[0])
 
-                if (courseSnap.exists()) {
-                    const courseData = courseSnap.data()
-                    setCourse({ id: courseSnap.id, ...courseData })
-
-                    // Set initial lesson (first module, first lesson)
-                    if (courseData.modules?.[0]?.lessons?.[0]) {
-                        setCurrentLesson(courseData.modules[0].lessons[0])
-
-                        // Auto-hide sidebar if first lesson is exam/assignment
-                        const firstLesson = courseData.modules[0].lessons[0]
-                        if (firstLesson?.type === 'exam' || firstLesson?.type === 'assignment') {
-                            setIsSidebarHidden(true)
-                        }
+                    // Auto-hide sidebar if first lesson is exam/assignment
+                    const firstLesson = courseData.modules[0].lessons[0]
+                    if (firstLesson?.type === 'exam' || firstLesson?.type === 'assignment') {
+                        setIsSidebarHidden(true)
                     }
                 }
+
                 // 3. Listen to submissions in real-time
                 const submissionsQ = query(
                     collection(db, "submissions"),
@@ -144,6 +156,11 @@ export default function LearnPage() {
     const isLessonLocked = (lesson: any) => {
         if (!course || !lesson) return false
 
+        // Instructors viewing their own course or Admins have full access to all lessons in preview
+        if (profile?.role === 'admin' || course.instructor_id === user?.uid) {
+            return false
+        }
+
         // If the course is not tied to a specific grade level, it has no lesson restrictions
         if (!course.grade_level) return false
 
@@ -171,6 +188,13 @@ export default function LearnPage() {
         try {
             if (completedLessons.includes(lessonId)) {
                 toast.info("هذا الدرس مكتمل بالفعل")
+                return
+            }
+
+            // In preview mode for instructor or admin, mark complete locally without calling progress API
+            if (profile?.role === 'admin' || course?.instructor_id === user?.uid) {
+                setCompletedLessons(prev => [...prev, lessonId])
+                toast.success("وضع المعاينة: تم تعليم الدرس كمكتمل للتجربة")
                 return
             }
 
@@ -348,6 +372,20 @@ export default function LearnPage() {
                     </div>
 
                     <div className="max-w-5xl mx-auto w-full p-4 md:p-8 space-y-6">
+                        {/* Preview Mode Banner */}
+                        {(profile?.role === 'admin' || course?.instructor_id === user?.uid) && (
+                            <div className="bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 px-4 py-3 rounded-xl flex items-center justify-between text-xs font-bold font-arabic shadow-sm">
+                                <span>
+                                    {course?.instructor_id === user?.uid
+                                        ? "🔍 أنت في وضع معاينة الكورس بصفتك المدرس (جميع الدروس مفتوحة للمعاينة والتجربة)"
+                                        : "🔍 أنت في وضع معاينة الكورس بصفتك مسؤول المنصة (أدمن)"}
+                                </span>
+                                <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300">
+                                    وضع المعاينة
+                                </Badge>
+                            </div>
+                        )}
+
                         {/* Content Viewer Section */}
                         {(currentLesson?.type === 'video' || !currentLesson?.type) && (
                             <div className="space-y-6">
@@ -355,8 +393,8 @@ export default function LearnPage() {
                                     key={`${id}_${currentLesson?.id}`}
                                     courseId={course.id}
                                     lessonId={currentLesson?.id}
-                                    userEmail={user?.email}
-                                    studentId={profile?.student_id || user?.uid}
+                                    userEmail={profile?.email || user?.email}
+                                    studentId={profile?.student_id || profile?.studentId || user?.uid}
                                     startTime={videoStartTime}
                                 />
                                 {currentLesson?.description && (
@@ -380,7 +418,8 @@ export default function LearnPage() {
                                 description={currentLesson.description}
                                 instructorName={course?.instructor_name || "معلم المادة"}
                                 studentName={profile?.full_name || profile?.name}
-                                studentEmail={user?.email}
+                                studentEmail={profile?.email || user?.email}
+                                studentId={profile?.student_id || profile?.studentId || user?.uid}
                             />
                         )}
 

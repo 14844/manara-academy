@@ -18,6 +18,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 
+import { motion } from "framer-motion"
+
 interface SecurePdfViewerProps {
     fileUrl: string
     title: string
@@ -25,6 +27,7 @@ interface SecurePdfViewerProps {
     instructorName?: string
     studentName?: string
     studentEmail?: string
+    studentId?: string
 }
 
 export function SecurePdfViewer({
@@ -34,6 +37,7 @@ export function SecurePdfViewer({
     instructorName = "معلم المادة",
     studentName,
     studentEmail,
+    studentId,
 }: SecurePdfViewerProps) {
     const [isFullscreen, setIsFullscreen] = useState(false)
     const [zoom, setZoom] = useState(100)
@@ -58,7 +62,9 @@ export function SecurePdfViewer({
         ? `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`
         : fileUrl
 
-    const watermarkText = `أكاديمية المنارة • ${instructorName} • ${studentName || studentEmail || "طالب معتمد"}`
+    const studentCodeText = studentId ? `كود: ${studentId}` : ""
+    const studentEmailText = studentEmail || ""
+    const watermarkText = [studentCodeText, studentEmailText, instructorName, "أكاديمية المنارة"].filter(Boolean).join(" • ")
 
     return (
         <div
@@ -150,6 +156,33 @@ export function SecurePdfViewer({
                         </div>
                     ))}
                 </div>
+
+                {/* Moving Watermark Badge (Slow Floating Across Frame) */}
+                <motion.div
+                    initial={{ left: "10%", top: "15%" }}
+                    animate={{
+                        left: ["10%", "75%", "75%", "10%", "10%"],
+                        top: ["15%", "15%", "75%", "75%", "15%"],
+                    }}
+                    transition={{
+                        duration: 80,
+                        repeat: Infinity,
+                        ease: "linear"
+                    }}
+                    style={{ position: 'absolute' }}
+                    className="pointer-events-none z-30 select-none"
+                >
+                    <div className="bg-black/60 backdrop-blur-[2px] px-3.5 py-1.5 rounded-lg border border-white/20 flex flex-col items-center shadow-2xl">
+                        <span className="text-[12px] md:text-xs font-mono font-bold text-white/90">
+                            {studentId ? `كود الطالب: ${studentId}` : "أكاديمية المنارة"}
+                        </span>
+                        {studentEmail && (
+                            <span className="text-[10px] text-white/70 font-medium">
+                                {studentEmail}
+                            </span>
+                        )}
+                    </div>
+                </motion.div>
 
                 {/* Embedded Viewer Iframe / Object */}
                 <div

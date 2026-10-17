@@ -150,74 +150,26 @@ export default function InstructorReportsPage() {
         }
     }
 
-    // Fetch students enrolled in the selected course
+    // Fetch students enrolled in the selected course via secure server API
     async function fetchStudents(courseId: string) {
         setIsStudentsLoading(true)
         try {
-            // Get all enrollments for this course
-            const q = query(collection(db, "enrollments"), where("course_id", "==", courseId))
-            const snap = await getDocs(q)
-            const enrollments = snap.docs.map(d => ({ id: d.id, ...d.data() as any }))
-
-            if (enrollments.length === 0) {
-                setStudents([])
-                setIsStudentsLoading(false)
-                return
+            const res = await fetch(`/api/instructor/reports/students?courseId=${courseId}&includePending=true`)
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}))
+                throw new Error(errData.error || "فشل في تحميل بيانات الطلاب")
             }
-
-            // Get course total lessons from selected course data
-            const courseData = courses.find(c => c.id === courseId)
-            const totalLessons = courseData?.modules?.reduce((acc: number, mod: any) => acc + (mod.lessons?.length || 0), 0) || 0
-
-            // Fetch student profiles and submissions via instructor API
-            let instructorStudentsMap: Record<string, any> = {}
-            try {
-                const sRes = await fetch("/api/instructor/students")
-                if (sRes.ok) {
-                    const sData = await sRes.json()
-                    instructorStudentsMap = sData.students || {}
-                }
-            } catch {}
-
-            const studentsData = await Promise.all(enrollments.map(async (enr) => {
-                const apiStudent = instructorStudentsMap[enr.student_id]
-                let profile = apiStudent || {}
-                if (!apiStudent) {
-                    const profileDoc = await getDoc(doc(db, "profiles", enr.student_id))
-                    profile = profileDoc.exists() ? profileDoc.data() : {}
-                }
-
-                // Fetch student submissions for this course
-                const subsQ = query(
-                    collection(db, "submissions"),
-                    where("student_id", "==", enr.student_id),
-                    where("course_id", "==", courseId)
-                )
-                const subsSnap = await getDocs(subsQ)
-                const submissions = subsSnap.docs.map(d => d.data())
-
-                return {
-                    id: enr.student_id,
-                    name: profile.full_name || enr.student_name || "طالب غير معروف",
-                    email: profile.email || "غير متوفر",
-                    phone: profile.phone || "غير متوفر",
-                    parentPhone: profile.parent_phone || "",
-                    avatar: profile.avatar_url || null,
-                    progress: enr.progress || 0,
-                    completedLessons: enr.completed_lessons?.length || 0,
-                    totalLessons: totalLessons,
-                    lastAccessed: enr.last_accessed || null,
-                    submissions: submissions,
-                    enrollmentId: enr.id
-                }
-            }))
-
-            setStudents(studentsData)
-        } catch (error) {
+            const data = await res.json()
+            setStudents(data.students || [])
+            if (data.pendingReports) {
+                setPendingScheduledReports(data.pendingReports)
+            }
+        } catch (error: any) {
             console.error("Error fetching students:", error)
-            toast.error("فشل في تحميل الطلاب المسجلين")
+            toast.error(error.message || "فشل في تحميل الطلاب المسجلين")
         } finally {
             setIsStudentsLoading(false)
+            setIsPendingLoading(false)
         }
     }
 
@@ -257,113 +209,23 @@ export default function InstructorReportsPage() {
         }
     }
 
-    // Calculate due scheduled reports for today
+    // Calculate due scheduled reports for today via secure server API
     async function calculatePendingScheduled(schedulesMap: Record<string, any>, instructorId: string) {
         setIsPendingLoading(true)
         try {
-            const daysMap: Record<number, string> = {
-                0: "sunday",
-                1: "monday",
-                2: "tuesday",
-                3: "wednesday",
-                4: "thursday",
-                5: "friday",
-                6: "saturday",
-            }
-            const todayDay = daysMap[new Date().getDay()]
-            const currentYear = new Date().getFullYear()
-            // Get week number
-            const currentJan1 = new Date(currentYear, 0, 1)
-            const numberOfDays = Math.floor((new Date().getTime() - currentJan1.getTime()) / (24 * 60 * 60 * 1000))
-            const currentWeekString = `${currentYear}-W${Math.ceil((numberOfDays + currentJan1.getDay() + 1) / 7)}`
-
-            const activeSchedules = Object.values(schedulesMap).filter(s => s.enabled && s.day_of_week === todayDay)
-
-            if (activeSchedules.length === 0) {
+            const courseIds = Object.keys(schedulesMap)
+            if (courseIds.length === 0) {
                 setPendingScheduledReports([])
-                setIsPendingLoading(false)
                 return
             }
-
-            const pendingList: any[] = []
-
-            let instructorStudentsMap: Record<string, any> = {}
-            try {
-                const sRes = await fetch("/api/instructor/students")
-                if (sRes.ok) {
-                    const sData = await sRes.json()
-                    instructorStudentsMap = sData.students || {}
-                }
-            } catch {}
-
-            for (const sched of activeSchedules) {
-                // Get all enrollments for this course
-                const eq = query(collection(db, "enrollments"), where("course_id", "==", sched.course_id))
-                const esnap = await getDocs(eq)
-                const enrollments = esnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }))
-
-                const courseDoc = await getDoc(doc(db, "courses", sched.course_id))
-                const courseData = courseDoc.exists() ? courseDoc.data() : {}
-                const totalLessons = courseData.modules?.reduce((acc: number, mod: any) => acc + (mod.lessons?.length || 0), 0) || 0
-
-                for (const enr of enrollments) {
-                    const apiStudent = instructorStudentsMap[enr.student_id]
-                    let profile = apiStudent || {}
-                    if (!apiStudent) {
-                        const profileDoc = await getDoc(doc(db, "profiles", enr.student_id))
-                        profile = profileDoc.exists() ? profileDoc.data() : {}
-                    }
-
-                    // Check if parent phone is present
-                    const parentPhone = profile.parent_phone || profile.parentPhone
-                    if (!parentPhone) continue
-
-                    // Check if a report was already sent this week for this course and student
-                    // Avoid sending twice in the same week
-                    const alreadySentQ = query(
-                        collection(db, "parent_reports"),
-                        where("student_id", "==", enr.student_id),
-                        where("course_id", "==", sched.course_id)
-                    )
-                    const alreadySentSnap = await getDocs(alreadySentQ)
-                    const thisWeekReport = alreadySentSnap.docs.find(d => {
-                        const cDate = new Date(d.data().created_at)
-                        const jan1 = new Date(cDate.getFullYear(), 0, 1)
-                        const days = Math.floor((cDate.getTime() - jan1.getTime()) / (24 * 60 * 60 * 1000))
-                        const weekStr = `${cDate.getFullYear()}-W${Math.ceil((days + jan1.getDay() + 1) / 7)}`
-                        return weekStr === currentWeekString
-                    })
-
-                    if (thisWeekReport) continue
-
-                    // Get submissions
-                    const subsQ = query(
-                        collection(db, "submissions"),
-                        where("student_id", "==", enr.student_id),
-                        where("course_id", "==", sched.course_id)
-                    )
-                    const subsSnap = await getDocs(subsQ)
-                    const submissions = subsSnap.docs.map(d => d.data())
-
-                    pendingList.push({
-                        studentId: enr.student_id,
-                        studentName: profile.full_name || enr.student_name,
-                        studentAvatar: profile.avatar_url || null,
-                        parentPhone: profile.parent_phone,
-                        courseId: sched.course_id,
-                        courseTitle: courseData.title || "كورس",
-                        progress: enr.progress || 0,
-                        completedLessons: enr.completed_lessons?.length || 0,
-                        totalLessons: totalLessons,
-                        lastAccessed: enr.last_accessed || null,
-                        submissions: submissions,
-                        scheduleId: sched.id,
-                        instructorId: instructorId
-                    })
+            const cId = selectedCourseId || courseIds[0]
+            const res = await fetch(`/api/instructor/reports/students?courseId=${cId}&includePending=true`)
+            if (res.ok) {
+                const data = await res.json()
+                if (data.pendingReports) {
+                    setPendingScheduledReports(data.pendingReports)
                 }
             }
-
-            setPendingScheduledReports(pendingList)
         } catch (error) {
             console.error("Error calculating pending scheduled reports:", error)
         } finally {
