@@ -128,9 +128,10 @@ export async function GET(request: NextRequest) {
 
         // 1. Try Supabase Storage first
         try {
-            const { supabaseAdmin, SUPABASE_BUCKET } = await import("@/lib/supabase/admin")
+            const { supabaseAdmin, SUPABASE_BUCKET, SUPABASE_PUBLIC_BUCKET } = await import("@/lib/supabase/admin")
+            const bucketToUse = cleanPath.startsWith('avatars/') ? SUPABASE_PUBLIC_BUCKET : SUPABASE_BUCKET
             const { data: fileData, error: downloadError } = await supabaseAdmin.storage
-                .from(SUPABASE_BUCKET)
+                .from(bucketToUse)
                 .download(cleanPath)
 
             if (fileData && !downloadError) {

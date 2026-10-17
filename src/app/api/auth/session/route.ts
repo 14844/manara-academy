@@ -18,6 +18,11 @@ export async function POST(request: Request) {
         const decoded = await adminAuth.verifyIdToken(idToken);
         const uid = decoded.uid;
 
+        // Compute effectiveSessionId ONCE to guarantee consistency between DB and cookie
+        const effectiveSessionId = (sessionId && typeof sessionId === "string" && sessionId.trim())
+            ? sessionId.trim()
+            : `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
         // Verify account status and handle device/session inside atomic transaction on profiles_private
         const profileRef = adminDb.collection("profiles").doc(uid);
         const profilePrivateRef = adminDb.collection("profiles_private").doc(uid);
@@ -32,13 +37,12 @@ export async function POST(request: Request) {
             const profile = profileSnap.data() || {};
             const priv = privateSnap.exists ? privateSnap.data() || {} : {};
 
-            const status = priv.status || profile.status;
+            const status = priv.status || (profile.role === "admin" ? "active" : "pending");
             if (status === "blocked" || status === "suspended" || status === "rejected") {
                 throw new Error("STATUS_STOPPED");
             }
 
             const now = new Date().toISOString();
-            const effectiveSessionId = sessionId || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
             const updatePrivateData: any = {
                 updated_at: now,
                 active_session_id: effectiveSessionId,
@@ -46,7 +50,7 @@ export async function POST(request: Request) {
 
             // Server-side device limit check for students inside transaction
             if (profile.role !== "admin" && profile.role !== "instructor") {
-                const activeDevices: string[] = priv.active_devices || profile.active_devices || [];
+                const activeDevices: string[] = priv.active_devices || [];
                 const isKnown = activeDevices.includes(deviceId);
 
                 if (!isKnown) {
@@ -74,7 +78,6 @@ export async function POST(request: Request) {
             path: '/',
         });
 
-        const effectiveSessionId = sessionId || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         cookieStore.set('session_id', effectiveSessionId, {
             maxAge: expiresIn / 1000,
             httpOnly: true,

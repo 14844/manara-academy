@@ -82,7 +82,7 @@ export async function POST(request: Request) {
             }
             const studentData = studentSnap.data()!;
             const studentPrivateData = studentPrivateSnap.exists ? studentPrivateSnap.data()! : {};
-            const currentBalance = Number(studentPrivateData.wallet_balance ?? studentData.wallet_balance ?? 0);
+            const currentBalance = Number(studentPrivateData.wallet_balance ?? 0);
 
             // Validate coupon inside transaction (TOCTOU-safe)
             let appliedCoupon: any = null;

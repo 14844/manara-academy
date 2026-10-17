@@ -110,7 +110,7 @@ export async function POST(request: Request) {
                     ]);
                     studentProfile = profileSnap.exists ? profileSnap.data() : null;
                     const privateData = privateSnap.exists ? privateSnap.data() : null;
-                    const currentBal = Number(privateData?.wallet_balance ?? studentProfile?.wallet_balance ?? 0);
+                    const currentBal = Number(privateData?.wallet_balance ?? 0);
 
                     t.set(profilePrivateRef, {
                         wallet_balance: currentBal + paidAmount,

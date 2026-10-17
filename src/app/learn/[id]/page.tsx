@@ -52,6 +52,24 @@ export default function LearnPage() {
     const [isSidebarHidden, setIsSidebarHidden] = useState(false)
     const [videoStartTime, setVideoStartTime] = useState(0)
     const [isSheetOpen, setIsSheetOpen] = useState(false)
+    const [fileMediaUrl, setFileMediaUrl] = useState<string>("")
+
+    useEffect(() => {
+        if (currentLesson?.type === 'file' && id && currentLesson?.id) {
+            let active = true
+            fetch(`/api/video/token?courseId=${id}&lessonId=${currentLesson.id}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (active && data.url) {
+                        setFileMediaUrl(data.url)
+                    }
+                })
+                .catch(err => console.error("Failed to load secure file URL:", err))
+            return () => { active = false }
+        } else {
+            setFileMediaUrl("")
+        }
+    }, [id, currentLesson?.id, currentLesson?.type])
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -413,7 +431,7 @@ export default function LearnPage() {
 
                         {currentLesson?.type === 'file' && (
                             <SecurePdfViewer
-                                fileUrl={currentLesson.url}
+                                fileUrl={fileMediaUrl || currentLesson.url || ""}
                                 title={currentLesson.title}
                                 description={currentLesson.description}
                                 instructorName={course?.instructor_name || "معلم المادة"}

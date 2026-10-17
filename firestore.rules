@@ -155,7 +155,11 @@ service cloud.firestore {
           (!('students_count' in request.resource.data) || request.resource.data.students_count == 0) &&
           !('is_published' in request.resource.data) &&
           !('instructor_verified' in request.resource.data) &&
-          !('rating' in request.resource.data)
+          !('rating' in request.resource.data) &&
+          !('video_path' in request.resource.data) &&
+          !('url' in request.resource.data) &&
+          !('correctAnswer' in request.resource.data) &&
+          !('answers' in request.resource.data)
         )
       );
       allow update: if isAuthenticated() && isAccountActive() && (
@@ -164,7 +168,7 @@ service cloud.firestore {
           request.resource.data.instructor_id == resource.data.instructor_id &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([
             'students_count', 'status', 'is_published', 'instructor_verified',
-            'rating', 'price'
+            'rating', 'price', 'modules', 'video_path', 'url', 'correctAnswer', 'answers'
           ])
         )
       );

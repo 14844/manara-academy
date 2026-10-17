@@ -54,32 +54,16 @@ export async function POST(request: Request) {
                 if (Array.isArray(lesson.questions) && lesson.questions.length > 0) {
                     examAnswersMap[lessonId] = {};
                     lesson.questions = lesson.questions.map((q: any) => {
-                        if (q && q.id !== undefined && q.correctAnswer !== undefined) {
-                            examAnswersMap[lessonId][q.id] = q.correctAnswer;
-                            const { correctAnswer, ...safeQ } = q;
-                            return safeQ;
+                        if (q && q.id !== undefined && (q.correctAnswer !== undefined || q.answers !== undefined)) {
+                            examAnswersMap[lessonId][q.id] = q.correctAnswer ?? q.answers;
                         }
-                        return q;
+                        const { correctAnswer, answers, ...safeQ } = q || {};
+                        return safeQ;
                     });
                 }
             }
-            // Strip sensitive media paths from the public document
-            const { video_path, url, ...rest } = lesson;
-            // Store only the clean storage path for file-type lessons in the public document
-            if (lesson.type === "file" && url) {
-                let cleanPath = url;
-                try {
-                    if (url.startsWith("http://") || url.startsWith("https://")) {
-                        const parsed = new URL(url);
-                        cleanPath = parsed.pathname.replace(/^\/+/, "");
-                    } else if (url.includes("?")) {
-                        cleanPath = url.split("?")[0].replace(/^\/+/, "");
-                    }
-                } catch {
-                    cleanPath = url;
-                }
-                return { ...rest, url: cleanPath };
-            }
+            // Strip ALL sensitive media paths, URLs, and answers completely from the public document
+            const { video_path, url, file_path, correctAnswer, answers, ...rest } = lesson;
             return rest;
         }),
     }));

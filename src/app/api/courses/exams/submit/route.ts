@@ -92,30 +92,68 @@ export async function POST(request: Request) {
             ? (mcqTotalPoints > 0 ? Math.round((mcqEarnedPoints / mcqTotalPoints) * 100) : 100)
             : (fullTotalPoints > 0 ? Math.round((fullEarnedPoints / fullTotalPoints) * 100) : 0);
 
-        // Create submission document with valid instructor_id
-        const submissionRef = adminDb.collection("submissions").doc();
-        await submissionRef.set({
-            id: submissionRef.id,
-            student_id: user.uid,
-            student_name: user.profile?.full_name || user.email || "طالب",
-            course_id: courseId,
-            instructor_id: instructorId,
-            lesson_id: lessonId,
-            type: type || "exam",
-            score: calculatedScore,
-            answers: answers || {},
-            needs_grading: hasEssayQuestions,
-            submitted_at: new Date().toISOString(),
-            created_at: new Date().toISOString(),
+        // Atomically enforce max 3 attempts using deterministic document IDs inside a transaction
+        const submissionResult = await adminDb.runTransaction(async (t) => {
+            const sub1Ref = adminDb.collection("submissions").doc(`${user.uid}_${lessonId}_1`);
+            const sub2Ref = adminDb.collection("submissions").doc(`${user.uid}_${lessonId}_2`);
+            const sub3Ref = adminDb.collection("submissions").doc(`${user.uid}_${lessonId}_3`);
+
+            const [sub1Snap, sub2Snap, sub3Snap] = await Promise.all([
+                t.get(sub1Ref),
+                t.get(sub2Ref),
+                t.get(sub3Ref),
+            ]);
+
+            let targetRef: FirebaseFirestore.DocumentReference;
+            let attemptNumber: number;
+
+            if (!sub1Snap.exists) {
+                targetRef = sub1Ref;
+                attemptNumber = 1;
+            } else if (!sub2Snap.exists) {
+                targetRef = sub2Ref;
+                attemptNumber = 2;
+            } else if (!sub3Snap.exists) {
+                targetRef = sub3Ref;
+                attemptNumber = 3;
+            } else {
+                throw new Error("MAX_ATTEMPTS_EXCEEDED");
+            }
+
+            t.set(targetRef, {
+                id: targetRef.id,
+                student_id: user.uid,
+                student_name: user.profile?.full_name || user.email || "طالب",
+                course_id: courseId,
+                instructor_id: instructorId,
+                lesson_id: lessonId,
+                attempt: attemptNumber,
+                type: type || "exam",
+                score: calculatedScore,
+                answers: answers || {},
+                needs_grading: hasEssayQuestions,
+                submitted_at: new Date().toISOString(),
+                created_at: new Date().toISOString(),
+            });
+
+            return { submissionId: targetRef.id, attemptNumber };
         });
 
         return NextResponse.json({
             success: true,
             score: calculatedScore,
+            attempt: submissionResult.attemptNumber,
+            max_attempts: 3,
             needs_grading: hasEssayQuestions,
-            submissionId: submissionRef.id,
+            submissionId: submissionResult.submissionId,
         });
     } catch (err: any) {
+        if (err.message === "MAX_ATTEMPTS_EXCEEDED") {
+            return NextResponse.json(
+                { error: "لقد استنفدت الحد الأقصى للمحاولات (3 محاولات) لهذا الاختبار" },
+                { status: 400 }
+            );
+        }
         console.error("Exam submit error:", err);
         return NextResponse.json({ error: "فشل تسليم الاختبار" }, { status: 500 });
     }

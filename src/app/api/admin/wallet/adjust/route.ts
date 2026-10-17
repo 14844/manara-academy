@@ -29,7 +29,7 @@ export async function POST(request: Request) {
             if (!userDoc.exists) {
                 throw new Error("USER_NOT_FOUND");
             }
-            const currentBalance = Number(userPrivateDoc.data()?.wallet_balance ?? userDoc.data()?.wallet_balance ?? 0);
+            const currentBalance = Number(userPrivateDoc.data()?.wallet_balance ?? 0);
 
             if (type === "withdraw") {
                 if (numAmount > currentBalance) {

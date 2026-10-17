@@ -38,7 +38,7 @@ export async function POST(request: Request) {
                 throw new Error("PROFILE_NOT_FOUND");
             }
 
-            const currentBalance = Number(privSnap.data()?.wallet_balance ?? pSnap.data()?.wallet_balance ?? 0);
+            const currentBalance = Number(privSnap.data()?.wallet_balance ?? 0);
             if (currentBalance < netAmount) {
                 throw new Error("INSUFFICIENT_BALANCE");
             }

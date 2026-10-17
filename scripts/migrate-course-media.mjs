@@ -1,32 +1,58 @@
 #!/usr/bin/env node
 /**
- * One-time migration script: move video_path/url from public course documents
- * to courses/{id}/private/media subcollection.
+ * Migration script: move video_path, url, file_path, correctAnswer, answers
+ * from public course documents to courses/{id}/private/media and courses/{id}/private/exam_answers.
  *
  * Usage:
  *   node scripts/migrate-course-media.mjs              # dry-run (default)
- *   node scripts/migrate-course-media.mjs --apply       # actually write
- *
- * Requires GOOGLE_APPLICATION_CREDENTIALS or FIREBASE_SERVICE_ACCOUNT_KEY env var.
+ *   node scripts/migrate-course-media.mjs --apply       # write changes to Firestore
  */
 
+import "dotenv/config";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import fs from "fs";
+import path from "path";
+
+// Try loading .env.local if present
+try {
+    const envLocalPath = path.resolve(process.cwd(), ".env.local");
+    if (fs.existsSync(envLocalPath)) {
+        const envLocalContent = fs.readFileSync(envLocalPath, "utf-8");
+        envLocalContent.split("\n").forEach((line) => {
+            const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+            if (match) {
+                const key = match[1];
+                let value = match[2] || "";
+                if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+                if (!process.env[key]) process.env[key] = value;
+            }
+        });
+    }
+} catch {
+    // Ignore .env.local read errors
+}
 
 const isDryRun = !process.argv.includes("--apply");
 if (isDryRun) {
     console.log("🔍 DRY-RUN mode (pass --apply to write changes)\n");
 } else {
-    console.log("⚡ APPLY mode — writing to Firestore\n");
+    console.log("⚡ APPLY mode — writing changes to Firestore\n");
 }
 
 // Initialize Firebase Admin
 if (!getApps().length) {
-    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-    if (serviceAccount) {
-        initializeApp({ credential: cert(JSON.parse(serviceAccount)) });
+    if (process.env.FIREBASE_ADMIN_PROJECT_ID && process.env.FIREBASE_ADMIN_CLIENT_EMAIL && process.env.FIREBASE_ADMIN_PRIVATE_KEY) {
+        initializeApp({
+            credential: cert({
+                projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+                privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY.replace(/\\n/g, "\n"),
+            }),
+        });
+    } else if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+        initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)) });
     } else {
-        // Falls back to GOOGLE_APPLICATION_CREDENTIALS
         initializeApp();
     }
 }
@@ -44,7 +70,8 @@ async function migrate() {
         const modules = data.modules || [];
 
         const mediaMap = {};
-        let hasMedia = false;
+        const examAnswersMap = {};
+        let needsMigration = false;
 
         const cleanModules = modules.map((mod) => ({
             ...mod,
@@ -55,45 +82,72 @@ async function migrate() {
                 const media = {};
                 if (lesson.video_path) {
                     media.video_path = lesson.video_path;
-                    hasMedia = true;
+                    needsMigration = true;
                 }
-                if (lesson.url && (lesson.type === "video" || !lesson.type)) {
+                if (lesson.url) {
                     media.url = lesson.url;
-                    hasMedia = true;
+                    needsMigration = true;
+                }
+                if (lesson.file_path) {
+                    media.file_path = lesson.file_path;
+                    needsMigration = true;
                 }
                 if (Object.keys(media).length > 0) {
                     mediaMap[lessonId] = media;
                 }
 
-                // Strip video media from public lesson (keep url for file-type lessons)
-                const { video_path, url, ...rest } = lesson;
-                if (lesson.type === "file" && url) {
-                    return { ...rest, url };
+                let cleanQuestions = lesson.questions;
+                if (Array.isArray(lesson.questions) && lesson.questions.length > 0) {
+                    cleanQuestions = lesson.questions.map((q) => {
+                        if (q && q.id !== undefined && (q.correctAnswer !== undefined || q.answers !== undefined)) {
+                            if (!examAnswersMap[lessonId]) examAnswersMap[lessonId] = {};
+                            examAnswersMap[lessonId][q.id] = q.correctAnswer ?? q.answers;
+                            needsMigration = true;
+                        }
+                        const { correctAnswer, answers, ...safeQ } = q || {};
+                        return safeQ;
+                    });
                 }
-                return rest;
+
+                // Completely strip sensitive media and answer keys from the public doc
+                const { video_path, url, file_path, correctAnswer, answers, ...rest } = lesson;
+                return {
+                    ...rest,
+                    ...(cleanQuestions ? { questions: cleanQuestions } : {}),
+                };
             }),
         }));
 
-        if (!hasMedia) {
+        if (!needsMigration) {
             skipped++;
             continue;
         }
 
-        console.log(`  Course ${courseId}: ${Object.keys(mediaMap).length} lessons with media`);
+        console.log(`  Course [${courseId}] "${data.title || 'Untitled'}":`);
+        console.log(`    - Media lessons to isolate: ${Object.keys(mediaMap).length}`);
+        console.log(`    - Exam lessons with answers to isolate: ${Object.keys(examAnswersMap).length}`);
 
         if (!isDryRun) {
             const batch = db.batch();
-            batch.set(db.doc(`courses/${courseId}/private/media`), mediaMap, { merge: true });
-            batch.update(db.doc(`courses/${courseId}`), { modules: cleanModules });
+            if (Object.keys(mediaMap).length > 0) {
+                batch.set(db.doc(`courses/${courseId}/private/media`), mediaMap, { merge: true });
+            }
+            if (Object.keys(examAnswersMap).length > 0) {
+                batch.set(db.doc(`courses/${courseId}/private/exam_answers`), examAnswersMap, { merge: true });
+            }
+            batch.update(db.doc(`courses/${courseId}`), {
+                modules: cleanModules,
+                updated_at: new Date().toISOString(),
+            });
             await batch.commit();
         }
 
         migrated++;
     }
 
-    console.log(`\n✅ Done. Migrated: ${migrated}, Skipped (no media): ${skipped}`);
+    console.log(`\n✅ Summary: Migrated: ${migrated}, Skipped (already clean): ${skipped}`);
     if (isDryRun) {
-        console.log("   Re-run with --apply to commit changes.");
+        console.log("   Dry-run complete. Re-run with --apply to commit changes to Firestore.");
     }
 }
 

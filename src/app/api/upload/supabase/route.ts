@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin, SUPABASE_BUCKET } from "@/lib/supabase/admin"
+import { supabaseAdmin, SUPABASE_BUCKET, SUPABASE_PUBLIC_BUCKET } from "@/lib/supabase/admin"
 import { getServerAuth } from "@/lib/server-auth"
 import { adminDb } from "@/lib/firebase/admin"
 
@@ -130,9 +130,13 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: `حجم الملف يتجاوز ${mb} ميجابايت` }, { status: 400 })
         }
 
+        // Determine target bucket: avatars go to public bucket, everything else to private bucket
+        const isAvatar = rawFolder === "avatars"
+        const targetBucket = isAvatar ? SUPABASE_PUBLIC_BUCKET : SUPABASE_BUCKET
+
         // Upload to Supabase Storage
         const { data, error: uploadError } = await supabaseAdmin.storage
-            .from(SUPABASE_BUCKET)
+            .from(targetBucket)
             .upload(storagePath, fileBuffer, {
                 contentType: contentType || 'application/octet-stream',
                 upsert: true,
@@ -143,18 +147,19 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: `فشل الرفع لمساحة التخزين: ${uploadError.message}` }, { status: 500 })
         }
 
-        // For public assets (avatars, thumbnails), return public URL
-        // For sensitive/protected assets (videos, files, payment_proofs, questions), return short-lived signed URL (15 minutes)
+        // Avatars are strictly public (from public bucket)
+        // All other assets (videos, files, payment_proofs, questions, thumbnails) are in the private bucket
+        // and served with short-lived signed URLs (15 minutes = 900s) or via api/storage/sign
         let finalUrl = ""
-        if (rawFolder === "avatars" || rawFolder === "thumbnails") {
+        if (isAvatar) {
             const { data: publicUrlData } = supabaseAdmin.storage
-                .from(SUPABASE_BUCKET)
+                .from(targetBucket)
                 .getPublicUrl(storagePath)
             finalUrl = publicUrlData.publicUrl
         } else {
-            // Protected asset: generate short-lived signed URL (valid for 15 minutes = 900s)
+            // Protected asset in private bucket: generate short-lived signed URL (valid for 15 minutes = 900s)
             const { data: signedData, error: signError } = await supabaseAdmin.storage
-                .from(SUPABASE_BUCKET)
+                .from(targetBucket)
                 .createSignedUrl(storagePath, 900)
 
             finalUrl = signedData?.signedUrl || `/api/storage/sign?url=${encodeURIComponent(storagePath)}`
@@ -164,7 +169,7 @@ export async function POST(request: NextRequest) {
             success: true,
             url: finalUrl,
             storagePath: storagePath,
-            bucket: SUPABASE_BUCKET,
+            bucket: targetBucket,
             type: rawFolder === 'videos' ? 'video' : 'storage'
         })
     } catch (err: any) {

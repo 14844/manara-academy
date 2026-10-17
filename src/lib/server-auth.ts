@@ -62,10 +62,17 @@ export async function getServerAuth(request?: Request): Promise<ServerUser | nul
 
         return {
             uid: decoded.uid,
-            email: decoded.email || privateData.email || profileData.email,
+            email: decoded.email || privateData.email || "",
             role: (profileData.role as "student" | "instructor" | "admin") || "student",
-            status: privateData.status || profileData.status || "pending",
-            profile: { ...profileData, ...privateData },
+            status: privateData.status || (profileData.role === "admin" ? "active" : "pending"),
+            profile: {
+                ...profileData,
+                ...privateData,
+                wallet_balance: privateData.wallet_balance ?? 0,
+                status: privateData.status || (profileData.role === "admin" ? "active" : "pending"),
+                email: decoded.email || privateData.email || "",
+                phone: privateData.phone || "",
+            },
         };
     } catch {
         return null;
