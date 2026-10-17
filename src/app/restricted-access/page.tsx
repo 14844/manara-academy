@@ -7,9 +7,11 @@ import Link from "next/link"
 import { auth } from "@/lib/firebase/config"
 import { signOut } from "firebase/auth"
 import { Navbar } from "@/components/navbar"
+import { useSupportSettings } from "@/hooks/use-support-settings"
 
 export default function RestrictedAccessPage() {
     const searchParams = useSearchParams()
+    const { settings } = useSupportSettings()
     const reason = searchParams.get('reason')
     const courseId = searchParams.get('courseId')
 
@@ -43,14 +45,14 @@ export default function RestrictedAccessPage() {
 
                     <div className="flex flex-col gap-3">
                         <Button className="h-12 text-lg gap-2 font-bold" asChild>
-                            <Link href="https://wa.me/201017333215" target="_blank">
+                            <Link href={`https://wa.me/${settings.phone}`} target="_blank">
                                 <MessageSquare className="h-5 w-5" />
                                 تواصل مع الدعم الفني
                             </Link>
                         </Button>
 
                         <p className="text-xs text-muted-foreground font-bold italic">
-                            أو <a href="https://mail.google.com/mail/?view=cm&fs=1&to=manaraacademyplatform@gmail.com" target="_blank" className="text-primary hover:underline">مراسلتنا عبر البريد (Gmail)</a>
+                            أو <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${settings.email}`} target="_blank" className="text-primary hover:underline">مراسلتنا عبر البريد (Gmail)</a>
                         </p>
 
                         <Button variant="outline" className="h-12 gap-2 font-bold" onClick={handleSignOut}>

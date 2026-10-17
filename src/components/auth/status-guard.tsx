@@ -14,12 +14,27 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = useState(true)
 
     useEffect(() => {
+        const path = pathname || ""
+
+        // Completely bypass any auth loading or checks for parent report links
+        if (path.startsWith('/report')) {
+            setIsLoading(false)
+            return
+        }
+
+        let profileUnsubscribe: (() => void) | undefined;
+
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            console.log("StatusGuard: Check for path:", pathname, "| User UID:", user?.uid)
+            console.log("StatusGuard: Check for path:", path, "| User UID:", user?.uid)
 
             if (!user) {
+                if (profileUnsubscribe) profileUnsubscribe();
                 // If we are on a protected route but auth is missing, we MUST clear any stale session
-                if (pathname !== '/login' && pathname !== '/signup' && pathname !== '/') {
+                const isPublicRoute = [
+                    '/', '/login', '/signup', '/about', '/faq', '/terms', '/privacy', '/refund'
+                ].includes(path) || path.startsWith('/courses') || path.startsWith('/help') || path.startsWith('/labs')
+                
+                if (!isPublicRoute) {
                     console.warn("StatusGuard: Protected path detected without auth. Clearing session...")
                     try {
                         await fetch('/api/auth/session', { method: 'DELETE' })
@@ -34,46 +49,81 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
             }
 
             try {
-                const docRef = doc(db, "profiles", user.uid)
-                const docSnap = await getDoc(docRef)
-
-                if (docSnap.exists()) {
-                    const profile = docSnap.data()
-                    console.log("StatusGuard: Profile role:", profile.role, "status:", profile.status)
-
-                    // 1. Handle Pending
-                    if ((profile.status === 'pending' || !profile.status) && profile.role !== 'admin') {
-                        if (pathname !== '/pending-approval') {
-                            router.push("/pending-approval")
-                            return
-                        }
+                // Fetch role from public profile
+                let role = "student";
+                try {
+                    const pubSnap = await getDoc(doc(db, "profiles", user.uid));
+                    if (pubSnap.exists()) {
+                        role = pubSnap.data()?.role || "student";
                     }
-                    // 2. Handle Blocked/Rejected
-                    else if (profile.status === 'rejected' || profile.status === 'blocked') {
-                        if (pathname !== '/restricted-access') {
-                            router.push("/restricted-access?reason=account")
-                            return
-                        }
-                    }
-                    // 3. Handle Approved
-                    else {
-                        if (pathname === '/pending-approval' || pathname === '/restricted-access' || pathname === '/login' || pathname === '/signup') {
-                            const target = profile.role === 'instructor' ? "/instructor" : "/dashboard"
-                            router.push(target)
-                            return
-                        }
-                    }
-                } else {
-                    console.warn("StatusGuard: Profile missing for user:", user.uid)
+                } catch (e) {
+                    console.error("StatusGuard: Error fetching public profile:", e);
                 }
+
+                // Real-time Session & Status Monitoring via profiles_private/{user.uid}
+                const { onSnapshot } = await import("firebase/firestore");
+                profileUnsubscribe = onSnapshot(doc(db, "profiles_private", user.uid), async (docSnap) => {
+                    const privateData = docSnap.exists() ? docSnap.data() : null;
+                    const status = privateData?.status || "pending";
+                    const activeSessionId = privateData?.active_session_id;
+
+                    // Single Session Enforcement (Students only)
+                    if (role === 'student' && !docSnap.metadata.fromCache) {
+                        const localSessionId = localStorage.getItem('manara_active_session_id');
+                        if (!localSessionId && activeSessionId) {
+                            localStorage.setItem('manara_active_session_id', String(activeSessionId));
+                        } else if (activeSessionId && localSessionId) {
+                            const profileSessionTime = Number(activeSessionId) || 0;
+                            const localSessionTime = Number(localSessionId) || 0;
+
+                            // Only conflict if another login created a STRICTLY NEWER session on a different device
+                            if (profileSessionTime > localSessionTime && String(activeSessionId) !== String(localSessionId)) {
+                                console.warn("StatusGuard: Newer session detected on another device! Logging out...");
+
+                                // Perform logout cleanup
+                                try {
+                                    await auth.signOut();
+                                    await fetch('/api/auth/session', { method: 'DELETE' });
+                                } catch (err) {
+                                    console.error("Logout error:", err);
+                                }
+
+                                localStorage.removeItem('manara_active_session_id');
+
+                                // FORCE hard redirect to login to kill all states
+                                window.location.replace("/login?error=session_conflict");
+                                return;
+                            }
+                        }
+                    }
+
+                    // Handle Status Redirects
+                    if (status === 'pending' && role !== 'admin') {
+                        if (path !== '/pending-approval') {
+                            router.push("/pending-approval");
+                        }
+                    } else if (status === 'rejected' || status === 'blocked') {
+                        if (path !== '/restricted-access') {
+                            router.push("/restricted-access?reason=account");
+                        }
+                    } else {
+                        if (path === '/pending-approval' || path === '/restricted-access' || path === '/login' || path === '/signup') {
+                            const target = role === 'instructor' ? "/instructor" : "/dashboard";
+                            router.push(target);
+                        }
+                    }
+                    setIsLoading(false);
+                });
             } catch (error) {
-                console.error("StatusGuard: Error fetching profile:", error)
-            } finally {
+                console.error("StatusGuard: Error setting up profile listener:", error)
                 setIsLoading(false)
             }
         })
 
-        return () => unsubscribe()
+        return () => {
+            unsubscribe()
+            if (profileUnsubscribe) profileUnsubscribe()
+        }
     }, [router, pathname])
 
     if (isLoading) {

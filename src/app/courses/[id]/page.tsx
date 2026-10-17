@@ -12,6 +12,7 @@ import {
     Clock,
     User,
     CheckCircle2,
+    CheckCircle,
     PlayCircle,
     Lock,
     ChevronDown,
@@ -19,13 +20,20 @@ import {
     Shield,
     FileText,
     ClipboardList,
-    HelpCircle
+    HelpCircle,
+    AlertCircle,
+    Ticket,
+    Activity,
+    Loader2
 } from "lucide-react"
 import { auth, db } from "@/lib/firebase/config"
-import { doc, getDoc, setDoc, collection, query, where, getDocs, runTransaction } from "firebase/firestore"
+import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, runTransaction, increment } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { toast } from "sonner"
 import Link from "next/link"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { logActivity } from "@/lib/activity-logger"
 
 export default function CourseDetailsPage() {
     const { id } = useParams()
@@ -36,6 +44,12 @@ export default function CourseDetailsPage() {
     const [isEnrolled, setIsEnrolled] = useState(false)
     const [user, setUser] = useState<any>(null)
     const [profile, setProfile] = useState<any>(null)
+
+    // Coupon states
+    const [couponCode, setCouponCode] = useState("")
+    const [isApplyingCoupon, setIsApplyingCoupon] = useState(false)
+    const [appliedCoupon, setAppliedCoupon] = useState<any>(null)
+
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -62,7 +76,9 @@ export default function CourseDetailsPage() {
                 const docRef = doc(db, "courses", id as string)
                 const docSnap = await getDoc(docRef)
                 if (docSnap.exists()) {
-                    setCourse({ id: docSnap.id, ...docSnap.data() })
+                    const courseData = { id: docSnap.id, ...docSnap.data() } as any
+                    courseData.instructor_verified = courseData.instructor_verified || false
+                    setCourse(courseData)
                 } else {
                     toast.error("الكورس غير موجود")
                     router.push("/courses")
@@ -85,82 +101,134 @@ export default function CourseDetailsPage() {
 
         setIsEnrolling(true)
         try {
-            const enrollmentId = `${user.uid}_${course.id}`
-            const coursePrice = Number(course.price) || 0
+            const res = await fetch("/api/courses/enroll", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    courseId: course.id,
+                    couponCode: appliedCoupon?.code || null,
+                }),
+            });
 
-            if (coursePrice > 0) {
-                const currentBalance = Number(profile?.wallet_balance) || 0
-
-                if (currentBalance < coursePrice) {
-                    toast.error("عذراً، رصيدك غير كافٍ للاتحاق بهذا الكورس", {
-                        description: "يرجى شحن المحفظة أولاً متبوعاً بمراجعة الإدارة.",
-                        action: {
-                            label: "شحن المحفظة",
-                            onClick: () => router.push("/dashboard/wallet")
-                        }
-                    })
-                    setIsEnrolling(false)
-                    return
-                }
-
-                // Use transaction to ensure balance is deducted and enrollment created atomically
-                await runTransaction(db, async (transaction) => {
-                    const profileRef = doc(db, "profiles", user.uid)
-                    const enrollmentRef = doc(db, "enrollments", enrollmentId)
-
-                    const pSnap = await transaction.get(profileRef)
-                    if (!pSnap.exists()) throw new Error("Profile not found")
-
-                    const newBalance = (pSnap.data().wallet_balance || 0) - coursePrice
-                    if (newBalance < 0) throw new Error("Insufficient balance")
-
-                    transaction.update(profileRef, {
-                        wallet_balance: newBalance,
-                        updated_at: new Date().toISOString()
-                    })
-
-                    transaction.set(enrollmentRef, {
-                        id: enrollmentId,
-                        student_id: user.uid,
-                        student_name: profile?.full_name || user.displayName,
-                        student_unique_id: profile?.student_id || "N/A",
-                        course_id: course.id,
-                        course_title: course.title,
-                        instructor_id: course.instructor_id,
-                        instructor_name: course.instructor_name,
-                        enrolled_at: new Date().toISOString(),
-                        progress: 0,
-                        status: "active",
-                        paid_amount: coursePrice
-                    })
-                })
-            } else {
-                // Free course enrollment
-                await setDoc(doc(db, "enrollments", enrollmentId), {
-                    id: enrollmentId,
-                    student_id: user.uid,
-                    student_name: profile?.full_name || user.displayName,
-                    student_unique_id: profile?.student_id || "N/A",
-                    course_id: course.id,
-                    course_title: course.title,
-                    instructor_id: course.instructor_id,
-                    instructor_name: course.instructor_name,
-                    enrolled_at: new Date().toISOString(),
-                    progress: 0,
-                    status: "active",
-                    paid_amount: 0
-                })
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || "فشل الاشتراك في الكورس");
             }
 
-            toast.success("تم الالتحاق بالكورس بنجاح!")
+            const finalPrice = data.paidAmount ?? (Number(course.price) || 0);
+            toast.success("تم الالتحاق بالكورس بنجاح!");
             setIsEnrolled(true)
+
+            // Log activity
+            logActivity({
+                action: "course_enrolled",
+                category: finalPrice > 0 ? "financial" : "course",
+                title: finalPrice > 0 ? "شراء واشتراك في كورس" : "اشتراك في كورس مجاني",
+                description: finalPrice > 0
+                    ? `قام الطالب بالاشتراك في كورس "${course.title}" وخصم ${finalPrice} ج.م من محفظته وإيداع ${finalPrice * 0.95} ج.م للمحاضر (بعد 5% عمولة)`
+                    : `قام الطالب بالاشتراك مجاناً في كورس "${course.title}"`,
+                status: "success",
+                user_id: user.uid,
+                user_name: user.displayName || "طالب",
+                user_email: user.email || "",
+                user_role: "student",
+                target_user_id: course.instructor_id,
+                target_user_name: course.instructor_name,
+                amount: finalPrice > 0 ? finalPrice : 0,
+                metadata: {
+                    course_id: course.id,
+                    course_title: course.title,
+                    price: Number(course.price) || 0,
+                    final_paid: finalPrice,
+                    instructor_share: finalPrice * 0.95,
+                    platform_commission: finalPrice * 0.05,
+                    coupon_code: appliedCoupon?.code || null,
+                }
+            }).catch(() => {})
         } catch (error: any) {
-            console.error("Enrollment error:", error)
-            toast.error("حدث خطأ أثناء الالتحاق بالكورس: " + (error.message || ""))
+            console.error("Enrollment error details:", error)
+
+            // Log failure
+            logActivity({
+                action: "course_enroll_failed",
+                category: "course",
+                title: "فشل شراء كورس",
+                description: `فشلت محاولة الاشتراك في كورس "${course?.title || id}": ${error.message || "خطأ غير معروف"}`,
+                status: "failed",
+                user_id: user?.uid,
+                user_name: user?.displayName || "طالب",
+                user_email: user?.email || "",
+                user_role: "student",
+                amount: course?.price || 0,
+                error_message: error.message,
+                metadata: { course_id: course?.id, course_title: course?.title }
+            }).catch(() => {})
+
+            // Specific messages for common errors
+            if (error.code === 'permission-denied') {
+                toast.error("خطأ في الصلاحيات المالكية. يرجى التواصل مع الدعم الفني.")
+            } else {
+                toast.error(error.message || "حدث خطأ أثناء الالتحاق بالكورس")
+            }
         } finally {
             setIsEnrolling(false)
         }
     }
+
+    const handleApplyCoupon = async () => {
+        if (!couponCode) return
+        if (appliedCoupon && appliedCoupon.code === couponCode.toUpperCase()) {
+            toast.info("هذا الكوبون مفعل بالفعل")
+            return
+        }
+
+        setIsApplyingCoupon(true)
+        try {
+            const q = query(collection(db, "coupons"), where("code", "==", couponCode.toUpperCase()))
+            const snap = await getDocs(q)
+
+            if (snap.empty) {
+                toast.error("عذراً، هذا الكود غير صحيح")
+                setAppliedCoupon(null)
+                setIsApplyingCoupon(false)
+                return
+            }
+
+            const couponData = { id: snap.docs[0].id, ...snap.docs[0].data() } as any
+
+            // Validation logic
+            if (!couponData.active) {
+                toast.error("هذا الكوبون معطل حالياً")
+                setIsApplyingCoupon(false)
+                return
+            }
+
+            if (couponData.usage_count >= couponData.max_uses) {
+                toast.error("عذراً، وصل هذا الكوبون للحد الأقصى للاستخدام")
+                setIsApplyingCoupon(false)
+                return
+            }
+
+            if (couponData.course_id !== "all" && couponData.course_id !== id) {
+                toast.error("هذا الكود غير مخصص لهذا الكورس")
+                setIsApplyingCoupon(false)
+                return
+            }
+
+            setAppliedCoupon(couponData)
+            toast.success(`تم تطبيق الخصم بنجاح! خصم بقيمة ${couponData.discount_percent}%`)
+        } catch (error) {
+            console.error("Coupon error:", error)
+            toast.error("حدث خطأ أثناء فحص الكوبون")
+        } finally {
+            setIsApplyingCoupon(false)
+        }
+    }
+
+    const basePrice = Number(course?.price) || 0
+    const finalPrice = appliedCoupon 
+        ? basePrice - (basePrice * appliedCoupon.discount_percent / 100) 
+        : basePrice
 
     if (isLoading) {
         return (
@@ -181,17 +249,22 @@ export default function CourseDetailsPage() {
                 <section className="bg-muted/30 py-12 md:py-20">
                     <div className="container grid gap-8 md:grid-cols-2 items-center">
                         <div className="space-y-6">
-                            <Badge className="text-sm px-3 py-1">{course.category}</Badge>
-                            <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold leading-tight">
+                            <div className="flex flex-wrap gap-2 items-center">
+                                <Badge className="text-sm px-4 py-1.5 bg-primary/10 text-primary border-primary/20 backdrop-blur-sm">{course.category}</Badge>
+                            </div>
+                            <h1 className="text-3xl md:text-4xl lg:text-5xl font-black leading-tight tracking-tight text-right">
                                 {course.title}
                             </h1>
-                            <p className="text-lg text-muted-foreground lg:max-w-[600px]">
+                            <p className="text-lg text-muted-foreground lg:max-w-[600px] text-right">
                                 {course.description}
                             </p>
-                            <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                                <div className="flex items-center">
-                                    <User className="ml-2 h-4 w-4" />
+                            <div className="flex flex-wrap gap-4 text-sm text-muted-foreground justify-end">
+                                <div className="flex items-center font-bold text-foreground">
+                                    <User className="ml-2 h-4 w-4 text-primary" />
                                     {course.instructor_name}
+                                    {course.instructor_verified && (
+                                        <CheckCircle2 className="mr-1.5 h-4 w-4 text-blue-500 fill-blue-50" />
+                                    )}
                                 </div>
                                 <div className="flex items-center">
                                     <Clock className="ml-2 h-4 w-4" />
@@ -215,9 +288,9 @@ export default function CourseDetailsPage() {
 
                 <div className="container py-12 grid gap-8 lg:grid-cols-3">
                     {/* Main Content */}
-                    <div className="lg:col-span-2 space-y-8">
+                    <div className="lg:col-span-2 space-y-8" dir="rtl">
                         <div>
-                            <h2 className="text-2xl font-bold mb-4">ماذا ستتعلم؟</h2>
+                            <h2 className="text-2xl font-bold mb-4 text-right">ماذا ستتعلم؟</h2>
                             <div className="grid gap-3 md:grid-cols-2">
                                 {[1, 2, 3, 4].map((i) => (
                                     <div key={i} className="flex items-start gap-2">
@@ -229,7 +302,7 @@ export default function CourseDetailsPage() {
                         </div>
 
                         <div>
-                            <h2 className="text-2xl font-bold mb-4">محتوى الكورس</h2>
+                            <h2 className="text-2xl font-bold mb-4 text-right">محتوى الكورس</h2>
                             <div className="space-y-4">
                                 {course.modules?.map((module: any, idx: number) => (
                                     <Card key={module.id} className="border-muted/60">
@@ -239,7 +312,7 @@ export default function CourseDetailsPage() {
                                                     <div className="bg-primary/10 text-primary h-8 w-8 rounded-full flex items-center justify-center font-bold text-sm">
                                                         {idx + 1}
                                                     </div>
-                                                    <CardTitle className="text-base">{module.title}</CardTitle>
+                                                    <CardTitle className="text-base text-right">{module.title}</CardTitle>
                                                 </div>
                                                 <span className="text-xs text-muted-foreground">{module.lessons?.length} دروس</span>
                                             </div>
@@ -253,8 +326,8 @@ export default function CourseDetailsPage() {
                                                         {lesson.type === 'assignment' && <ClipboardList className="h-4 w-4 text-muted-foreground group-hover:text-primary" />}
                                                         {lesson.type === 'exam' && <HelpCircle className="h-4 w-4 text-muted-foreground group-hover:text-primary" />}
                                                         <div className="flex flex-col">
-                                                            <span className="text-sm font-medium">{lesson.title}</span>
-                                                            <span className="text-[10px] text-muted-foreground">
+                                                            <span className="text-sm font-medium text-right">{lesson.title}</span>
+                                                            <span className="text-[10px] text-muted-foreground text-right">
                                                                 {lesson.type === 'video' || !lesson.type ? "درس فيديو" :
                                                                     lesson.type === 'file' ? "ملف / ملخص" :
                                                                         lesson.type === 'assignment' ? "واجب منزلي" : "اختبار شامل"}
@@ -274,21 +347,75 @@ export default function CourseDetailsPage() {
                     </div>
 
                     {/* Sidebar / CTA */}
-                    <div className="space-y-6">
+                    <div className="space-y-6" dir="rtl">
                         <Card className="sticky top-24 shadow-xl border-primary/20">
                             <CardContent className="p-6 space-y-6">
-                                <div className="space-y-2">
-                                    <p className="text-sm text-muted-foreground">سعر الكورس</p>
+                                <div className="space-y-1">
+                                    <p className="text-sm text-muted-foreground">سعر الكورس الحالي</p>
                                     <div className="flex items-baseline gap-2">
-                                        <span className="text-4xl font-bold text-primary">{course.price}</span>
+                                        <span className={`text-4xl font-black ${appliedCoupon ? 'text-muted-foreground/50 line-through text-2xl' : 'text-primary'}`}>
+                                            {basePrice}
+                                        </span>
+                                        {appliedCoupon && (
+                                            <span className="text-4xl font-black text-green-600">
+                                                {finalPrice}
+                                            </span>
+                                        )}
                                         <span className="text-xl font-bold text-primary">ج.م</span>
                                     </div>
                                 </div>
 
-                                {isEnrolled ? (
+                                {!isEnrolled && profile?.role !== 'instructor' && profile?.role !== 'admin' && (
+                                    <div className="space-y-2 border-y py-4 my-2">
+                                        <Label className="text-xs font-bold flex items-center gap-2">
+                                            <Ticket className="h-3 w-3 text-primary" />
+                                            هل لديك كوبون خصم؟
+                                        </Label>
+                                        <div className="flex gap-2">
+                                            <Input 
+                                                placeholder="أدخل الكود هنا..."
+                                                className="h-10 text-xs font-bold uppercase tracking-widest text-right"
+                                                value={couponCode}
+                                                onChange={(e) => setCouponCode(e.target.value)}
+                                                disabled={isApplyingCoupon}
+                                            />
+                                            <Button 
+                                                type="button" 
+                                                variant={appliedCoupon && couponCode.toUpperCase() === appliedCoupon.code ? "outline" : "default"}
+                                                className="h-10 px-4 text-xs font-bold shrink-0"
+                                                onClick={handleApplyCoupon}
+                                                disabled={isApplyingCoupon || !couponCode}
+                                            >
+                                                {isApplyingCoupon ? <Loader2 className="h-4 w-4 animate-spin" /> : 
+                                                 (appliedCoupon && couponCode.toUpperCase() === appliedCoupon.code) ? <CheckCircle className="h-4 w-4 text-green-500" /> : "تطبيق"}
+                                            </Button>
+                                        </div>
+                                        {appliedCoupon && (
+                                            <p className="text-[10px] text-green-600 font-bold flex items-center gap-1 animate-pulse">
+                                                <Activity className="h-3 w-3" />
+                                                تم تطبيق خصم {appliedCoupon.discount_percent}% بنجاح!
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+
+                                {profile?.role === 'admin' ? (
+                                    <Button className="w-full h-12 text-lg font-bold bg-amber-600 hover:bg-amber-700" size="lg" asChild>
+                                        <Link href={`/learn/${course.id}`}>دخول كمسؤول (معاينة)</Link>
+                                    </Button>
+                                ) : profile?.role === 'instructor' && course.instructor_id === user?.uid ? (
+                                    <Button className="w-full h-12 text-lg font-bold bg-blue-600 hover:bg-blue-700" size="lg" asChild>
+                                        <Link href={`/learn/${course.id}`}>معاينة الكورس (أنت المدرس)</Link>
+                                    </Button>
+                                ) : isEnrolled ? (
                                     <Button className="w-full h-12 text-lg font-bold" size="lg" asChild>
                                         <Link href={`/learn/${course.id}`}>دخول للكورس</Link>
                                     </Button>
+                                ) : profile?.role === 'instructor' ? (
+                                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                                        <p className="text-sm font-bold text-amber-800">محفظة المدرس مخصصة للسحب فقط</p>
+                                        <p className="text-xs text-amber-600 mt-1">لا يمكن للمدرسين شراء الكورسات من المنصة</p>
+                                    </div>
                                 ) : (
                                     <Button
                                         className="w-full h-12 text-lg font-bold"
@@ -299,6 +426,16 @@ export default function CourseDetailsPage() {
                                         {isEnrolling ? "جاري المعالجة..." : "الالتحاق بالكورس الآن"}
                                     </Button>
                                 )}
+
+                                <div className="p-3 bg-red-500/5 border border-red-500/10 rounded-lg space-y-2">
+                                    <p className="text-[10px] font-bold text-red-600 flex items-center gap-1">
+                                        <AlertCircle className="h-3 w-3" />
+                                        تنبيه حول الاسترجاع:
+                                    </p>
+                                    <p className="text-[10px] text-red-800/70 leading-relaxed font-bold">
+                                        لا يمكن استرجاع قيمة الكورس أو سحب الرصيد من المحفظة بعد بدء مشاهدة المحتوى التعليمي.
+                                    </p>
+                                </div>
 
                                 <ul className="space-y-3 text-sm">
                                     <li className="flex items-center gap-2">

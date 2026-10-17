@@ -16,12 +16,3 @@ export async function generateUniqueStudentId() {
         return `MANARA-${nextId}`
     })
 }
-
-export async function initializeWallet(userId: string) {
-    const profileRef = doc(db, "profiles", userId)
-    await runTransaction(db, async (transaction) => {
-        transaction.update(profileRef, {
-            wallet_balance: 0
-        })
-    })
-}

@@ -1,8 +1,21 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { auth, db } from "@/lib/firebase/config"
-import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore"
+import { 
+    collection, 
+    query, 
+    where, 
+    getDocs, 
+    addDoc, 
+    serverTimestamp, 
+    doc, 
+    getDoc, 
+    orderBy,
+    runTransaction,
+    increment
+} from "firebase/firestore"
+import { calculateTotalCommission } from "@/lib/commission-utils"
 import { onAuthStateChanged } from "firebase/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -20,6 +33,7 @@ import {
     Loader2
 } from "lucide-react"
 import { toast } from "sonner"
+import { logActivity } from "@/lib/activity-logger"
 import Link from "next/link"
 import {
     Dialog,
@@ -38,6 +52,9 @@ export default function InstructorWithdrawalsPage() {
     const [balance, setBalance] = useState({ gross: 0, commission: 0, net: 0 })
     const [requests, setRequests] = useState<any[]>([])
     const [showRequestModal, setShowRequestModal] = useState(false)
+    const [selectedRequest, setSelectedRequest] = useState<any>(null)
+    const [showReceipt, setShowReceipt] = useState(false)
+    const printRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -54,14 +71,19 @@ export default function InstructorWithdrawalsPage() {
     async function fetchFinancialData(instructorId: string) {
         try {
             setIsLoading(true)
-            // 1. Fetch all enrollments for this instructor
-            const enrollmentsQ = query(
-                collection(db, "enrollments"),
-                where("instructor_id", "==", instructorId)
-            )
-            const enrollmentsSnap = await getDocs(enrollmentsQ)
-
-            // 2. Fetch withdrawal requests to see what was already paid/requested
+            
+            // 1. Fetch Instructor Profile for real-time balance
+            let profileData: any = { wallet_balance: 0 }
+            try {
+                const res = await fetch("/api/profile/me")
+                if (res.ok) {
+                    profileData = await res.json()
+                }
+            } catch (err) {
+                console.error("Error fetching instructor profile:", err)
+            }
+            
+            // 2. Fetch withdrawal requests
             const requestsQ = query(
                 collection(db, "withdrawal_requests"),
                 where("instructor_id", "==", instructorId)
@@ -72,28 +94,18 @@ export default function InstructorWithdrawalsPage() {
                 new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime()
             ))
 
-            // 3. Calculate current balance (Gross - Already Requested)
-            let totalGross = 0
-            enrollmentsSnap.docs.forEach(doc => {
-                totalGross += doc.data().paid_amount || 0
-            })
-
-            let totalRequested = 0
-            allRequests.forEach((req: any) => {
-                if (req.status !== 'rejected') {
-                    totalRequested += req.amount || 0
-                }
-            })
-
-            const currentGross = totalGross - totalRequested
-            const currentCommission = currentGross * 0.2
-            const currentNet = currentGross - currentCommission
-
+            // 3. Set the balance directly from the profile
+            // We use the net balance directly from instructor's profile wallet
+            const currentNet = profileData.wallet_balance || 0
+            
             setBalance({
-                gross: currentGross,
-                commission: currentCommission,
+                gross: currentNet / 0.95, // Estimate gross based on 5% platform commission
+                commission: (currentNet / 0.95) * 0.05,
                 net: currentNet
             })
+
+            // Note: We can also fetch from the 'transactions' collection for exact history
+            // but for immediate UI fix, using wallet_balance is most accurate to the actual money.
 
         } catch (error) {
             console.error("Error fetching financial data:", error)
@@ -103,6 +115,47 @@ export default function InstructorWithdrawalsPage() {
         }
     }
 
+    const handlePrint = () => {
+        const printContent = printRef.current;
+        if (!printContent) return;
+
+        const windowUrl = 'about:blank';
+        const uniqueName = new Date().getTime();
+        const windowName = 'Print' + uniqueName;
+        const printWindow = window.open(windowUrl, windowName, 'left=50000,top=50000,width=0,height=0');
+
+        if (!printWindow) return;
+
+        printWindow.document.write(`
+            <html>
+                <head>
+                    <title>إيصال صرف أرباح - ${selectedRequest?.instructor_name}</title>
+                    <style>
+                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl; padding: 40px; }
+                        .receipt { border: 2px solid #eee; padding: 30px; border-radius: 15px; max-width: 600px; margin: 0 auto; }
+                        .header { text-align: center; border-bottom: 2px solid #f0f0f0; margin-bottom: 20px; padding-bottom: 20px; }
+                        .row { display: flex; justify-content: space-between; margin-bottom: 15px; border-bottom: 1px dashed #eee; padding-bottom: 5px; }
+                        .total { background: #f9f9f9; padding: 15px; border-radius: 10px; margin-top: 20px; display: flex; justify-content: space-between; font-weight: bold; font-size: 1.2em; }
+                        .footer { margin-top: 40px; text-align: center; color: #888; font-size: 0.8em; }
+                        .stamp { display: flex; justify-content: space-between; margin-top: 50px; font-weight: bold; }
+                    </style>
+                </head>
+                <body>
+                    ${printContent.innerHTML}
+                    <div class="stamp">
+                        <div>توقيع الإدارة / الختم الرسمي</div>
+                        <div>توقيع المستلم (المحاضر)</div>
+                    </div>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 250);
+    };
     const handleRequestWithdrawal = async () => {
         if (balance.net <= 0) {
             toast.error("لا يوجد رصيد متاح للسحب")
@@ -111,22 +164,65 @@ export default function InstructorWithdrawalsPage() {
 
         setIsSubmitting(true)
         try {
-            await addDoc(collection(db, "withdrawal_requests"), {
-                instructor_id: user.uid,
-                instructor_name: user.displayName || "محاضر",
-                amount: balance.gross,
-                commission: balance.commission,
-                net_amount: balance.net,
-                status: "pending",
-                requested_at: new Date().toISOString(),
+            const instructorId = user.uid
+            const netAmount = balance.net
+
+            const res = await fetch("/api/instructor/withdrawals/request", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    amount: balance.gross,
+                    commission: balance.commission,
+                    net_amount: netAmount,
+                }),
             })
 
-            toast.success("تم إرسال طلب السحب بنجاح. سيتم مراجعته من قبل الإدارة.")
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+                throw new Error(data.error || "فشل إرسال طلب السحب")
+            }
+
+            toast.success("تم إرسال طلب السحب بنجاح وخصمه من محفظتك مؤقتاً")
             setShowRequestModal(false)
-            fetchFinancialData(user.uid)
-        } catch (error) {
+            fetchFinancialData(instructorId)
+
+            // Log activity
+            logActivity({
+                action: "withdrawal_requested",
+                category: "financial",
+                title: "طلب سحب أرباح محاضر",
+                description: `قام المحاضر بطلب سحب أرباح بقيمة ${netAmount} ج.م (صافي بعد عمولة ${balance.commission} ج.م)`,
+                status: "pending",
+                user_id: instructorId,
+                user_name: user.displayName || "محاضر",
+                user_email: user.email || "",
+                user_role: "instructor",
+                amount: netAmount,
+                metadata: {
+                    gross_amount: balance.gross,
+                    commission: balance.commission,
+                    net_amount: netAmount,
+                    withdrawal_id: data.requestId || "pending_req",
+                }
+            }).catch(() => {})
+        } catch (error: any) {
             console.error("Error requesting withdrawal:", error)
-            toast.error("حدث خطأ أثناء إرسال الطلب")
+
+            logActivity({
+                action: "withdrawal_request_failed",
+                category: "financial",
+                title: "فشل طلب سحب أرباح",
+                description: `فشل طلب سحب أرباح للمحاضر: ${error.message || "خطأ غير معروف"}`,
+                status: "failed",
+                user_id: user?.uid,
+                user_name: user?.displayName || "محاضر",
+                user_email: user?.email || "",
+                user_role: "instructor",
+                amount: balance?.net || 0,
+                error_message: error.message,
+            }).catch(() => {})
+
+            toast.error(error.message || "حدث خطأ أثناء إرسال الطلب")
         } finally {
             setIsSubmitting(false)
         }
@@ -189,7 +285,7 @@ export default function InstructorWithdrawalsPage() {
                                             <span className="font-bold">{balance.gross.toLocaleString()} ج.م</span>
                                         </div>
                                         <div className="flex justify-between p-3 bg-red-50 text-red-700 rounded-lg">
-                                            <span>عمولة المنصة (20%):</span>
+                                            <span>عمولة المنصة (5%):</span>
                                             <span className="font-bold">-{balance.commission.toLocaleString()} ج.م</span>
                                         </div>
                                         <div className="flex justify-between p-4 bg-primary/10 text-primary border-2 border-primary/20 rounded-xl">
@@ -230,7 +326,7 @@ export default function InstructorWithdrawalsPage() {
                             <span className="font-bold text-red-600">{balance.commission.toLocaleString()} ج.م</span>
                         </div>
                         <div className="pt-4 border-t">
-                            <Badge variant="outline" className="text-[10px] w-full justify-center py-1">العمولة ثابتة 20%</Badge>
+                            <Badge variant="outline" className="text-[10px] w-full justify-center py-1 bg-emerald-50 text-emerald-700 border-emerald-200">العمولة مخفضة 5% فقط (صافي أرباح 95%)</Badge>
                         </div>
                     </CardContent>
                 </Card>
@@ -306,7 +402,15 @@ export default function InstructorWithdrawalsPage() {
                                             </td>
                                             <td className="p-4 text-center">
                                                 {req.status === 'paid' && (
-                                                    <Button variant="ghost" size="icon" title="طباعة الإيصال">
+                                                    <Button 
+                                                        variant="ghost" 
+                                                        size="icon" 
+                                                        title="طباعة الإيصال"
+                                                        onClick={() => {
+                                                            setSelectedRequest(req)
+                                                            setShowReceipt(true)
+                                                        }}
+                                                    >
                                                         <Printer className="h-4 w-4" />
                                                     </Button>
                                                 )}
@@ -320,6 +424,64 @@ export default function InstructorWithdrawalsPage() {
                     </div>
                 </CardContent>
             </Card>
+
+            <Dialog open={showReceipt} onOpenChange={setShowReceipt}>
+                <DialogContent className="max-w-md font-arabic rtl">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Printer className="h-5 w-5" /> إيصال صرف أرباح
+                        </DialogTitle>
+                        <DialogDescription>رقم العملية: {selectedRequest?.id}</DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-2" ref={printRef}>
+                        <div className="receipt">
+                            <div className="header">
+                                <h1 className="text-xl font-bold m-0 p-0">إيصال صرف مستحقات</h1>
+                                <p className="text-sm text-zinc-500 m-0">منصة التعليم الإلكتروني - منارة أكاديمي</p>
+                            </div>
+
+                            <div className="row">
+                                <span className="text-zinc-500">اسم المحاضر:</span>
+                                <span className="font-bold">{selectedRequest?.instructor_name}</span>
+                            </div>
+                            <div className="row">
+                                <span className="text-zinc-500">تاريخ الطلب:</span>
+                                <span>{selectedRequest?.requested_at && new Date(selectedRequest.requested_at).toLocaleDateString('ar-EG')}</span>
+                            </div>
+                            <div className="row">
+                                <span className="text-zinc-500">تاريخ الدفع:</span>
+                                <span>{selectedRequest?.paid_at && new Date(selectedRequest.paid_at).toLocaleDateString('ar-EG')}</span>
+                            </div>
+
+                            <div className="mt-6 pt-4 border-t-2 border-zinc-100 space-y-2">
+                                <div className="row">
+                                    <span>المجموع الإجمالي للمبيعات:</span>
+                                    <span>{selectedRequest?.amount?.toLocaleString()} ج.م</span>
+                                </div>
+                                <div className="row text-red-600">
+                                    <span>عمولة المنصة:</span>
+                                    <span>-{selectedRequest?.commission?.toLocaleString()} ج.م</span>
+                                </div>
+                                <div className="total">
+                                    <span>صافي المبلغ المستحق:</span>
+                                    <span className="text-primary">{selectedRequest?.net_amount?.toLocaleString()} ج.م</span>
+                                </div>
+                            </div>
+
+                            <div className="footer">
+                                <p>هذا المستند تم إنشاؤه آلياً ويعد إقراراً بصرف المبلغ الموضح أعلاه للمحاضر.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button className="w-full gap-2" onClick={handlePrint}>
+                            <Printer className="h-4 w-4" /> طباعة أو حفظ كـ PDF
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

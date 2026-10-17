@@ -18,6 +18,9 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { deleteDoc, doc } from "firebase/firestore"
+import { getSpecialOfferProgress } from "@/lib/commission-utils"
+import { Progress } from "@/components/ui/progress"
+import { PartyPopper, Sparkles } from "lucide-react"
 
 export default function InstructorDashboard() {
     const [user, setUser] = useState<any>(null)
@@ -95,6 +98,7 @@ export default function InstructorDashboard() {
                 <h2 className="text-3xl font-bold tracking-tight">أهلاً بك مجدداً، {user?.displayName || "مدربنا"} 👋</h2>
                 <p className="text-muted-foreground">إليك نظرة سريعة على أداء كورساتك لهذا الشهر.</p>
             </div>
+            
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <StatCard

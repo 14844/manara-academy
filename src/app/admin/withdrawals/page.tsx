@@ -2,7 +2,19 @@
 
 import { useState, useEffect, useRef } from "react"
 import { db } from "@/lib/firebase/config"
-import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, orderBy, getDoc } from "firebase/firestore"
+import { 
+    collection, 
+    query, 
+    where, 
+    getDocs, 
+    doc, 
+    updateDoc, 
+    serverTimestamp, 
+    orderBy, 
+    getDoc,
+    runTransaction,
+    increment
+} from "firebase/firestore"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -20,6 +32,8 @@ import {
     Download
 } from "lucide-react"
 import { toast } from "sonner"
+import { auth } from "@/lib/firebase/config"
+import { logActivity } from "@/lib/activity-logger"
 import { Input } from "@/components/ui/input"
 import {
     Dialog,
@@ -61,20 +75,57 @@ export default function AdminWithdrawalsPage() {
     }
 
     const handleApprove = async (request: any) => {
+        if (request.status !== "pending") {
+            toast.error("لا يمكن تأكيد الدفع لطلب ليس في حالة قيد الانتظار (pending)")
+            return
+        }
+
         if (!confirm("هل أنت متأكد من الموافقة على تحويل هذا المبلغ؟")) return
 
         setIsProcessing(true)
         try {
             const reqRef = doc(db, "withdrawal_requests", request.id)
-            await updateDoc(reqRef, {
-                status: "paid",
-                paid_at: new Date().toISOString()
+            await runTransaction(db, async (t) => {
+                const snap = await t.get(reqRef)
+                if (!snap.exists()) {
+                    throw new Error("NOT_FOUND")
+                }
+                if (snap.data().status !== "pending") {
+                    throw new Error("NOT_PENDING")
+                }
+                t.update(reqRef, {
+                    status: "paid",
+                    paid_at: new Date().toISOString()
+                })
             })
 
             toast.success("تم تأكيد الدفع بنجاح")
             setSelectedRequest({ ...request, status: "paid", paid_at: new Date().toISOString() })
             setShowReceipt(true)
             fetchWithdrawals()
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "withdrawal_approved",
+                category: "financial",
+                title: "موافقة على سحب أرباح محاضر",
+                description: `وافق المسؤول على سحب أرباح بقيمة ${request.net_amount} ج.م للمحاضر "${request.instructor_name || request.instructor_id}"`,
+                status: "success",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: request.instructor_id,
+                target_user_name: request.instructor_name,
+                amount: request.net_amount,
+                metadata: {
+                    withdrawal_id: request.id,
+                    net_amount: request.net_amount,
+                    gross_amount: request.amount,
+                    commission: request.commission,
+                }
+            }).catch(() => {})
         } catch (error) {
             console.error("Error approving withdrawal:", error)
             toast.error("حدث خطأ أثناء معالجة الطلب")
@@ -83,24 +134,50 @@ export default function AdminWithdrawalsPage() {
         }
     }
 
-    const handleReject = async (requestId: string) => {
+    const handleReject = async (request: any) => {
         const reason = prompt("يرجى ذكر سبب الرفض:")
         if (reason === null) return
 
         setIsProcessing(true)
         try {
-            const reqRef = doc(db, "withdrawal_requests", requestId)
-            await updateDoc(reqRef, {
-                status: "rejected",
-                rejection_reason: reason,
-                rejected_at: new Date().toISOString()
+            const res = await fetch("/api/admin/withdrawals/reject", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    requestId: request.id,
+                    reason,
+                }),
             })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "فشل رفض الطلب")
 
-            toast.info("تم رفض الطلب")
+            toast.info("تم رفض الطلب ورد المبلغ لمحفظة المحاضر بنجاح")
             fetchWithdrawals()
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "withdrawal_rejected",
+                category: "financial",
+                title: "رفض طلب سحب أرباح",
+                description: `رفض المسؤول طلب سحب أرباح بقيمة ${request.net_amount} ج.م للمحاضر "${request.instructor_name || request.instructor_id}" ورد المبلغ لمحفظته. السبب: ${reason || "لم يحدد"}`,
+                status: "failed",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: request.instructor_id,
+                target_user_name: request.instructor_name,
+                amount: request.net_amount,
+                metadata: {
+                    withdrawal_id: request.id,
+                    refunded_amount: request.net_amount,
+                    rejection_reason: reason,
+                }
+            }).catch(() => {})
         } catch (error) {
             console.error("Error rejecting withdrawal:", error)
-            toast.error("حدث خطأ أثناء معالجة الطلب")
+            toast.error("حدث خطأ أثناء معالجة الطلب ورد المبلغ")
         } finally {
             setIsProcessing(false)
         }
@@ -272,7 +349,7 @@ export default function AdminWithdrawalsPage() {
                                                                 size="sm"
                                                                 variant="destructive"
                                                                 className="h-8 gap-1"
-                                                                onClick={() => handleReject(req.id)}
+                                                                onClick={() => handleReject(req)}
                                                                 disabled={isProcessing}
                                                             >
                                                                 <XCircle className="h-3.5 w-3.5" /> رفض
@@ -338,7 +415,7 @@ export default function AdminWithdrawalsPage() {
                                     <span>{selectedRequest?.amount?.toLocaleString()} ج.م</span>
                                 </div>
                                 <div className="row text-red-600">
-                                    <span>عمولة المنصة (20%):</span>
+                                    <span>عمولة المنصة:</span>
                                     <span>-{selectedRequest?.commission?.toLocaleString()} ج.م</span>
                                 </div>
                                 <div className="total">

@@ -15,17 +15,26 @@ export default function LogoutPage() {
                 // 1. Firebase Sign Out
                 await signOut(auth)
 
-                // 2. Clear Session Cookie
-                await fetch('/api/auth/session', {
-                    method: 'DELETE',
-                })
+                // 2. Clear Session Cookie (catch error but continue)
+                try {
+                    await fetch('/api/auth/session', {
+                        method: 'DELETE',
+                    })
+                } catch (apiErr) {
+                    console.error("Session API Error (non-blocking):", apiErr)
+                }
 
-                // 3. Redirect to home
-                router.push("/")
-                router.refresh()
+                // 3. Clear any local storage/cache if any
+                if (typeof window !== 'undefined') {
+                    window.localStorage.clear()
+                    window.sessionStorage.clear()
+                }
+
+                // 4. Force refresh redirects to ensure all auth states are re-evaluated
+                window.location.href = "/"
             } catch (error) {
-                console.error("Logout error:", error)
-                router.push("/")
+                console.error("Logout critical error:", error)
+                window.location.href = "/"
             }
         }
 

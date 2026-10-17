@@ -19,16 +19,29 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
-import { Loader2 } from "lucide-react"
+import { logActivity } from "@/lib/activity-logger"
+import { Loader2, Eye, EyeOff } from "lucide-react"
 
 const loginSchema = z.object({
     email: z.string().email({ message: "البريد الإلكتروني غير صحيح" }),
     password: z.string().min(6, { message: "كلمة المرور يجب أن تكون ٦ أحرف على الأقل" }),
 })
 
+import { useSearchParams } from "next/navigation"
+import { useEffect } from "react"
+
 export function LoginForm() {
     const router = useRouter()
+    const searchParams = useSearchParams()
     const [isLoading, setIsLoading] = useState(false)
+    const [showPassword, setShowPassword] = useState(false)
+
+    useEffect(() => {
+        const error = searchParams.get('error')
+        if (error === 'session_conflict') {
+            toast.error("تنبيه: تم تسجيل الدخول من جهاز آخر. تم تسجيل خروجك من الجلسة السابقة لضمان أمان حسابك.")
+        }
+    }, [searchParams])
 
     const form = useForm<z.infer<typeof loginSchema>>({
         resolver: zodResolver(loginSchema),
@@ -49,19 +62,32 @@ export function LoginForm() {
             )
 
             console.log("LoginForm: Login successful for:", userCredential.user.uid)
-            // Get ID token and set session cookie
+
+            // 1. Get or Generate Device ID and Session ID
+            let deviceId = localStorage.getItem('manara_device_id')
+            if (!deviceId) {
+                deviceId = crypto.randomUUID()
+                localStorage.setItem('manara_device_id', deviceId)
+            }
+            const sessionId = Date.now().toString()
+            localStorage.setItem('manara_active_session_id', sessionId)
+
+            // 2. Set server session and register device/session
             const idToken = await userCredential.user.getIdToken()
             const sessionResponse = await fetch('/api/auth/session', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ idToken })
+                body: JSON.stringify({ idToken, deviceId, sessionId })
             })
 
             if (!sessionResponse.ok) {
-                throw new Error("فشل إنشاء جلسة الدخول")
+                localStorage.removeItem('manara_active_session_id')
+                const errData = await sessionResponse.json().catch(() => ({}))
+                await auth.signOut()
+                throw new Error(errData.error || "فشل إنشاء جلسة الدخول")
             }
 
-            // Fetch user profile to determine role
+            // 3. Fetch user profile to determine role
             const profileRef = doc(db, "profiles", userCredential.user.uid)
             console.log("LoginForm: Fetching profile from Firestore...")
             const profileSnap = await getDoc(profileRef)
@@ -74,10 +100,26 @@ export function LoginForm() {
             }
 
             const profile = profileSnap.data()
-            console.log("LoginForm: Profile data:", profile); // Added log for profile data
             console.log("LoginForm: Profile retrieved, role:", profile?.role)
 
             toast.success("تم تسجيل الدخول بنجاح")
+
+            // Log activity
+            logActivity({
+                action: "user_login",
+                category: "auth",
+                title: "تسجيل دخول مستخدم",
+                description: `قام المستخدم "${profile?.full_name || userCredential.user.email}" بتسجيل الدخول إلى حسابه بنجاح كـ (${profile?.role === "instructor" ? "مدرس" : profile?.role === "admin" ? "مسؤول" : "طالب"})`,
+                status: "success",
+                user_id: userCredential.user.uid,
+                user_name: profile?.full_name || userCredential.user.displayName || "مستخدم",
+                user_email: userCredential.user.email || email,
+                user_role: profile?.role || "student",
+                metadata: {
+                    role: profile?.role,
+                    email: email,
+                }
+            }).catch(() => {})
 
             try {
                 if (profile?.role === 'instructor') {
@@ -93,13 +135,31 @@ export function LoginForm() {
             }
         } catch (error: any) {
             console.error("LoginForm: Root Error:", error)
-            let message = "خطأ في تسجيل الدخول"
-            if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+            let message = "حدث خطأ أثناء تسجيل الدخول، يرجى المحاولة مرة أخرى."
+            if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
                 message = "البريد الإلكتروني أو كلمة المرور غير صحيحة"
+            } else if (error.code === 'auth/network-request-failed') {
+                message = "لا يوجد اتصال بالإنترنت، يرجى التحقق من الشبكة."
+            } else if (error.code === 'auth/too-many-requests') {
+                message = "محاولات كثيرة خاطئة، يرجى الانتظار قليلاً ثم المحاولة."
             }
-            toast.error(message, {
-                description: error.message,
-            })
+
+            // Log login failure
+            logActivity({
+                action: "user_login_failed",
+                category: "auth",
+                title: "فشل تسجيل دخول",
+                description: `محاولة تسجيل دخول فاشلة بالحساب (${email}): ${message}`,
+                status: "failed",
+                user_email: email,
+                error_message: error.message || message,
+                metadata: {
+                    attempted_email: email,
+                    error_code: error.code,
+                }
+            }).catch(() => {})
+
+            toast.error(message)
         } finally {
             setIsLoading(false)
         }
@@ -128,7 +188,22 @@ export function LoginForm() {
                         <FormItem>
                             <FormLabel>كلمة المرور</FormLabel>
                             <FormControl>
-                                <Input type="password" placeholder="••••••••" {...field} dir="ltr" />
+                                <div className="relative">
+                                    <Input 
+                                        type={showPassword ? "text" : "password"} 
+                                        placeholder="••••••••" 
+                                        {...field} 
+                                        dir="ltr" 
+                                        className="pr-10"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                    >
+                                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                    </button>
+                                </div>
                             </FormControl>
                             <FormMessage />
                         </FormItem>

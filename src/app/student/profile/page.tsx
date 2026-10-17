@@ -32,10 +32,24 @@ export default function StudentProfilePage() {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
             if (currentUser) {
                 setUser(currentUser)
-                const docRef = doc(db, "profiles", currentUser.uid)
-                const docSnap = await getDoc(docRef)
-                if (docSnap.exists()) {
-                    setProfile(docSnap.data())
+                try {
+                    const res = await fetch("/api/profile/me");
+                    if (res.ok) {
+                        const data = await res.json();
+                        setProfile(data);
+                    } else {
+                        const docRef = doc(db, "profiles", currentUser.uid);
+                        const docSnap = await getDoc(docRef);
+                        if (docSnap.exists()) {
+                            setProfile(docSnap.data());
+                        }
+                    }
+                } catch {
+                    const docRef = doc(db, "profiles", currentUser.uid);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        setProfile(docSnap.data());
+                    }
                 }
                 setIsLoading(false)
             } else {
@@ -51,11 +65,20 @@ export default function StudentProfilePage() {
 
         setIsSaving(true)
         try {
-            await updateDoc(doc(db, "profiles", user.uid), {
-                ...profile,
-                status: 'pending', // Re-trigger approval
-                updated_at: new Date().toISOString()
+            const res = await fetch("/api/profile/update-status", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    action: "update_profile",
+                    profile,
+                }),
             })
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}))
+                throw new Error(err.error || "فشل تحديث البيانات")
+            }
+
             toast.success("تم تحديث البيانات بنجاح. حسابك الآن قيد المراجعة.")
             router.push("/pending-approval")
         } catch (error) {

@@ -86,9 +86,20 @@ export default function ManageCoursePage() {
         setIsSaving(true)
         try {
             console.log("Saving course data, thumbnail_url:", course?.thumbnail_url)
+            // Save media privately via server route, then update remaining public fields
+            const mediaRes = await fetch("/api/courses/save-media", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ courseId: id, modules }),
+            })
+            if (!mediaRes.ok) {
+                const err = await mediaRes.json().catch(() => ({}))
+                throw new Error(err.error || "Failed to save media")
+            }
+            // Update non-module course fields (thumbnail, title, etc.) via client SDK
+            const { modules: _m, video_path: _vp, ...safeFields } = course || {}
             await updateDoc(doc(db, "courses", id as string), {
-                ...course,
-                modules: modules,
+                ...safeFields,
                 updated_at: new Date().toISOString()
             })
             toast.success("تم حفظ التعديلات بنجاح")
@@ -246,82 +257,114 @@ export default function ManageCoursePage() {
 
                                             <div className="mr-12 space-y-4">
                                                 {(item.type === 'video' || !item.type) && (
-                                                    <div className="space-y-2">
-                                                        <Label className="text-[10px] font-bold">مسار الفيديو / الرابط (Youtube, Direct, etc...)</Label>
-                                                        <div className="flex gap-2">
-                                                            <Input
-                                                                value={item.video_path || ""}
+                                                    <div className="space-y-3">
+                                                        <div className="space-y-2">
+                                                            <Label className="text-[10px] font-bold">مسار الفيديو / الرابط (Youtube, Direct, etc...)</Label>
+                                                            <div className="flex gap-2">
+                                                                <Input
+                                                                    value={item.video_path || ""}
+                                                                    onChange={(e) => {
+                                                                        const newModules = [...modules]
+                                                                        newModules[mIdx].lessons[iIdx].video_path = e.target.value
+                                                                        setModules(newModules)
+                                                                    }}
+                                                                    placeholder="رابط الفيديو الخارجي أو المرفوع"
+                                                                    className="text-xs font-mono bg-muted/30 flex-1"
+                                                                />
+                                                                <Dialog>
+                                                                    <DialogTrigger asChild>
+                                                                        <Button size="sm" className="gap-2 h-9 text-[10px]">
+                                                                            <Upload className="h-3 w-3" />
+                                                                            رفع فيديو
+                                                                        </Button>
+                                                                    </DialogTrigger>
+                                                                    <DialogContent>
+                                                                        <DialogHeader>
+                                                                            <DialogTitle>رفع فيديو للدرس</DialogTitle>
+                                                                        </DialogHeader>
+                                                                        <FileUploader
+                                                                            label="اختر ملف الفيديو (MP4)"
+                                                                            folder="videos"
+                                                                            accept="video/*"
+                                                                            courseId={id as string}
+                                                                            onUploadComplete={(url) => {
+                                                                                const newModules = [...modules]
+                                                                                newModules[mIdx].lessons[iIdx].video_path = url
+                                                                                setModules(newModules)
+                                                                            }}
+                                                                        />
+                                                                    </DialogContent>
+                                                                </Dialog>
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[10px] font-bold text-muted-foreground">وصف الدرس / ملاحظات ونقاط هامة للطلاب</Label>
+                                                            <Textarea
+                                                                value={item.description || ""}
                                                                 onChange={(e) => {
                                                                     const newModules = [...modules]
-                                                                    newModules[mIdx].lessons[iIdx].video_path = e.target.value
+                                                                    newModules[mIdx].lessons[iIdx].description = e.target.value
                                                                     setModules(newModules)
                                                                 }}
-                                                                placeholder="رابط الفيديو الخارجي أو المرفوع"
-                                                                className="text-xs font-mono bg-muted/30 flex-1"
+                                                                placeholder="اكتب نبذة أو ملاحظات وروابط توضيحية تظهر للطلاب أسفل الفيديو..."
+                                                                className="text-xs min-h-[65px] bg-muted/20 resize-y"
                                                             />
-                                                            <Dialog>
-                                                                <DialogTrigger asChild>
-                                                                    <Button size="sm" className="gap-2 h-9 text-[10px]">
-                                                                        <Upload className="h-3 w-3" />
-                                                                        رفع فيديو
-                                                                    </Button>
-                                                                </DialogTrigger>
-                                                                <DialogContent>
-                                                                    <DialogHeader>
-                                                                        <DialogTitle>رفع فيديو للدرس</DialogTitle>
-                                                                    </DialogHeader>
-                                                                    <FileUploader
-                                                                        label="اختر ملف الفيديو (MP4)"
-                                                                        folder="videos"
-                                                                        accept="video/*"
-                                                                        onUploadComplete={(url) => {
-                                                                            const newModules = [...modules]
-                                                                            newModules[mIdx].lessons[iIdx].video_path = url
-                                                                            setModules(newModules)
-                                                                        }}
-                                                                    />
-                                                                </DialogContent>
-                                                            </Dialog>
                                                         </div>
                                                     </div>
                                                 )}
                                                 {item.type === 'file' && (
-                                                    <div className="space-y-2">
-                                                        <Label className="text-[10px] font-bold">رابط الملف / التحميل</Label>
-                                                        <div className="flex gap-2">
-                                                            <Input
-                                                                value={item.url || ""}
+                                                    <div className="space-y-3">
+                                                        <div className="space-y-2">
+                                                            <Label className="text-[10px] font-bold">رابط الملف / التحميل</Label>
+                                                            <div className="flex gap-2">
+                                                                <Input
+                                                                    value={item.url || ""}
+                                                                    onChange={(e) => {
+                                                                        const newModules = [...modules]
+                                                                        newModules[mIdx].lessons[iIdx].url = e.target.value
+                                                                        setModules(newModules)
+                                                                    }}
+                                                                    placeholder="رابط الملف الخارجي أو المرفوع"
+                                                                    className="text-xs font-mono bg-muted/30 flex-1"
+                                                                />
+                                                                <Dialog>
+                                                                    <DialogTrigger asChild>
+                                                                        <Button size="sm" className="gap-2 h-9 text-[10px]">
+                                                                            <Upload className="h-3 w-3" />
+                                                                            رفع ملف
+                                                                        </Button>
+                                                                    </DialogTrigger>
+                                                                    <DialogContent>
+                                                                        <DialogHeader>
+                                                                            <DialogTitle>رفع ملف تعليمي</DialogTitle>
+                                                                        </DialogHeader>
+                                                                        <FileUploader
+                                                                            label="اختر الملف (PDF, Zip, etc...)"
+                                                                            folder="files"
+                                                                            accept=".pdf,.doc,.docx,.zip,.rar"
+                                                                            courseId={id as string}
+                                                                            onUploadComplete={(url) => {
+                                                                                const newModules = [...modules]
+                                                                                newModules[mIdx].lessons[iIdx].url = url
+                                                                                setModules(newModules)
+                                                                            }}
+                                                                        />
+                                                                    </DialogContent>
+                                                                </Dialog>
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[10px] font-bold text-muted-foreground">وصف أو إرشادات الملف التعليمي</Label>
+                                                            <Textarea
+                                                                value={item.description || ""}
                                                                 onChange={(e) => {
                                                                     const newModules = [...modules]
-                                                                    newModules[mIdx].lessons[iIdx].url = e.target.value
+                                                                    newModules[mIdx].lessons[iIdx].description = e.target.value
                                                                     setModules(newModules)
                                                                 }}
-                                                                placeholder="رابط الملف الخارجي أو المرفوع"
-                                                                className="text-xs font-mono bg-muted/30 flex-1"
+                                                                placeholder="اكتب إرشادات للطلاب حول كيفية الاستفادة من هذا الملف وملاحظات هامة..."
+                                                                className="text-xs min-h-[60px] bg-muted/20 resize-y"
                                                             />
-                                                            <Dialog>
-                                                                <DialogTrigger asChild>
-                                                                    <Button size="sm" className="gap-2 h-9 text-[10px]">
-                                                                        <Upload className="h-3 w-3" />
-                                                                        رفع ملف
-                                                                    </Button>
-                                                                </DialogTrigger>
-                                                                <DialogContent>
-                                                                    <DialogHeader>
-                                                                        <DialogTitle>رفع ملف تعليمي</DialogTitle>
-                                                                    </DialogHeader>
-                                                                    <FileUploader
-                                                                        label="اختر الملف (PDF, Zip, etc...)"
-                                                                        folder="files"
-                                                                        accept=".pdf,.doc,.docx,.zip,.rar"
-                                                                        onUploadComplete={(url) => {
-                                                                            const newModules = [...modules]
-                                                                            newModules[mIdx].lessons[iIdx].url = url
-                                                                            setModules(newModules)
-                                                                        }}
-                                                                    />
-                                                                </DialogContent>
-                                                            </Dialog>
                                                         </div>
                                                     </div>
                                                 )}
@@ -473,6 +516,7 @@ export default function ManageCoursePage() {
                                         label="رفع غلاف الكورس"
                                         folder="thumbnails"
                                         accept="image/*"
+                                        courseId={id as string}
                                         onUploadComplete={(url) => {
                                             console.log("New thumbnail URL received:", url)
                                             setCourse({ ...course, thumbnail_url: url })

@@ -21,16 +21,18 @@ import {
     Search,
     Loader2
 } from "lucide-react"
-import { collection, query, where, getDocs } from "firebase/firestore"
+import { collection, query, where, getDocs, doc, getDoc, updateDoc, onSnapshot } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase/config"
-import { doc, getDoc, updateDoc } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { toast } from "sonner"
 import { SecureVideoPlayer } from "@/components/courses/secure-video-player"
+import { SecurePdfViewer } from "@/components/pdf/secure-pdf-viewer"
 import { InternalExam } from "@/components/courses/internal-exam"
 import {
     Sheet,
     SheetContent,
+    SheetHeader,
+    SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
 import { motion, AnimatePresence } from "framer-motion"
@@ -49,6 +51,7 @@ export default function LearnPage() {
     const [isCheckingRestrictions, setIsCheckingRestrictions] = useState(true)
     const [isSidebarHidden, setIsSidebarHidden] = useState(false)
     const [videoStartTime, setVideoStartTime] = useState(0)
+    const [isSheetOpen, setIsSheetOpen] = useState(false)
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -64,50 +67,74 @@ export default function LearnPage() {
         async function fetchCourseAndEnrollment() {
             if (!id || !user) return
             try {
-                // 0. Fetch profile
-                const pDoc = await getDoc(doc(db, "profiles", user.uid))
-                if (pDoc.exists()) setProfile(pDoc.data())
+                // 0. Fetch profile and private profile (for fixed student_id and email)
+                const [pDoc, privDoc] = await Promise.all([
+                    getDoc(doc(db, "profiles", user.uid)),
+                    getDoc(doc(db, "profiles_private", user.uid)).catch(() => null)
+                ])
+                const pData = pDoc.exists() ? pDoc.data() : {}
+                const privData = privDoc && privDoc.exists() ? privDoc.data() : {}
+                const fullProfile = { ...pData, ...privData }
+                setProfile(fullProfile)
 
-                // 1. Check enrollment
+                // 1. Fetch course first so we know if the user is the instructor owner
+                const courseRef = doc(db, "courses", id as string)
+                const courseSnap = await getDoc(courseRef)
+
+                if (!courseSnap.exists()) {
+                    router.push("/courses")
+                    return
+                }
+
+                const courseData = { id: courseSnap.id, ...courseSnap.data() } as any
+                setCourse(courseData)
+
+                const isInstructorOwner = courseData.instructor_id === user.uid
+                const isAdmin = fullProfile.role === 'admin'
+                const isPreviewMode = isAdmin || isInstructorOwner
+
+                // 2. Check enrollment
                 const enrollmentRef = doc(db, "enrollments", `${user.uid}_${id}`)
                 const enrollmentSnap = await getDoc(enrollmentRef)
 
-                if (!enrollmentSnap.exists()) {
+                if (!enrollmentSnap.exists() && !isPreviewMode) {
                     router.push(`/restricted-access?reason=course&courseId=${id}`)
                     return
                 }
 
-                const enrollmentData = enrollmentSnap.data()
-                setProgress(enrollmentData.progress || 0)
-                setCompletedLessons(enrollmentData.completed_lessons || [])
+                if (enrollmentSnap.exists()) {
+                    const enrollmentData = enrollmentSnap.data()
+                    setProgress(enrollmentData.progress || 0)
+                    setCompletedLessons(enrollmentData.completed_lessons || [])
+                } else {
+                    // Preview mode (admin or instructor owner)
+                    setProgress(0)
+                    setCompletedLessons([])
+                }
 
-                // 2. Fetch course
-                const courseRef = doc(db, "courses", id as string)
-                const courseSnap = await getDoc(courseRef)
+                // Set initial lesson (first module, first lesson)
+                if (courseData.modules?.[0]?.lessons?.[0]) {
+                    setCurrentLesson(courseData.modules[0].lessons[0])
 
-                if (courseSnap.exists()) {
-                    const courseData = courseSnap.data()
-                    setCourse({ id: courseSnap.id, ...courseData })
-
-                    // Set initial lesson (first module, first lesson)
-                    if (courseData.modules?.[0]?.lessons?.[0]) {
-                        setCurrentLesson(courseData.modules[0].lessons[0])
-
-                        // Auto-hide sidebar if first lesson is exam/assignment
-                        const firstLesson = courseData.modules[0].lessons[0]
-                        if (firstLesson?.type === 'exam' || firstLesson?.type === 'assignment') {
-                            setIsSidebarHidden(true)
-                        }
+                    // Auto-hide sidebar if first lesson is exam/assignment
+                    const firstLesson = courseData.modules[0].lessons[0]
+                    if (firstLesson?.type === 'exam' || firstLesson?.type === 'assignment') {
+                        setIsSidebarHidden(true)
                     }
                 }
-                // 3. Fetch submissions for restrictions
+
+                // 3. Listen to submissions in real-time
                 const submissionsQ = query(
                     collection(db, "submissions"),
                     where("student_id", "==", user.uid),
                     where("course_id", "==", id as string)
                 )
-                const subsSnap = await getDocs(submissionsQ)
-                setSubmissions(subsSnap.docs.map(doc => doc.data()))
+
+                const unsubSubmissions = onSnapshot(submissionsQ, (snapshot) => {
+                    setSubmissions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })))
+                })
+
+                return () => unsubSubmissions()
 
             } catch (error) {
                 console.error("Error loading learn page:", error)
@@ -115,11 +142,27 @@ export default function LearnPage() {
                 setIsLoading(false)
             }
         }
-        if (user) fetchCourseAndEnrollment()
+        let unsubSub: any;
+        if (user) {
+            fetchCourseAndEnrollment().then(cleanup => {
+                unsubSub = cleanup
+            })
+        }
+        return () => {
+            if (unsubSub) unsubSub()
+        }
     }, [id, user, router])
 
     const isLessonLocked = (lesson: any) => {
         if (!course || !lesson) return false
+
+        // Instructors viewing their own course or Admins have full access to all lessons in preview
+        if (profile?.role === 'admin' || course.instructor_id === user?.uid) {
+            return false
+        }
+
+        // If the course is not tied to a specific grade level, it has no lesson restrictions
+        if (!course.grade_level) return false
 
         const flatLessons = course.modules?.flatMap((m: any) => m.lessons) || []
         const lessonIndex = flatLessons.findIndex((l: any) => l.id === lesson.id)
@@ -143,36 +186,39 @@ export default function LearnPage() {
 
     const handleLessonComplete = async (lessonId: string) => {
         try {
-            // Get current enrollment to see existing completed lessons
-            const enrollmentRef = doc(db, "enrollments", `${user.uid}_${id}`)
-            const enrollmentSnap = await getDoc(enrollmentRef)
-
-            if (enrollmentSnap.exists()) {
-                const data = enrollmentSnap.data()
-                const completedLessons = data.completed_lessons || []
-
-                if (!completedLessons.includes(lessonId)) {
-                    const newCompleted = [...completedLessons, lessonId]
-                    const totalLessons = course?.modules?.flatMap((m: any) => m.lessons).length || 1
-                    const newProgress = Math.round((newCompleted.length / totalLessons) * 100)
-
-                    await updateDoc(enrollmentRef, {
-                        completed_lessons: newCompleted,
-                        progress: newProgress,
-                        last_accessed_lesson: lessonId,
-                        updated_at: new Date().toISOString()
-                    })
-
-                    setCompletedLessons(newCompleted)
-                    setProgress(newProgress)
-                    toast.success("تم إكمال الدرس وتحديث التقدم!")
-                } else {
-                    toast.info("هذا الدرس مكتمل بالفعل")
-                }
+            if (completedLessons.includes(lessonId)) {
+                toast.info("هذا الدرس مكتمل بالفعل")
+                return
             }
-        } catch (error) {
+
+            // In preview mode for instructor or admin, mark complete locally without calling progress API
+            if (profile?.role === 'admin' || course?.instructor_id === user?.uid) {
+                setCompletedLessons(prev => [...prev, lessonId])
+                toast.success("وضع المعاينة: تم تعليم الدرس كمكتمل للتجربة")
+                return
+            }
+
+            const res = await fetch("/api/courses/progress", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    courseId: id,
+                    lessonId: lessonId,
+                }),
+            })
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}))
+                throw new Error(errData.error || "فشل تحديث التقدم")
+            }
+
+            const data = await res.json()
+            setCompletedLessons(data.completed_lessons || [...completedLessons, lessonId])
+            setProgress(data.progress ?? progress)
+            toast.success("تم إكمال الدرس وتحديث التقدم! 🎉")
+        } catch (error: any) {
             console.error("Update progress error:", error)
-            toast.error("فشل في تحديث التقدم")
+            toast.error(error.message || "فشل في تحديث التقدم")
         }
     }
 
@@ -183,6 +229,8 @@ export default function LearnPage() {
             </div>
         )
     }
+
+
 
     const CourseSidebar = () => (
         <div className="flex flex-col h-full bg-background border-r overflow-y-auto">
@@ -218,6 +266,9 @@ export default function LearnPage() {
                                             } else {
                                                 setIsSidebarHidden(false)
                                             }
+
+                                            // Auto-close sheet on mobile
+                                            setIsSheetOpen(false)
 
                                             // Fetch video progress if it's a video
                                             if (lesson.type === 'video' || !lesson.type) {
@@ -303,13 +354,16 @@ export default function LearnPage() {
                     </div>
                     {/* Top Bar for Mobile */}
                     <div className="lg:hidden flex items-center justify-between p-4 bg-background border-b sticky top-0 z-40">
-                        <Sheet>
+                        <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
                             <SheetTrigger asChild>
                                 <Button variant="ghost" size="icon">
                                     <Menu className="h-5 w-5" />
                                 </Button>
                             </SheetTrigger>
                             <SheetContent side="right" className="p-0 w-80">
+                                <SheetHeader className="sr-only">
+                                    <SheetTitle>قائمة الدروس</SheetTitle>
+                                </SheetHeader>
                                 <CourseSidebar />
                             </SheetContent>
                         </Sheet>
@@ -318,34 +372,55 @@ export default function LearnPage() {
                     </div>
 
                     <div className="max-w-5xl mx-auto w-full p-4 md:p-8 space-y-6">
+                        {/* Preview Mode Banner */}
+                        {(profile?.role === 'admin' || course?.instructor_id === user?.uid) && (
+                            <div className="bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 px-4 py-3 rounded-xl flex items-center justify-between text-xs font-bold font-arabic shadow-sm">
+                                <span>
+                                    {course?.instructor_id === user?.uid
+                                        ? "🔍 أنت في وضع معاينة الكورس بصفتك المدرس (جميع الدروس مفتوحة للمعاينة والتجربة)"
+                                        : "🔍 أنت في وضع معاينة الكورس بصفتك مسؤول المنصة (أدمن)"}
+                                </span>
+                                <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300">
+                                    وضع المعاينة
+                                </Badge>
+                            </div>
+                        )}
+
                         {/* Content Viewer Section */}
                         {(currentLesson?.type === 'video' || !currentLesson?.type) && (
-                            <SecureVideoPlayer
-                                courseId={course.id}
-                                lessonId={currentLesson?.id}
-                                videoPath={currentLesson?.video_path}
-                                userEmail={user?.email}
-                                studentId={user?.uid}
-                                startTime={videoStartTime}
-                            />
+                            <div className="space-y-6">
+                                <SecureVideoPlayer
+                                    key={`${id}_${currentLesson?.id}`}
+                                    courseId={course.id}
+                                    lessonId={currentLesson?.id}
+                                    userEmail={profile?.email || user?.email}
+                                    studentId={profile?.student_id || profile?.studentId || user?.uid}
+                                    startTime={videoStartTime}
+                                />
+                                {currentLesson?.description && (
+                                    <div className="bg-background border rounded-2xl p-6 shadow-sm space-y-3 font-arabic animate-in fade-in-50 duration-300">
+                                        <div className="flex items-center gap-2 text-sm font-bold text-primary">
+                                            <Video className="h-4 w-4" />
+                                            <span>وصف وملاحظات المحاضرة:</span>
+                                        </div>
+                                        <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap bg-muted/20 p-4 rounded-xl border border-muted/50">
+                                            {currentLesson.description}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
                         )}
 
                         {currentLesson?.type === 'file' && (
-                            <div className="bg-background border rounded-xl p-12 flex flex-col items-center justify-center text-center space-y-4 shadow-sm min-h-[400px]">
-                                <div className="h-20 w-20 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
-                                    <FileText className="h-10 w-10" />
-                                </div>
-                                <div className="space-y-2">
-                                    <h2 className="text-2xl font-bold">{currentLesson.title}</h2>
-                                    <p className="text-muted-foreground">هذا المحتوى عباره عن ملف مرجعي أو ملخص للدرس.</p>
-                                </div>
-                                <Button className="gap-2" size="lg" asChild>
-                                    <a href={currentLesson.url} target="_blank" rel="noopener noreferrer">
-                                        <PlayCircle className="h-5 w-5" />
-                                        فتح الملف / تحميل
-                                    </a>
-                                </Button>
-                            </div>
+                            <SecurePdfViewer
+                                fileUrl={currentLesson.url}
+                                title={currentLesson.title}
+                                description={currentLesson.description}
+                                instructorName={course?.instructor_name || "معلم المادة"}
+                                studentName={profile?.full_name || profile?.name}
+                                studentEmail={profile?.email || user?.email}
+                                studentId={profile?.student_id || profile?.studentId || user?.uid}
+                            />
                         )}
 
                         {currentLesson?.type === 'assignment' && (
