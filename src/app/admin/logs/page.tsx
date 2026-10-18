@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { db } from "@/lib/firebase/config"
+import { auth, db } from "@/lib/firebase/config"
 import { collection, query, getDocs, orderBy, limit } from "firebase/firestore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -31,7 +31,8 @@ import {
     Calendar,
     ChevronLeft,
     ChevronRight,
-    Bot
+    Bot,
+    Trash2
 } from "lucide-react"
 import {
     Select,
@@ -88,6 +89,7 @@ export default function AdminLogsPage() {
     const [selectedTimeRange, setSelectedTimeRange] = useState("all")
     const [selectedLog, setSelectedLog] = useState<ActivityLog | null>(null)
     const [currentPage, setCurrentPage] = useState(1)
+    const [isClearing, setIsClearing] = useState(false)
     const itemsPerPage = 20
 
     useEffect(() => {
@@ -252,6 +254,36 @@ export default function AdminLogsPage() {
         toast.success("تم تصدير سجلات المنصة بنجاح!")
     }
 
+    // Clear all logs
+    async function handleClearLogs() {
+        if (!window.confirm("هل أنت متأكد تماماً من رغبتك في تصفير جميع سجلات النشاط للبدء من جديد؟ لا يمكن التراجع عن هذا الإجراء.")) {
+            return
+        }
+
+        setIsClearing(true)
+        try {
+            const idToken = await auth.currentUser?.getIdToken()
+            const res = await fetch("/api/admin/logs/clear", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ idToken }),
+            })
+
+            const data = await res.json()
+            if (!res.ok) {
+                throw new Error(data.error || "فشل تصفير السجلات")
+            }
+
+            toast.success(data.message || "تم تصفير السجلات بنجاح")
+            await fetchLogs()
+        } catch (err: any) {
+            console.error("Clear logs error:", err)
+            toast.error(err.message || "حدث خطأ أثناء تصفير السجلات")
+        } finally {
+            setIsClearing(false)
+        }
+    }
+
     // Role Label & Colors
     function getRoleBadge(role?: string) {
         switch (role) {
@@ -402,7 +434,18 @@ export default function AdminLogsPage() {
                         تتبع وتوثيق شامل ولحظي لكافة العمليات المالية، حركات الدخول، اشتراكات الطلاب، وطلبات السحب وقرارات الإدارة.
                     </p>
                 </div>
-                <div className="flex items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2.5">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleClearLogs}
+                        disabled={isClearing || isRefreshing}
+                        className="gap-2 font-bold text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300"
+                        title="تصفير ومسح السجلات لبدء دورة اختبار جديدة"
+                    >
+                        <Trash2 className="w-4 h-4" />
+                        <span>{isClearing ? "جاري التصفير..." : "تصفير السجلات"}</span>
+                    </Button>
                     <Button
                         variant="outline"
                         size="sm"
