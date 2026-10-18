@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
 export const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || "manara-academy"
-export const SUPABASE_PUBLIC_BUCKET = process.env.SUPABASE_PUBLIC_BUCKET || "manara-public"
+export const SUPABASE_PUBLIC_BUCKET = SUPABASE_BUCKET
 
 let _client: ReturnType<typeof createClient> | null = null
 

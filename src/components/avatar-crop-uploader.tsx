@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Camera, ZoomIn, ZoomOut, RotateCcw, Check, X, Loader2, User, Sparkles } from "lucide-react"
+import { Camera, ZoomIn, ZoomOut, RotateCcw, Check, Loader2, User, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -28,6 +28,7 @@ export function AvatarCropUploader({
 }: AvatarCropUploaderProps) {
     const [avatarUrl, setAvatarUrl] = useState<string | null>(currentAvatarUrl || null)
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
+    const [imgSize, setImgSize] = useState({ width: 0, height: 0 })
     const [isDialogOpen, setIsDialogOpen] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
     
@@ -38,8 +39,6 @@ export function AvatarCropUploader({
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
 
     const fileInputRef = useRef<HTMLInputElement>(null)
-    const canvasRef = useRef<HTMLCanvasElement>(null)
-    const imageRef = useRef<HTMLImageElement | null>(null)
 
     useEffect(() => {
         if (currentAvatarUrl !== undefined) {
@@ -65,10 +64,18 @@ export function AvatarCropUploader({
         const reader = new FileReader()
         reader.onload = () => {
             const result = reader.result as string
-            setSelectedImage(result)
-            setZoom(1)
-            setOffset({ x: 0, y: 0 })
-            setIsDialogOpen(true)
+            const testImg = new Image()
+            testImg.onload = () => {
+                setImgSize({
+                    width: testImg.naturalWidth || testImg.width || 300,
+                    height: testImg.naturalHeight || testImg.height || 300
+                })
+                setSelectedImage(result)
+                setZoom(1)
+                setOffset({ x: 0, y: 0 })
+                setIsDialogOpen(true)
+            }
+            testImg.src = result
 
             // Reset input so same file can be picked again if desired
             if (fileInputRef.current) fileInputRef.current.value = ""
@@ -116,7 +123,7 @@ export function AvatarCropUploader({
         setIsDragging(false)
     }
 
-    // 3. Render Image & Crop on Canvas, then Upload
+    // 3. Render Image & Exact Crop on Canvas, then Upload
     const handleCropAndSave = async () => {
         if (!selectedImage) return
         setIsSaving(true)
@@ -129,10 +136,13 @@ export function AvatarCropUploader({
                 return
             }
 
-            // Create offscreen canvas 400x400
+            const OUTPUT_SIZE = 512
+            const PREVIEW_SIZE = 260
+
+            // Create offscreen canvas 512x512
             const cropCanvas = document.createElement("canvas")
-            cropCanvas.width = 400
-            cropCanvas.height = 400
+            cropCanvas.width = OUTPUT_SIZE
+            cropCanvas.height = OUTPUT_SIZE
             const ctx = cropCanvas.getContext("2d")
 
             if (!ctx) {
@@ -147,24 +157,39 @@ export function AvatarCropUploader({
                 img.src = selectedImage
             })
 
-            // Circular clip on canvas
+            const natW = img.naturalWidth || img.width || imgSize.width || 300
+            const natH = img.naturalHeight || img.height || imgSize.height || 300
+
+            // Calculate base scale so image fits / covers the 260 preview circle
+            const baseScale = Math.max(PREVIEW_SIZE / natW, PREVIEW_SIZE / natH)
+            const baseW = natW * baseScale
+            const baseH = natH * baseScale
+
+            // Dimensions inside the 260 preview circle at current zoom
+            const currentW = baseW * zoom
+            const currentH = baseH * zoom
+
+            // Top-left coordinates of the image inside the 260x260 circle
+            const circleCenter = PREVIEW_SIZE / 2 // 130
+            const imgLeft = (circleCenter + offset.x) - (currentW / 2)
+            const imgTop = (circleCenter + offset.y) - (currentH / 2)
+
+            // Exact scale ratio to project preview coordinates onto 512x512 canvas
+            const scaleRatio = OUTPUT_SIZE / PREVIEW_SIZE
+            const drawX = imgLeft * scaleRatio
+            const drawY = imgTop * scaleRatio
+            const drawW = currentW * scaleRatio
+            const drawH = currentH * scaleRatio
+
+            // Clip circle and draw image
+            ctx.save()
             ctx.beginPath()
-            ctx.arc(200, 200, 200, 0, Math.PI * 2)
+            ctx.arc(OUTPUT_SIZE / 2, OUTPUT_SIZE / 2, OUTPUT_SIZE / 2, 0, Math.PI * 2)
             ctx.clip()
+            ctx.drawImage(img, drawX, drawY, drawW, drawH)
+            ctx.restore()
 
-            // Calculate scaled dimensions & centered positioning
-            const baseScale = Math.max(400 / img.width, 400 / img.height)
-            const finalScale = baseScale * zoom
-            const drawWidth = img.width * finalScale
-            const drawHeight = img.height * finalScale
-
-            // Shift with offset adjusted to 400 canvas coordinate space
-            const drawX = (400 - drawWidth) / 2 + offset.x * (400 / 260)
-            const drawY = (400 - drawHeight) / 2 + offset.y * (400 / 260)
-
-            ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
-
-            // Convert canvas to Blob
+            // Convert canvas to Blob (WebP 92% quality)
             const blob: Blob = await new Promise((resolve, reject) => {
                 cropCanvas.toBlob((b) => {
                     if (b) resolve(b)
@@ -172,8 +197,7 @@ export function AvatarCropUploader({
                 }, "image/webp", 0.92)
             })
 
-            // Upload directly to Supabase storage endpoint
-            const idToken = await user.getIdToken()
+            // Upload directly to unified Supabase storage endpoint
             const fileName = `avatar_${user.uid}_${Date.now()}.webp`
             const uploadUrl = `/api/upload/supabase?fileName=${encodeURIComponent(fileName)}&folder=avatars`
 
@@ -187,7 +211,7 @@ export function AvatarCropUploader({
 
             const uploadData = await uploadRes.json().catch(() => ({}))
             if (!uploadRes.ok || !uploadData.url) {
-                throw new Error(uploadData.error || "فشل رفع الصورة إلى التخزين")
+                throw new Error(uploadData.error || "فشل رفع الصورة إلى مساحة التخزين")
             }
 
             const publicAvatarUrl = uploadData.url
@@ -199,7 +223,7 @@ export function AvatarCropUploader({
                     updated_at: new Date().toISOString(),
                 })
             } catch (fsErr) {
-                // Also call API endpoint fallback
+                // Fallback to API endpoint
                 await fetch("/api/profile/me", {
                     method: "PUT",
                     headers: { "Content-Type": "application/json" },
@@ -211,7 +235,7 @@ export function AvatarCropUploader({
             onAvatarUpdated?.(publicAvatarUrl)
             setIsDialogOpen(false)
             setSelectedImage(null)
-            toast.success("تم تحديث صورتك الشخصية بنجاح! 🎉")
+            toast.success("تم قص وتحديث صورتك الشخصية بنجاح! 🎉")
         } catch (error: any) {
             console.error("Avatar save error:", error)
             toast.error(error.message || "حدث خطأ أثناء حفظ الصورة")
@@ -219,6 +243,14 @@ export function AvatarCropUploader({
             setIsSaving(false)
         }
     }
+
+    // Dynamic dimensions for the preview image
+    const PREVIEW_SIZE = 260
+    const baseScale = (imgSize.width > 0 && imgSize.height > 0)
+        ? Math.max(PREVIEW_SIZE / imgSize.width, PREVIEW_SIZE / imgSize.height)
+        : 1
+    const renderWidth = (imgSize.width || PREVIEW_SIZE) * baseScale
+    const renderHeight = (imgSize.height || PREVIEW_SIZE) * baseScale
 
     return (
         <div className="flex flex-col items-center gap-3 font-arabic">
@@ -280,14 +312,14 @@ export function AvatarCropUploader({
                             قص وضبط الصورة الشخصية
                         </DialogTitle>
                         <DialogDescription className="text-xs text-muted-foreground">
-                            اسحب الصورة لتحديد الموضع المناسب واستخدم شريط التكبير لضبط حجمها داخل الإطار.
+                            اسحب الصورة لتحديد الموضع المناسب واستخدم شريط التكبير لضبط حجمها داخل الإطار بدقة.
                         </DialogDescription>
                     </DialogHeader>
 
                     {/* Interactive Canvas / Preview Box */}
                     <div className="flex flex-col items-center py-4 space-y-4">
                         <div
-                            className="relative w-[260px] h-[260px] rounded-full overflow-hidden border-4 border-primary shadow-2xl bg-zinc-900 cursor-grab active:cursor-grabbing select-none"
+                            className="relative w-[260px] h-[260px] rounded-full overflow-hidden border-4 border-primary shadow-2xl bg-zinc-950 cursor-grab active:cursor-grabbing select-none"
                             onMouseDown={handleMouseDown}
                             onMouseMove={handleMouseMove}
                             onMouseUp={handleMouseUp}
@@ -298,22 +330,24 @@ export function AvatarCropUploader({
                         >
                             {selectedImage && (
                                 <img
-                                    ref={imageRef}
                                     src={selectedImage}
                                     alt="Crop target"
                                     draggable={false}
-                                    className="max-w-none pointer-events-none select-none transition-transform duration-75"
+                                    className="max-w-none pointer-events-none select-none"
                                     style={{
                                         position: "absolute",
                                         top: "50%",
                                         left: "50%",
+                                        width: `${renderWidth}px`,
+                                        height: `${renderHeight}px`,
                                         transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+                                        transformOrigin: "center center",
                                     }}
                                 />
                             )}
 
                             {/* Circular Mask Helper Ring */}
-                            <div className="absolute inset-0 rounded-full border border-white/40 pointer-events-none"></div>
+                            <div className="absolute inset-0 rounded-full border-2 border-white/40 pointer-events-none shadow-inner"></div>
                         </div>
 
                         {/* Zoom Controls */}

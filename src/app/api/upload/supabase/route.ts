@@ -130,45 +130,36 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: `حجم الملف يتجاوز ${mb} ميجابايت` }, { status: 400 })
         }
 
-        // Determine target bucket: avatars go to public bucket, everything else to private bucket
+        // Always upload to the unified main bucket (manara-academy)
         const isAvatar = rawFolder === "avatars"
-        let targetBucket = isAvatar ? SUPABASE_PUBLIC_BUCKET : SUPABASE_BUCKET
+        const targetBucket = SUPABASE_BUCKET
 
         // Upload to Supabase Storage
-        let { data, error: uploadError } = await supabaseAdmin.storage
+        const { data, error: uploadError } = await supabaseAdmin.storage
             .from(targetBucket)
             .upload(storagePath, fileBuffer, {
                 contentType: contentType || 'application/octet-stream',
                 upsert: true,
             })
 
-        // Fallback: If upload failed on public bucket, gracefully fallback to default SUPABASE_BUCKET
-        if (uploadError && isAvatar && targetBucket !== SUPABASE_BUCKET) {
-            console.warn(`Upload to ${targetBucket} failed: ${uploadError.message}. Retrying to ${SUPABASE_BUCKET}...`)
-            targetBucket = SUPABASE_BUCKET
-            const retryRes = await supabaseAdmin.storage
-                .from(targetBucket)
-                .upload(storagePath, fileBuffer, {
-                    contentType: contentType || 'application/octet-stream',
-                    upsert: true,
-                })
-            uploadError = retryRes.error
-        }
-
         if (uploadError) {
             console.error("Supabase Storage upload error:", uploadError)
             return NextResponse.json({ error: `فشل الرفع لمساحة التخزين: ${uploadError.message}` }, { status: 500 })
         }
 
-        // Avatars are strictly public (from public bucket)
-        // All other assets (videos, files, payment_proofs, questions, thumbnails) are in the private bucket
-        // and served with short-lived signed URLs (15 minutes = 900s) or via api/storage/sign
+        // Avatars: generate a 10-year signed URL (315,360,000s) so it works seamlessly even if bucket is private
+        // All other assets (videos, files, payment_proofs, questions, thumbnails) are served with short-lived signed URLs (15m)
         let finalUrl = ""
         if (isAvatar) {
-            const { data: publicUrlData } = supabaseAdmin.storage
+            const { data: signedData } = await supabaseAdmin.storage
+                .from(targetBucket)
+                .createSignedUrl(storagePath, 315360000)
+
+            const publicUrlData = supabaseAdmin.storage
                 .from(targetBucket)
                 .getPublicUrl(storagePath)
-            finalUrl = publicUrlData.publicUrl
+
+            finalUrl = signedData?.signedUrl || publicUrlData.data?.publicUrl || ""
         } else {
             // Protected asset in private bucket: generate short-lived signed URL (valid for 15 minutes = 900s)
             const { data: signedData, error: signError } = await supabaseAdmin.storage
