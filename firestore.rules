@@ -36,7 +36,11 @@ service cloud.firestore {
       return isAuthenticated() && (
         isAdmin() ||
         request.auth.token.status == 'active' ||
-        get(/databases/$(database)/documents/profiles_private/$(request.auth.uid)).data.status == 'active'
+        request.auth.token.status == 'approved' ||
+        get(/databases/$(database)/documents/profiles_private/$(request.auth.uid)).data.status == 'active' ||
+        get(/databases/$(database)/documents/profiles_private/$(request.auth.uid)).data.status == 'approved' ||
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.status == 'active' ||
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.status == 'approved'
       );
     }
 

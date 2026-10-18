@@ -273,99 +273,36 @@ export default function InstructorReportsPage() {
         setIsCreateSheetOpen(true)
     }
 
-    // Generate report (compile snapshot & save)
+    // Generate report (compile snapshot & save via secure server API)
     const handleGenerateReport = async (studentDataInput?: any) => {
         const student = studentDataInput || selectedStudent
         if (!student || !user) return
 
         setIsGenerating(true)
         try {
-            // Fetch instructor profile to get name and avatar
-            const instructorDoc = await getDoc(doc(db, "profiles", user.uid))
-            const instructorProfile = instructorDoc.exists() ? instructorDoc.data() : {}
+            const idToken = await user.getIdToken()
+            const studentId = student.id || student.studentId
+            const courseId = student.courseId || selectedCourseId
+            const note = studentDataInput ? "تقرير مجدول أسبوعي تلقائي" : manualNote
 
-            const courseData = courses.find(c => c.id === student.courseId || c.id === selectedCourseId)
+            const res = await fetch("/api/instructor/reports/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    studentId,
+                    courseId,
+                    manualNote: note,
+                    idToken,
+                }),
+            })
 
-            // Gather exams and query highest class score
-            const examsList = []
-            const submissions = student.submissions || []
-
-            for (const sub of submissions) {
-                // Find matching lesson title in course modules
-                let lessonTitle = "اختبار"
-                if (courseData && courseData.modules) {
-                    const lesson = courseData.modules
-                        .flatMap((m: any) => m.lessons || [])
-                        .find((l: any) => String(l.id) === String(sub.lesson_id))
-                    if (lesson) lessonTitle = lesson.title
-                }
-
-                // Query highest score in class for this lesson exam
-                const allSubsForLessonQ = query(
-                    collection(db, "submissions"),
-                    where("course_id", "==", courseData.id),
-                    where("lesson_id", "==", sub.lesson_id)
-                )
-                const allSubsSnap = await getDocs(allSubsForLessonQ)
-                const maxScore = allSubsSnap.docs.reduce((max, d) => {
-                    const s = d.data().score || 0
-                    return s > max ? s : max
-                }, 0)
-
-                examsList.push({
-                    id: sub.lesson_id || "",
-                    title: lessonTitle,
-                    score: sub.score || 0,
-                    highest_score: maxScore > 0 ? maxScore : (sub.score || 0),
-                    submitted_at: sub.submitted_at?.seconds 
-                        ? new Date(sub.submitted_at.seconds * 1000).toISOString() 
-                        : new Date().toISOString()
-                })
+            const data = await res.json()
+            if (!res.ok) {
+                throw new Error(data.error || "فشل في توليد التقرير")
             }
 
-            // Calculate overall average score
-            const avgScore = submissions.length > 0
-                ? Math.round(submissions.reduce((acc: number, curr: any) => acc + (curr.score || 0), 0) / submissions.length)
-                : 0
-
-            // Expiry date (30 days from now)
-            const expiry = new Date()
-            expiry.setDate(expiry.getDate() + 30)
-
-            const reportPayload = {
-                student_id: student.id || student.studentId,
-                student_name: student.name || student.studentName,
-                student_avatar: student.avatar || student.studentAvatar || null,
-                instructor_id: user.uid,
-                instructor_name: instructorProfile.full_name || "معلم المنارة",
-                instructor_avatar: instructorProfile.avatar_url || null,
-                course_id: courseData.id,
-                course_title: courseData.title || "كورس",
-                created_at: new Date().toISOString(),
-                expires_at: expiry.toISOString(),
-                manual_note: studentDataInput ? "تقرير مجدول أسبوعي تلقائي" : manualNote,
-                stats: {
-                    attendance_rate: student.totalLessons > 0 
-                        ? Math.round((student.completedLessons / student.totalLessons) * 100) 
-                        : 0,
-                    completed_lessons_count: student.completedLessons,
-                    total_lessons_count: student.totalLessons,
-                    last_accessed: student.lastAccessed,
-                    progress: student.progress,
-                    average_score: avgScore
-                },
-                exams: examsList
-            }
-
-            // Generate report in parent_reports with cryptographically secure random token (>= 32 chars)
-            const reportToken = (crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, ''))
-            await setDoc(doc(db, "parent_reports", reportToken), reportPayload)
-
-            // Update log list
-            const newReport = { id: reportToken, ...reportPayload }
-            setSentReports(prev => [newReport, ...prev])
-
-            const magicUrl = window.location.origin + "/report/" + reportToken
+            const magicUrl = window.location.origin + data.reportUrl
+            setSentReports(prev => [data.report, ...prev])
             setGeneratedLink(magicUrl)
 
             setIsCreateSheetOpen(false)
@@ -379,9 +316,9 @@ export default function InstructorReportsPage() {
             }
 
             return magicUrl
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error generating report:", error)
-            toast.error("فشل في توليد التقرير")
+            toast.error(error.message || "فشل في توليد التقرير")
         } finally {
             setIsGenerating(false)
         }

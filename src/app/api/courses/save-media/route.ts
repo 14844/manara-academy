@@ -1,92 +1,152 @@
-import { adminDb } from "@/lib/firebase/admin";
+import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { NextResponse } from "next/server";
 import { getServerAuth } from "@/lib/server-auth";
 
 /**
  * POST /api/courses/save-media
- * Saves video_path/url from lessons into courses/{courseId}/private/media
- * and strips them from the public course document.
- * Body: { courseId, modules }
+ * Secure server-side endpoint for instructors to save both:
+ * 1. Course structure and modules (extracting sensitive video_path/url and exam answers into private subcollection)
+ * 2. Course details (title, description, category, grade_level, thumbnail_url, price)
+ * Body: { courseId, modules, courseDetails?, idToken? }
  */
 export async function POST(request: Request) {
-    const user = await getServerAuth(request);
-    if (!user || user.status === "blocked" || user.status === "suspended") {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    try {
+        let user = await getServerAuth(request);
 
-    const body = await request.json();
-    const { courseId, modules } = body;
+        const body = await request.json().catch(() => ({}));
+        const { courseId, modules, courseDetails, idToken } = body;
 
-    if (!courseId || !/^[\w-]+$/.test(courseId)) {
-        return NextResponse.json({ error: "Invalid courseId" }, { status: 400 });
-    }
-    if (!Array.isArray(modules)) {
-        return NextResponse.json({ error: "Invalid modules" }, { status: 400 });
-    }
+        // Fallback to idToken if session cookie is absent or expired
+        if (!user && idToken && typeof idToken === "string") {
+            try {
+                const decoded = await adminAuth.verifyIdToken(idToken);
+                const [profileDoc, privateDoc] = await Promise.all([
+                    adminDb.collection("profiles").doc(decoded.uid).get(),
+                    adminDb.collection("profiles_private").doc(decoded.uid).get(),
+                ]);
+                const profileData = profileDoc.data() || {};
+                const privateData = privateDoc.data() || {};
+                user = {
+                    uid: decoded.uid,
+                    email: decoded.email || privateData.email || "",
+                    role: (profileData.role as any) || "instructor",
+                    status: privateData.status || profileData.status || "active",
+                    profile: { ...profileData, ...privateData },
+                };
+            } catch (tokenErr) {
+                console.error("Token verification error in save-media:", tokenErr);
+            }
+        }
 
-    // Verify the user owns this course or is admin
-    const courseRef = adminDb.doc(`courses/${courseId}`);
-    const courseSnap = await courseRef.get();
-    if (!courseSnap.exists) {
-        return NextResponse.json({ error: "Course not found" }, { status: 404 });
-    }
-    const courseData = courseSnap.data();
-    if (user.role !== "admin" && courseData?.instructor_id !== user.uid) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+        if (!user || user.status === "blocked" || user.status === "suspended") {
+            return NextResponse.json({ error: "غير مصرح لك بتعديل هذا الكورس" }, { status: 401 });
+        }
 
-    // Extract media paths and exam correct answers from lessons into private maps
-    const mediaMap: Record<string, { video_path?: string; url?: string }> = {};
-    const examAnswersMap: Record<string, Record<string, any>> = {};
+        if (!courseId || typeof courseId !== "string" || !/^[\w-]+$/.test(courseId)) {
+            return NextResponse.json({ error: "معرّف الكورس غير صالح" }, { status: 400 });
+        }
+        if (!Array.isArray(modules)) {
+            return NextResponse.json({ error: "هيكل الوحدات والدروس غير صالح" }, { status: 400 });
+        }
 
-    const cleanModules = modules.map((mod: any) => ({
-        ...mod,
-        lessons: (mod.lessons || []).map((lesson: any) => {
-            const lessonId = lesson.id?.toString();
-            if (lessonId) {
-                const media: any = {};
-                if (lesson.video_path) media.video_path = lesson.video_path;
-                if (lesson.url) media.url = lesson.url;
-                if (Object.keys(media).length > 0) {
-                    mediaMap[lessonId] = media;
+        // Verify the user owns this course or is admin
+        const courseRef = adminDb.doc(`courses/${courseId}`);
+        const courseSnap = await courseRef.get();
+        if (!courseSnap.exists) {
+            return NextResponse.json({ error: "الكورس غير موجود" }, { status: 404 });
+        }
+        const courseData = courseSnap.data() || {};
+        if (user.role !== "admin" && courseData?.instructor_id !== user.uid) {
+            return NextResponse.json({ error: "غير مصرح لك بتعديل كورس لمعلم آخر" }, { status: 403 });
+        }
+
+        // Extract media paths and exam correct answers from lessons into private maps
+        const mediaMap: Record<string, { video_path?: string; url?: string }> = {};
+        const examAnswersMap: Record<string, Record<string, any>> = {};
+
+        const cleanModules = modules.map((mod: any) => ({
+            ...mod,
+            lessons: (mod.lessons || []).map((lesson: any) => {
+                const lessonId = lesson.id?.toString();
+                if (lessonId) {
+                    const media: any = {};
+                    if (lesson.video_path) media.video_path = lesson.video_path;
+                    if (lesson.url) media.url = lesson.url;
+                    if (Object.keys(media).length > 0) {
+                        mediaMap[lessonId] = media;
+                    }
+
+                    if (Array.isArray(lesson.questions) && lesson.questions.length > 0) {
+                        examAnswersMap[lessonId] = {};
+                        lesson.questions = lesson.questions.map((q: any) => {
+                            if (q && q.id !== undefined && (q.correctAnswer !== undefined || q.answers !== undefined)) {
+                                examAnswersMap[lessonId][q.id] = q.correctAnswer ?? q.answers;
+                            }
+                            const { correctAnswer, answers, ...safeQ } = q || {};
+                            return safeQ;
+                        });
+                    }
                 }
+                // Strip ALL sensitive media paths, URLs, and answers completely from the public document
+                const { video_path, url, file_path, correctAnswer, answers, ...rest } = lesson;
+                return rest;
+            }),
+        }));
 
-                if (Array.isArray(lesson.questions) && lesson.questions.length > 0) {
-                    examAnswersMap[lessonId] = {};
-                    lesson.questions = lesson.questions.map((q: any) => {
-                        if (q && q.id !== undefined && (q.correctAnswer !== undefined || q.answers !== undefined)) {
-                            examAnswersMap[lessonId][q.id] = q.correctAnswer ?? q.answers;
-                        }
-                        const { correctAnswer, answers, ...safeQ } = q || {};
-                        return safeQ;
-                    });
+        const batch = adminDb.batch();
+
+        // 1. Write private media
+        const mediaRef = adminDb.doc(`courses/${courseId}/private/media`);
+        batch.set(mediaRef, mediaMap, { merge: true });
+
+        // 2. Write private exam answers if any
+        if (Object.keys(examAnswersMap).length > 0) {
+            const answersRef = adminDb.doc(`courses/${courseId}/private/exam_answers`);
+            batch.set(answersRef, examAnswersMap, { merge: true });
+        }
+
+        // 3. Prepare public course updates
+        const courseUpdates: Record<string, any> = {
+            modules: cleanModules,
+            updated_at: new Date().toISOString(),
+        };
+
+        if (courseDetails && typeof courseDetails === "object") {
+            if (typeof courseDetails.title === "string" && courseDetails.title.trim()) {
+                courseUpdates.title = courseDetails.title.trim();
+            }
+            if (typeof courseDetails.description === "string") {
+                courseUpdates.description = courseDetails.description.trim();
+            }
+            if (typeof courseDetails.category === "string" && courseDetails.category.trim()) {
+                courseUpdates.category = courseDetails.category.trim();
+            }
+            if (typeof courseDetails.grade_level === "string" && courseDetails.grade_level.trim()) {
+                courseUpdates.grade_level = courseDetails.grade_level.trim();
+            }
+            if (typeof courseDetails.thumbnail_url === "string") {
+                courseUpdates.thumbnail_url = courseDetails.thumbnail_url;
+            }
+            if (courseDetails.price !== undefined && !isNaN(Number(courseDetails.price))) {
+                const newPrice = Math.max(0, Number(courseDetails.price));
+                const enrolledCount = Number(courseData?.students_count || 0);
+                // Allow price changes if admin or 0 enrolled students
+                if (user.role === "admin" || enrolledCount === 0) {
+                    courseUpdates.price = newPrice;
                 }
             }
-            // Strip ALL sensitive media paths, URLs, and answers completely from the public document
-            const { video_path, url, file_path, correctAnswer, answers, ...rest } = lesson;
-            return rest;
-        }),
-    }));
+        }
 
-    const batch = adminDb.batch();
+        batch.update(courseRef, courseUpdates);
 
-    // Write private media
-    const mediaRef = adminDb.doc(`courses/${courseId}/private/media`);
-    batch.set(mediaRef, mediaMap, { merge: true });
+        await batch.commit();
 
-    // Write private exam answers if any
-    if (Object.keys(examAnswersMap).length > 0) {
-        const answersRef = adminDb.doc(`courses/${courseId}/private/exam_answers`);
-        batch.set(answersRef, examAnswersMap, { merge: true });
+        return NextResponse.json({
+            success: true,
+            message: "تم حفظ الكورس ومحتواه بنجاح",
+        });
+    } catch (error: any) {
+        console.error("Save course media error:", error);
+        return NextResponse.json({ error: error.message || "حدث خطأ أثناء حفظ الكورس" }, { status: 500 });
     }
-
-    // Update public course document with cleaned modules
-    batch.update(courseRef, {
-        modules: cleanModules,
-        updated_at: new Date().toISOString(),
-    });
-
-    await batch.commit();
-
-    return NextResponse.json({ success: true });
 }

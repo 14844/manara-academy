@@ -86,26 +86,31 @@ export default function ManageCoursePage() {
         setIsSaving(true)
         try {
             console.log("Saving course data, thumbnail_url:", course?.thumbnail_url)
-            // Save media privately via server route, then update remaining public fields
+            const idToken = await auth.currentUser?.getIdToken()
+
+            // Pass course details along with modules to the secure server endpoint
+            const { modules: _m, video_path: _vp, id: _cid, ...cleanCourseDetails } = course || {}
+
             const mediaRes = await fetch("/api/courses/save-media", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ courseId: id, modules }),
+                body: JSON.stringify({
+                    courseId: id,
+                    modules,
+                    courseDetails: cleanCourseDetails,
+                    idToken,
+                }),
             })
+
+            const resData = await mediaRes.json().catch(() => ({}))
             if (!mediaRes.ok) {
-                const err = await mediaRes.json().catch(() => ({}))
-                throw new Error(err.error || "Failed to save media")
+                throw new Error(resData.error || "فشل حفظ بيانات ومحتوى الكورس")
             }
-            // Update non-module course fields (thumbnail, title, etc.) via client SDK
-            const { modules: _m, video_path: _vp, ...safeFields } = course || {}
-            await updateDoc(doc(db, "courses", id as string), {
-                ...safeFields,
-                updated_at: new Date().toISOString()
-            })
+
             toast.success("تم حفظ التعديلات بنجاح")
-        } catch (error) {
+        } catch (error: any) {
             console.error("Save error:", error)
-            toast.error("حدث خطأ أثناء الحفظ")
+            toast.error(error.message || "حدث خطأ أثناء الحفظ")
         } finally {
             setIsSaving(false)
         }
