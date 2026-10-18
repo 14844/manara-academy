@@ -30,7 +30,8 @@ import {
     FileSpreadsheet,
     Calendar,
     ChevronLeft,
-    ChevronRight
+    ChevronRight,
+    Bot
 } from "lucide-react"
 import {
     Select,
@@ -59,7 +60,7 @@ import { toast } from "sonner"
 export interface ActivityLog {
     id: string;
     action: string;
-    category: "financial" | "auth" | "admin_action" | "course" | "system";
+    category: "financial" | "auth" | "admin_action" | "course" | "system" | "ai_support";
     title: string;
     description: string;
     status: "success" | "failed" | "pending" | "info";
@@ -308,6 +309,13 @@ export default function AdminLogsPage() {
                         <span>كورسات</span>
                     </Badge>
                 )
+            case "ai_support":
+                return (
+                    <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 flex items-center gap-1">
+                        <Bot className="w-3 h-3" />
+                        <span>ذكاء اصطناعي AI</span>
+                    </Badge>
+                )
             default:
                 return <Badge variant="outline">نظام</Badge>
         }
@@ -319,6 +327,7 @@ export default function AdminLogsPage() {
             case "auth": return "أمان وحسابات"
             case "admin_action": return "إجراء إداري"
             case "course": return "كورسات"
+            case "ai_support": return "ذكاء اصطناعي AI"
             default: return "النظام"
         }
     }
@@ -527,6 +536,7 @@ export default function AdminLogsPage() {
                                     <SelectItem value="auth">حسابات وأمان (دخول / تسجيل)</SelectItem>
                                     <SelectItem value="admin_action">إجراءات إدارية وموافقات</SelectItem>
                                     <SelectItem value="course">كورسات</SelectItem>
+                                    <SelectItem value="ai_support">دعم ذكي AI ومحادثات</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>

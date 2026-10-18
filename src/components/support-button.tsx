@@ -4,7 +4,6 @@ import { MessageCircle, Phone, X, Bot, Send, Sparkles, User, ArrowRight, Loader2
 import { useEffect, useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { DEFAULT_SUPPORT } from "@/lib/support-settings"
 import { useSupportSettings } from "@/hooks/use-support-settings"
 import {
     Popover,
@@ -27,6 +26,56 @@ const QUICK_SUGGESTIONS = [
     "تقارير أولياء الأمور 📊"
 ]
 
+function FormattedMessage({ text, isUser }: { text: string; isUser: boolean }) {
+    if (isUser) {
+        return <p className="leading-relaxed m-0 text-sm font-medium">{text}</p>
+    }
+
+    const lines = text.split("\n")
+    return (
+        <div className="space-y-1.5 leading-relaxed text-[13px] sm:text-sm font-arabic">
+            {lines.map((line, idx) => {
+                if (!line.trim()) {
+                    return <div key={idx} className="h-1.5" />
+                }
+
+                // Bullet point detection
+                const isBullet = line.startsWith("•") || line.startsWith("*") || line.startsWith("- ")
+                const cleanLine = isBullet ? line.replace(/^([•\*\-]\s*)/, "") : line
+
+                // Parse **bold** parts
+                const parts = cleanLine.split(/(\*\*[^*]+\*\*)/g)
+
+                const content = parts.map((part, pIdx) => {
+                    if (part.startsWith("**") && part.endsWith("**")) {
+                        return (
+                            <strong key={pIdx} className="font-extrabold text-foreground">
+                                {part.slice(2, -2)}
+                            </strong>
+                        )
+                    }
+                    return part
+                })
+
+                if (isBullet) {
+                    return (
+                        <div key={idx} className="flex items-start gap-2 mr-1">
+                            <span className="text-primary mt-0.5 font-bold text-sm select-none shrink-0">•</span>
+                            <span className="flex-1 text-foreground/90">{content}</span>
+                        </div>
+                    )
+                }
+
+                return (
+                    <p key={idx} className="m-0 text-foreground/90">
+                        {content}
+                    </p>
+                )
+            })}
+        </div>
+    )
+}
+
 export function SupportButton() {
     const [isOpen, setIsOpen] = useState(false)
     const [activeTab, setActiveTab] = useState<"menu" | "ai-chat">("menu")
@@ -36,7 +85,7 @@ export function SupportButton() {
         {
             id: "welcome",
             role: "assistant",
-            text: "أهلاً بك في أكاديمية المنارة! 🌟 أنا آلي المنصة الذكي، جاهز للإجابة الفورية على كافة استفساراتك.",
+            text: "أهلاً بك في أكاديمية المنارة! 🌟 أنا آلي المنصة الذكي، جاهز للإجابة الفورية على كافة استفساراتك حول الكورسات، شحن المحفظة، والمختبرات الافتراضية.",
             time: "الآن"
         }
     ])
@@ -118,33 +167,34 @@ export function SupportButton() {
                 <PopoverContent
                     side="top"
                     align="end"
-                    className={`p-0 overflow-hidden border-2 mb-2 font-arabic transition-all duration-300 shadow-2xl ${
-                        activeTab === "ai-chat" ? "w-[360px] md:w-[400px] h-[520px]" : "w-80"
+                    className={`p-0 overflow-hidden border-2 mb-2 font-arabic transition-all duration-300 shadow-2xl rounded-2xl bg-card text-card-foreground ${
+                        activeTab === "ai-chat" ? "w-[360px] sm:w-[420px] h-[550px]" : "w-80"
                     }`}
                     sideOffset={10}
                 >
                     {/* Header */}
-                    <div className="bg-gradient-to-l from-primary via-primary/90 to-primary/80 p-4 text-primary-foreground flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
+                    <div className="bg-gradient-to-l from-primary via-primary/95 to-indigo-900 p-4 text-white flex items-center justify-between shadow-md">
+                        <div className="flex items-center gap-3">
                             {activeTab === "ai-chat" && (
                                 <button
                                     onClick={() => setActiveTab("menu")}
-                                    className="p-1 hover:bg-white/20 rounded-lg transition-colors text-white"
+                                    className="p-1.5 hover:bg-white/20 rounded-xl transition-colors text-white"
                                     title="رجوع للقائمة"
                                 >
                                     <ArrowRight className="h-5 w-5" />
                                 </button>
                             )}
-                            <div className="h-9 w-9 rounded-full bg-white/10 flex items-center justify-center font-bold">
+                            <div className="h-10 w-10 rounded-xl bg-white/15 backdrop-blur-sm border border-white/20 flex items-center justify-center font-bold shadow-inner">
                                 {activeTab === "ai-chat" ? <Bot className="h-5 w-5 text-emerald-300" /> : <Sparkles className="h-5 w-5 text-amber-300" />}
                             </div>
                             <div>
-                                <h3 className="font-bold text-sm">
+                                <h3 className="font-extrabold text-sm tracking-wide flex items-center gap-1.5">
                                     {activeTab === "ai-chat" ? "آلي منصة المنارة الذكي 🤖" : "مركز المساعدة والدعم"}
                                 </h3>
-                                <p className="text-[10px] opacity-90">
-                                    {activeTab === "ai-chat" ? "مساعد فوري متاح 24/7" : "فريق الدعم والرد الفوري"}
-                                </p>
+                                <div className="flex items-center gap-1.5 text-[11px] text-white/80 mt-0.5">
+                                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                    <span>{activeTab === "ai-chat" ? "مساعد فوري متاح 24/7" : "فريق الدعم والرد الفوري"}</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -210,34 +260,34 @@ export function SupportButton() {
 
                     {/* AI Chat View */}
                     {activeTab === "ai-chat" && (
-                        <div className="flex flex-col h-[448px] bg-muted/10">
+                        <div className="flex flex-col h-[480px] bg-background">
                             {/* Messages List */}
-                            <div className="flex-1 p-3.5 overflow-y-auto space-y-3 custom-scrollbar text-xs">
+                            <div className="flex-1 p-4 overflow-y-auto space-y-3.5 text-sm custom-scrollbar">
                                 {messages.map((msg) => (
                                     <div
                                         key={msg.id}
-                                        className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
+                                        className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
                                     >
                                         <div
-                                            className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${
+                                            className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold shadow-sm ${
                                                 msg.role === "user"
                                                     ? "bg-primary text-primary-foreground"
-                                                    : "bg-emerald-600 text-white shadow-sm"
+                                                    : "bg-emerald-600 text-white"
                                             }`}
                                         >
-                                            {msg.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+                                            {msg.role === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                                         </div>
                                         <div
-                                            className={`p-3 rounded-2xl max-w-[82%] leading-relaxed whitespace-pre-wrap ${
+                                            className={`p-3.5 rounded-2xl max-w-[84%] transition-all ${
                                                 msg.role === "user"
-                                                    ? "bg-primary text-primary-foreground rounded-tr-none shadow-sm"
-                                                    : "bg-background border rounded-tl-none shadow-sm text-foreground"
+                                                    ? "bg-gradient-to-l from-primary via-primary to-indigo-600 text-white rounded-tr-xs shadow-md"
+                                                    : "bg-muted/70 dark:bg-zinc-900 border border-border/80 text-foreground rounded-tl-xs shadow-xs"
                                             }`}
                                         >
-                                            {msg.text}
+                                            <FormattedMessage text={msg.text} isUser={msg.role === "user"} />
                                             <div
-                                                className={`text-[9px] mt-1 opacity-60 text-left ${
-                                                    msg.role === "user" ? "text-primary-foreground" : "text-muted-foreground"
+                                                className={`text-[10px] mt-1.5 opacity-60 text-left font-sans ${
+                                                    msg.role === "user" ? "text-white/80" : "text-muted-foreground"
                                                 }`}
                                             >
                                                 {msg.time}
@@ -247,26 +297,26 @@ export function SupportButton() {
                                 ))}
 
                                 {isTyping && (
-                                    <div className="flex gap-2 items-center text-muted-foreground text-xs p-2">
-                                        <div className="h-6 w-6 rounded-full bg-emerald-600 text-white flex items-center justify-center">
-                                            <Bot className="h-3.5 w-3.5" />
+                                    <div className="flex gap-2.5 items-center text-muted-foreground text-xs p-1 animate-in fade-in">
+                                        <div className="h-7 w-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                                            <Bot className="h-4 w-4" />
                                         </div>
-                                        <div className="flex items-center gap-1.5 bg-background border px-3 py-1.5 rounded-full shadow-sm">
-                                            <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                                            <span>الآلي يكتب الرد...</span>
+                                        <div className="flex items-center gap-2 bg-muted/70 dark:bg-zinc-900 border px-3 py-2 rounded-2xl rounded-tl-xs shadow-xs">
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                                            <span className="text-xs font-medium">الآلي يفكر ويكتب الرد...</span>
                                         </div>
                                     </div>
                                 )}
                                 <div ref={chatEndRef} />
                             </div>
 
-                            {/* Quick Suggestions Chips */}
-                            <div className="p-2 border-t bg-background/50 flex gap-1.5 overflow-x-auto whitespace-nowrap">
+                            {/* Quick Suggestions Chips (No Scrollbar, smooth pills) */}
+                            <div className="px-3 py-2 border-t bg-muted/20 flex gap-2 overflow-x-auto whitespace-nowrap no-scrollbar scroll-smooth">
                                 {QUICK_SUGGESTIONS.map((q, idx) => (
                                     <button
                                         key={idx}
                                         onClick={() => handleSendMessage(q)}
-                                        className="text-[10px] bg-background border hover:border-primary/50 hover:bg-primary/5 px-2.5 py-1 rounded-full text-foreground transition-all shrink-0 font-medium"
+                                        className="text-xs bg-card hover:bg-primary hover:text-primary-foreground border border-border/80 hover:border-primary px-3 py-1.5 rounded-full text-foreground transition-all shrink-0 font-medium shadow-2xs active:scale-95 cursor-pointer"
                                     >
                                         {q}
                                     </button>
@@ -279,22 +329,23 @@ export function SupportButton() {
                                     e.preventDefault()
                                     handleSendMessage()
                                 }}
-                                className="p-2.5 border-t bg-background flex items-center gap-2"
+                                className="p-3 border-t bg-card/95 backdrop-blur-sm flex items-center gap-2"
                             >
                                 <Input
                                     value={inputValue}
                                     onChange={(e) => setInputValue(e.target.value)}
-                                    placeholder="اكتب استفسارك هنا..."
-                                    className="text-xs h-9 bg-muted/30 focus-visible:ring-1"
+                                    placeholder="اكتب استفسارك هنا وسيجيبك الآلي فوراً..."
+                                    className="text-sm h-11 bg-muted/40 rounded-xl border border-input focus-visible:ring-2 focus-visible:ring-primary/20 px-3.5"
                                     disabled={isTyping}
                                 />
                                 <Button
                                     type="submit"
-                                    size="sm"
-                                    className="h-9 px-3 gap-1 shrink-0 font-bold"
+                                    size="icon"
+                                    className="h-11 w-11 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95 shrink-0"
                                     disabled={!inputValue.trim() || isTyping}
+                                    title="إرسال"
                                 >
-                                    <Send className="h-3.5 w-3.5" />
+                                    <Send className="h-4 w-4" />
                                 </Button>
                             </form>
                         </div>

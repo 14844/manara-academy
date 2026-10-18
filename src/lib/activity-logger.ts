@@ -1,4 +1,4 @@
-export type ActivityLogCategory = "financial" | "auth" | "admin_action" | "course" | "system" | "client";
+export type ActivityLogCategory = "financial" | "auth" | "admin_action" | "course" | "system" | "client" | "ai_support";
 export type ActivityLogStatus = "success" | "failed" | "pending" | "info";
 export type UserRole = "student" | "instructor" | "admin" | "system" | "guest";
 

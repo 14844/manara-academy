@@ -24,7 +24,8 @@ import {
     CreditCard,
     Zap,
     ShieldCheck,
-    ArrowRight
+    ArrowRight,
+    Lock
 } from "lucide-react"
 import { toast } from "sonner"
 import { logActivity } from "@/lib/activity-logger"
@@ -37,7 +38,6 @@ function WalletContent() {
     const [profile, setProfile] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [submitting, setSubmitting] = useState(false)
-    const [fawaterakLoading, setFawaterakLoading] = useState(false)
     const [history, setHistory] = useState<any[]>([])
 
     // Manual transfer form state
@@ -46,7 +46,8 @@ function WalletContent() {
     const [file, setFile] = useState<File | null>(null)
 
     // Fawaterak instant form state
-    const [fawaterakAmount, setFawaterakAmount] = useState("100")
+    // Recharge Tab state (default to manual while electronic gateway is under lock)
+    const [activeRechargeTab, setActiveRechargeTab] = useState("manual")
 
     // URL Status Banner
     const fawaterakStatus = searchParams.get("fawaterak")
@@ -104,83 +105,7 @@ function WalletContent() {
         }
     }
 
-    // 1. Submit Online Recharge via Fawaterak
-    const handleFawaterakRecharge = async (e: React.FormEvent) => {
-        e.preventDefault()
-        const chargeVal = Number(fawaterakAmount)
-        if (!chargeVal || chargeVal < 10) {
-            toast.error("الحد الأدنى للشحن عبر فواتيرك هو 10 ج.م")
-            return
-        }
-
-        if (!user) {
-            toast.error("يرجى تسجيل الدخول أولاً")
-            return
-        }
-
-        setFawaterakLoading(true)
-        try {
-            const idToken = await user.getIdToken()
-            const res = await fetch("/api/payments/fawaterak/initiate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ amount: chargeVal, idToken }),
-            })
-
-            const data = await res.json()
-
-            if (!res.ok) {
-                throw new Error(data.error || "تعذر بدء عملية الدفع عبر فواتيرك")
-            }
-
-            if (data.paymentUrl) {
-                // Log activity
-                logActivity({
-                    action: "wallet_recharge_fawaterak_initiated",
-                    category: "financial",
-                    title: "بدء شحن إلكتروني فوري (فواتيرك)",
-                    description: `بدأ الطالب عملية شحن لمحفظته بمبلغ ${chargeVal} ج.م عبر بوابة فواتيرك`,
-                    status: "pending",
-                    user_id: user.uid,
-                    user_name: profile?.full_name || user.displayName || "طالب",
-                    user_email: user.email || "",
-                    user_role: "student",
-                    amount: chargeVal,
-                    metadata: {
-                        amount: chargeVal,
-                        intent_key: data.intentKey,
-                        gateway: "fawaterak",
-                    }
-                }).catch(() => {})
-
-                toast.info("جاري توجيهك بأمان إلى صفحة الدفع (فواتيرك)...")
-                window.location.href = data.paymentUrl
-            } else {
-                throw new Error("لم يتم توفير رابط الدفع")
-            }
-        } catch (err: any) {
-            console.error("Fawaterak payment error:", err)
-            logActivity({
-                action: "wallet_recharge_fawaterak_init_failed",
-                category: "financial",
-                title: "فشل بدء شحن فواتيرك",
-                description: `فشلت محاولة بدء شحن فواتيرك بمبلغ ${chargeVal} ج.م: ${err.message || "خطأ غير معروف"}`,
-                status: "failed",
-                user_id: user?.uid,
-                user_name: profile?.full_name || user?.displayName || "طالب",
-                user_email: user?.email || "",
-                user_role: "student",
-                amount: chargeVal,
-                error_message: err.message,
-            }).catch(() => {})
-
-            toast.error(err.message || "حدث خطأ أثناء الاتصال ببوابة فواتيرك")
-        } finally {
-            setFawaterakLoading(false)
-        }
-    }
-
-    // 2. Submit Manual Transfer Request (Vodafone Cash / InstaPay)
+    // Submit Manual Transfer Request (Vodafone Cash / InstaPay)
     const handleSubmitManualRequest = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!amount || !senderNumber || !file) {
@@ -362,15 +287,8 @@ function WalletContent() {
                             <CardDescription>اختر وسيلة الشحن الأنسب لك: دفع إلكتروني فوري أو تحويل يدوي</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <Tabs defaultValue="fawaterak" className="w-full">
+                            <Tabs value={activeRechargeTab} onValueChange={setActiveRechargeTab} className="w-full">
                                 <TabsList className="grid grid-cols-2 h-14 p-1.5 bg-muted/60 rounded-2xl mb-6">
-                                    <TabsTrigger
-                                        value="fawaterak"
-                                        className="rounded-xl font-bold gap-2 text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all"
-                                    >
-                                        <Zap className="h-4 w-4 text-amber-400 fill-amber-400" />
-                                        <span>دفع إلكتروني فوري (فواتيرك)</span>
-                                    </TabsTrigger>
                                     <TabsTrigger
                                         value="manual"
                                         className="rounded-xl font-bold gap-2 text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all"
@@ -378,94 +296,59 @@ function WalletContent() {
                                         <Smartphone className="h-4 w-4" />
                                         <span>تحويل يدوي (فودافون كاش / إنستاباي)</span>
                                     </TabsTrigger>
+                                    <TabsTrigger
+                                        value="fawaterak"
+                                        className="rounded-xl font-bold gap-2 text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all"
+                                    >
+                                        <Lock className="h-4 w-4 text-amber-500" />
+                                        <span>دفع إلكتروني فوري</span>
+                                        <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-600 border-amber-300 font-bold px-1.5 py-0 hidden sm:inline-flex">
+                                            ستفتح قريباً 🔒
+                                        </Badge>
+                                    </TabsTrigger>
                                 </TabsList>
 
-                                {/* TAB 1: FAWATERAK INSTANT PAYMENT */}
+                                {/* TAB 1: FAWATERAK INSTANT PAYMENT (LOCKED) */}
                                 <TabsContent value="fawaterak" className="space-y-6 animate-in fade-in-50">
-                                    <div className="p-5 rounded-2xl bg-gradient-to-r from-primary/5 via-indigo-500/5 to-purple-500/5 border-2 border-primary/15 space-y-4">
-                                        <div className="flex items-center justify-between flex-wrap gap-2">
-                                            <div className="flex items-center gap-2">
-                                                <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1">
-                                                    <Zap className="h-3 w-3" />
-                                                    شحن فوري وتلقائي
-                                                </Badge>
-                                                <span className="text-xs font-bold text-muted-foreground">بوابة فواتيرك FAWATERAK</span>
-                                            </div>
-                                            <span className="text-xs text-muted-foreground font-medium">بدون انتظار موافقة</span>
+                                    <div className="p-8 rounded-2xl border-2 border-dashed border-amber-500/40 bg-amber-500/5 text-center space-y-4">
+                                        <div className="h-16 w-16 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-600 shadow-inner">
+                                            <Lock className="h-8 w-8" />
+                                        </div>
+                                        <div className="space-y-1.5 max-w-md mx-auto">
+                                            <Badge className="bg-amber-500 text-white font-bold gap-1 shadow-xs">
+                                                <Lock className="h-3 w-3" />
+                                                مغلقة مؤقتاً للتطوير
+                                            </Badge>
+                                            <h3 className="text-xl font-black text-foreground">بوابة الدفع الإلكتروني ستفتح قريباً 🔒</h3>
+                                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                                نقوم حالياً بالربط والتكامل البنكي لخدمات البطاقات الائتمانية وفوري وميزة لتوفير أعلى معايير الحماية والسرعة لطلابنا.
+                                            </p>
                                         </div>
 
-                                        <p className="text-xs text-muted-foreground leading-relaxed">
-                                            ادفع بأمان عبر <span className="font-bold text-foreground">الفيزا، الماستركارد، كروت ميزة، محافظ الهاتف (فودافون كاش، أورنج، اتصالات، وي باي)، فوري باي، أو إنستاباي</span>. يتم شحن رصيدك في المحفظة لحظياً بمجرد إتمام العملية!
-                                        </p>
-
                                         {/* Payment Methods Badges Preview */}
-                                        <div className="flex flex-wrap gap-2 pt-1 border-t border-primary/10">
+                                        <div className="flex flex-wrap justify-center gap-2 pt-2 border-t border-amber-500/20 max-w-lg mx-auto opacity-75">
                                             <span className="text-[11px] font-bold bg-background/80 px-2.5 py-1 rounded-lg border">💳 Visa / Mastercard</span>
                                             <span className="text-[11px] font-bold bg-background/80 px-2.5 py-1 rounded-lg border">💳 كروت ميزة Meeza</span>
-                                            <span className="text-[11px] font-bold bg-background/80 px-2.5 py-1 rounded-lg border">📱 Vodafone Cash & Wallets</span>
+                                            <span className="text-[11px] font-bold bg-background/80 px-2.5 py-1 rounded-lg border">📱 المحافظ الإلكترونية</span>
                                             <span className="text-[11px] font-bold bg-background/80 px-2.5 py-1 rounded-lg border">🏪 كود فوري Fawry Pay</span>
                                             <span className="text-[11px] font-bold bg-background/80 px-2.5 py-1 rounded-lg border">⚡ InstaPay</span>
                                         </div>
+
+                                        <div className="p-4 bg-background/80 rounded-xl border max-w-lg mx-auto text-xs text-muted-foreground leading-relaxed">
+                                            💡 <strong className="text-foreground">شحن الرصيد متاح الآن فوراً:</strong> يمكنك شحن محفظتك مباشرة عن طريق التحويل اليدوي الفوري عبر <span className="font-bold text-foreground">فودافون كاش أو إنستاباي</span> وسيتم تفعيل رصيدك فور مراجعة الإيصال.
+                                        </div>
+
+                                        <div className="pt-2">
+                                            <Button
+                                                type="button"
+                                                onClick={() => setActiveRechargeTab("manual")}
+                                                className="rounded-xl font-bold gap-2 px-6 shadow-md"
+                                            >
+                                                <Smartphone className="h-4 w-4" />
+                                                الانتقال للتحويل اليدوي (فودافون كاش / إنستاباي)
+                                            </Button>
+                                        </div>
                                     </div>
-
-                                    <form onSubmit={handleFawaterakRecharge} className="space-y-5">
-                                        <div className="space-y-3">
-                                            <Label className="text-sm font-bold">المبلغ المراد شحنه (ج.م)</Label>
-                                            
-                                            {/* Quick amount presets */}
-                                            <div className="grid grid-cols-4 gap-2">
-                                                {["50", "100", "200", "500"].map((preset) => (
-                                                    <Button
-                                                        key={preset}
-                                                        type="button"
-                                                        variant={fawaterakAmount === preset ? "default" : "outline"}
-                                                        onClick={() => setFawaterakAmount(preset)}
-                                                        className="h-11 rounded-xl font-bold text-sm"
-                                                    >
-                                                        {preset} ج.م
-                                                    </Button>
-                                                ))}
-                                            </div>
-
-                                            <div className="relative">
-                                                <Input
-                                                    type="number"
-                                                    min="10"
-                                                    step="1"
-                                                    placeholder="أو اكتب أي مبلغ آخر (مثال: 350)"
-                                                    className="h-12 rounded-xl border-2 text-base font-bold focus-visible:ring-primary/20 pl-14"
-                                                    value={fawaterakAmount}
-                                                    onChange={(e) => setFawaterakAmount(e.target.value)}
-                                                    required
-                                                />
-                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">ج.م</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="p-3.5 bg-muted/40 rounded-xl text-xs text-muted-foreground flex items-center justify-between">
-                                            <span>المبلغ الإجمالي المطلوب سداده:</span>
-                                            <span className="text-lg font-black text-primary">{Number(fawaterakAmount || 0).toLocaleString()} ج.م</span>
-                                        </div>
-
-                                        <Button
-                                            type="submit"
-                                            className="w-full h-13 text-base rounded-xl font-bold shadow-lg hover:shadow-primary/25 transition-all gap-2"
-                                            disabled={fawaterakLoading || !fawaterakAmount || Number(fawaterakAmount) < 10}
-                                        >
-                                            {fawaterakLoading ? (
-                                                <>
-                                                    <Loader2 className="h-5 w-5 animate-spin" />
-                                                    جاري الاتصال ببوابة فواتيرك...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <CreditCard className="h-5 w-5" />
-                                                    الانتقال لبوابة الدفع (فواتيرك) والشحن فوراً
-                                                    <ArrowRight className="h-4 w-4 mr-auto" />
-                                                </>
-                                            )}
-                                        </Button>
-                                    </form>
                                 </TabsContent>
 
                                 {/* TAB 2: MANUAL TRANSFER (PRESERVED EXACTLY AS EXISTING) */}

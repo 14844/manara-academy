@@ -84,51 +84,24 @@ export default function AdminWithdrawalsPage() {
 
         setIsProcessing(true)
         try {
-            const reqRef = doc(db, "withdrawal_requests", request.id)
-            await runTransaction(db, async (t) => {
-                const snap = await t.get(reqRef)
-                if (!snap.exists()) {
-                    throw new Error("NOT_FOUND")
-                }
-                if (snap.data().status !== "pending") {
-                    throw new Error("NOT_PENDING")
-                }
-                t.update(reqRef, {
-                    status: "paid",
-                    paid_at: new Date().toISOString()
-                })
+            const res = await fetch("/api/admin/withdrawals/approve", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ requestId: request.id }),
             })
+
+            const data = await res.json()
+            if (!res.ok) {
+                throw new Error(data.error || "فشل اعتماد الطلب")
+            }
 
             toast.success("تم تأكيد الدفع بنجاح")
             setSelectedRequest({ ...request, status: "paid", paid_at: new Date().toISOString() })
             setShowReceipt(true)
             fetchWithdrawals()
-
-            // Log activity
-            const currentAdmin = auth.currentUser;
-            logActivity({
-                action: "withdrawal_approved",
-                category: "financial",
-                title: "موافقة على سحب أرباح محاضر",
-                description: `وافق المسؤول على سحب أرباح بقيمة ${request.net_amount} ج.م للمحاضر "${request.instructor_name || request.instructor_id}"`,
-                status: "success",
-                user_id: currentAdmin?.uid || "admin",
-                user_name: currentAdmin?.displayName || "مسؤول المنصة",
-                user_email: currentAdmin?.email || "",
-                user_role: "admin",
-                target_user_id: request.instructor_id,
-                target_user_name: request.instructor_name,
-                amount: request.net_amount,
-                metadata: {
-                    withdrawal_id: request.id,
-                    net_amount: request.net_amount,
-                    gross_amount: request.amount,
-                    commission: request.commission,
-                }
-            }).catch(() => {})
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error approving withdrawal:", error)
-            toast.error("حدث خطأ أثناء معالجة الطلب")
+            toast.error(error.message || "حدث خطأ أثناء معالجة الطلب")
         } finally {
             setIsProcessing(false)
         }

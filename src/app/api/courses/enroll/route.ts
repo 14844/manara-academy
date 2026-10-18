@@ -184,24 +184,60 @@ export async function POST(request: Request) {
             return { finalPrice, appliedCoupon };
         });
 
-        // Log server activity
+        // 1. Log student course purchase
+        const studentName = user.profile?.full_name || user.email || "طالب";
+        const instructorName = course.instructor_name || "محاضر";
+        
         await logServerActivity({
             action: "course_enrolled",
             category: result.finalPrice > 0 ? "financial" : "course",
-            title: result.finalPrice > 0 ? "شراء واشتراك في كورس" : "اشتراك في كورس مجاني",
-            description: `تم اشتراك الطالب في كورس "${course.title}" بمبلغ ${result.finalPrice} ج.م`,
+            title: result.finalPrice > 0 ? `شراء كورس (${course.title})` : `اشتراك مجاني (${course.title})`,
+            description: `اشترك الطالب "${studentName}" في كورس "${course.title}" للمدرس "${instructorName}" بقيمة ${result.finalPrice} ج.م${result.appliedCoupon?.code ? ` (تم تطبيق كوبون: ${result.appliedCoupon.code})` : ''}`,
             status: "success",
             user_id: user.uid,
-            user_name: user.profile?.full_name || user.email,
+            user_name: studentName,
             user_email: user.email,
             user_role: "student",
             amount: result.finalPrice,
             metadata: {
                 course_id: courseId,
+                course_title: course.title,
+                instructor_id: course.instructor_id,
+                instructor_name: instructorName,
                 paid_amount: result.finalPrice,
-                coupon: result.appliedCoupon?.code,
+                original_price: coursePrice,
+                coupon_used: result.appliedCoupon?.code || null,
             },
         });
+
+        // 2. Log instructor payout if price > 0
+        if (result.finalPrice > 0 && course.instructor_id) {
+            const instructorEarnings = result.finalPrice * 0.95;
+            const platformCommission = result.finalPrice * 0.05;
+
+            await logServerActivity({
+                action: "instructor_payout",
+                category: "financial",
+                title: `تحويل أرباح لمحفظة المدرس (${instructorName})`,
+                description: `تم تحويل مبلغ ${instructorEarnings} ج.م (نسبة 95%) لمحفظة المدرس "${instructorName}" نظير اشتراك الطالب "${studentName}" في كورس "${course.title}". عمولة المنصة 5%: ${platformCommission} ج.م.`,
+                status: "success",
+                user_id: course.instructor_id,
+                user_name: instructorName,
+                user_role: "instructor",
+                target_user_id: user.uid,
+                target_user_name: studentName,
+                amount: instructorEarnings,
+                metadata: {
+                    course_id: courseId,
+                    course_title: course.title,
+                    student_id: user.uid,
+                    student_name: studentName,
+                    total_amount: result.finalPrice,
+                    instructor_earnings: instructorEarnings,
+                    platform_commission: platformCommission,
+                },
+            });
+        }
 
         return NextResponse.json({ success: true, enrollmentId, paidAmount: result.finalPrice });
     } catch (err: any) {

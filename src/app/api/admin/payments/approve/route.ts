@@ -49,6 +49,33 @@ export async function POST(request: Request) {
             });
         });
 
+        // Fetch request data to log detailed activity
+        const approvedReqSnap = await requestRef.get();
+        const approvedReqData = approvedReqSnap.data() || {};
+
+        // Log server activity
+        const { logServerActivity } = await import("@/lib/server-activity-logger");
+        await logServerActivity({
+            action: "wallet_recharge_approved",
+            category: "financial",
+            title: `موافقة على شحن محفظة (${approvedReqData.amount || 0} ج.م)`,
+            description: `وافق المسؤول (${adminUser.profile?.full_name || adminUser.email}) على شحن محفظة الطالب "${approvedReqData.student_name || approvedReqData.student_id}" بمبلغ ${approvedReqData.amount || 0} ج.م عبر طريقة (${approvedReqData.payment_method || "تحويل يدوي"})`,
+            status: "success",
+            user_id: adminUser.uid,
+            user_name: adminUser.profile?.full_name || "مسؤول المنصة",
+            user_email: adminUser.email,
+            user_role: "admin",
+            target_user_id: approvedReqData.student_id,
+            target_user_name: approvedReqData.student_name,
+            amount: Number(approvedReqData.amount || 0),
+            metadata: {
+                request_id: requestId,
+                student_id: approvedReqData.student_id,
+                amount: approvedReqData.amount,
+                payment_method: approvedReqData.payment_method,
+            },
+        });
+
         return NextResponse.json({ success: true });
     } catch (err: any) {
         if (err.message === "ALREADY_APPROVED") {

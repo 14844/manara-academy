@@ -68,6 +68,7 @@ export async function POST(request: Request) {
         }
 
         const lowerMsg = message.toLowerCase()
+        let reply = ""
 
         // 1. Match Knowledge Base
         const matched = KNOWLEDGE_BASE.find(k =>
@@ -75,20 +76,44 @@ export async function POST(request: Request) {
         )
 
         if (matched) {
-            return NextResponse.json({ reply: matched.answer })
+            reply = matched.answer
+        } else if (lowerMsg.includes("سلام") || lowerMsg.includes("مرحبا") || lowerMsg.includes("اهلا") || lowerMsg.includes("صباح") || lowerMsg.includes("مساء") || lowerMsg.includes("ازيك")) {
+            // 2. Greetings
+            reply = `أهلاً وسهلاً بك في أكاديمية المنارة التعليمية! 🌟\n\nأنا **آلي المنصة الذكي**، جاهز لمساعدتك في أي استفسار حول:\n• الكورسات والمحاضرات 📚\n• شحن الرصيد وطرق الدفع 💳\n• المختبرات الافتراضية 🧪\n• تقارير أولياء الأمور والشهادات 🎓\n\nتفضل بطرح سؤالك مباشرة!`
+        } else {
+            // 3. Fallback with smart helpful guidance
+            reply = `شكراً لتواصلك مع آلي منصة المنارة! 🤖\n\nبخصوص سؤالك: "${message}"\n\nيمكنك استكشاف أقسام المنصة كالتالي:\n• **الكورسات:** تصفح قسم الكورسات للتسجيل في أحدث الشروحات.\n• **المختبرات:** قسم المختبرات الافتراضية يوفر تجارب مجانية في الكيمياء والفيزياء.\n• **الدعم البشري:** إذا كانت لديك استفسارات شخصية حول حسابك أو مشكلة تقنية، يمكنك الضغط على زر **"تواصل عبر واتساب"** وسيقوم فريق الدعم بالرد عليك فوراً!`
         }
 
-        // 2. Greetings
-        if (lowerMsg.includes("سلام") || lowerMsg.includes("مرحبا") || lowerMsg.includes("اهلا") || lowerMsg.includes("صباح") || lowerMsg.includes("مساء") || lowerMsg.includes("ازيك")) {
-            return NextResponse.json({
-                reply: `أهلاً وسهلاً بك في أكاديمية المنارة التعليمية! 🌟\n\nأنا **آلي المنصة الذكي**، جاهز لمساعدتك في أي استفسار حول:\n• الكورسات والمحاضرات 📚\n• شحن الرصيد وطرق الدفع 💳\n• المختبرات الافتراضية 🧪\n• تقارير أولياء الأمور والشهادات 🎓\n\nتفضل بطرح سؤالك مباشرة!`
+        // Log AI interaction asynchronously
+        try {
+            const { getServerAuth } = await import("@/lib/server-auth")
+            const { logServerActivity } = await import("@/lib/server-activity-logger")
+            const user = await getServerAuth(request).catch(() => null)
+            const userName = user?.profile?.full_name || user?.email || "زائر للمنصة"
+
+            await logServerActivity({
+                action: "ai_chat_query",
+                category: "ai_support",
+                title: `محادثة ذكاء اصطناعي: ${message.slice(0, 45)}${message.length > 45 ? '...' : ''}`,
+                description: `سؤال المستخدم "${userName}": "${message}"\n\nرد الآلي: "${reply.slice(0, 150)}..."`,
+                status: "info",
+                user_id: user?.uid || "guest",
+                user_name: userName,
+                user_email: user?.email || "",
+                user_role: (user?.role as any) || "guest",
+                metadata: {
+                    user_message: message,
+                    ai_reply: reply.slice(0, 300),
+                    matched_kb: Boolean(matched),
+                    ip,
+                },
             })
+        } catch (logErr) {
+            console.warn("Failed to log AI activity:", logErr)
         }
 
-        // 3. Fallback with smart helpful guidance
-        return NextResponse.json({
-            reply: `شكراً لتواصلك مع آلي منصة المنارة! 🤖\n\nبخصوص سؤالك: "${message}"\n\nيمكنك استكشاف أقسام المنصة كالتالي:\n• **الكورسات:** تصفح قسم الكورسات للتسجيل في أحدث الشروحات.\n• **المختبرات:** قسم المختبرات الافتراضية يوفر تجارب مجانية في الكيمياء والفيزياء.\n• **الدعم البشري:** إذا كانت لديك استفسارات شخصية حول حسابك أو مشكلة تقنية، يمكنك الضغط على زر **"تواصل عبر واتساب"** وسيقوم فريق الدعم بالرد عليك فوراً!`
-        })
+        return NextResponse.json({ reply })
     } catch (error) {
         console.error("AI support error:", error)
         return NextResponse.json({
