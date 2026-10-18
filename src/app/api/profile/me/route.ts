@@ -51,10 +51,23 @@ export async function PUT(request: Request) {
         const body = await request.json();
         const { full_name, specialty, bio, phone, avatar_url } = body;
 
+        // Disallow modifying personal data for non-admins (students and instructors can only change avatar)
+        const isTryingToChangePersonalData = 
+            full_name !== undefined ||
+            specialty !== undefined ||
+            bio !== undefined ||
+            phone !== undefined;
+
+        if (user.role !== "admin" && isTryingToChangePersonalData) {
+            return NextResponse.json({
+                error: "البيانات الشخصية للقراءة فقط وموثقة في المنصة. لتعديلها يرجى التواصل مع الإدارة. يُسمح فقط بتغيير الصورة الشخصية."
+            }, { status: 403 });
+        }
+
         const now = new Date().toISOString();
         const publicUpdate: Record<string, any> = { updated_at: now };
 
-        // Validate full_name
+        // Validate full_name (admin only)
         if (full_name !== undefined) {
             if (typeof full_name !== "string" || full_name.trim().length < 2 || full_name.trim().length > 70) {
                 return NextResponse.json({ error: "الاسم بالكامل يجب أن يكون بين حرفين و 70 حرفاً" }, { status: 400 });

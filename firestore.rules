@@ -54,8 +54,7 @@ service cloud.firestore {
       allow update: if isAdmin() || (
         isOwner(userId) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'full_name', 'bio', 'specialty', 'avatar_url',
-          'grade_level', 'updated_at'
+          'avatar_url', 'updated_at'
         ])
       );
       allow delete: if isAdmin();

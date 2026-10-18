@@ -650,17 +650,17 @@ export default function AdminLogsPage() {
                         </span>
                     </CardTitle>
                 </CardHeader>
-                <div className="overflow-x-auto">
-                    <Table>
-                        <TableHeader className="bg-muted/40">
+                <div className="overflow-x-auto overflow-y-auto max-h-[650px] relative border-t border-border/60">
+                    <Table className="min-w-[1150px] table-fixed">
+                        <TableHeader className="bg-muted/95 backdrop-blur-md sticky top-0 z-20 shadow-xs border-b">
                             <TableRow>
-                                <TableHead className="w-[170px] text-right font-bold">الوقت والتاريخ</TableHead>
-                                <TableHead className="text-right font-bold">المستخدم / الفاعل</TableHead>
-                                <TableHead className="text-right font-bold">العملية والنوع</TableHead>
-                                <TableHead className="text-right font-bold">البيان والتفاصيل</TableHead>
-                                <TableHead className="text-right font-bold">المبلغ المالي</TableHead>
-                                <TableHead className="text-right font-bold">الحالة</TableHead>
-                                <TableHead className="w-[80px] text-center font-bold">التفاصيل</TableHead>
+                                <TableHead className="w-[160px] text-right font-bold">الوقت والتاريخ</TableHead>
+                                <TableHead className="w-[230px] text-right font-bold">المستخدم / الفاعل</TableHead>
+                                <TableHead className="w-[210px] text-right font-bold">العملية والنوع</TableHead>
+                                <TableHead className="w-[350px] text-right font-bold">البيان والتفاصيل</TableHead>
+                                <TableHead className="w-[120px] text-right font-bold">المبلغ المالي</TableHead>
+                                <TableHead className="w-[110px] text-right font-bold">الحالة</TableHead>
+                                <TableHead className="w-[70px] text-center font-bold">التفاصيل</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -689,22 +689,22 @@ export default function AdminLogsPage() {
                                     return (
                                         <TableRow key={log.id} className="hover:bg-muted/30 transition-colors">
                                             {/* Date & Time */}
-                                            <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                                            <TableCell className="w-[160px] font-mono text-xs text-muted-foreground whitespace-nowrap align-top py-3">
                                                 <div className="font-bold text-foreground">{date}</div>
                                                 <div className="text-[11px] text-muted-foreground/80">{time}</div>
                                             </TableCell>
 
                                             {/* User Info */}
-                                            <TableCell>
+                                            <TableCell className="w-[230px] align-top py-3">
                                                 <div className="flex flex-col gap-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-bold text-sm text-foreground">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="font-bold text-sm text-foreground truncate max-w-[140px]">
                                                             {log.user_name || "مستخدم"}
                                                         </span>
                                                         {getRoleBadge(log.user_role)}
                                                     </div>
                                                     {log.user_email && (
-                                                        <span className="text-xs text-muted-foreground font-mono" dir="ltr">
+                                                        <span className="text-xs text-muted-foreground font-mono truncate max-w-[210px]" dir="ltr">
                                                             {log.user_email}
                                                         </span>
                                                     )}
@@ -712,7 +712,7 @@ export default function AdminLogsPage() {
                                             </TableCell>
 
                                             {/* Action & Category */}
-                                            <TableCell>
+                                            <TableCell className="w-[210px] align-top py-3">
                                                 <div className="flex flex-col gap-1.5">
                                                     <span className="font-bold text-sm text-foreground">
                                                         {log.title}
@@ -721,20 +721,20 @@ export default function AdminLogsPage() {
                                                 </div>
                                             </TableCell>
 
-                                            {/* Description */}
-                                            <TableCell className="max-w-[320px]">
-                                                <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
+                                            {/* Description (Scrollable on long messages, won't break layout) */}
+                                            <TableCell className="w-[350px] align-top py-3">
+                                                <div className="max-h-[85px] overflow-y-auto pr-1 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap break-words">
                                                     {log.description}
-                                                </p>
+                                                </div>
                                                 {log.target_user_name && (
-                                                    <span className="text-[11px] text-primary/80 font-medium block mt-0.5">
+                                                    <span className="text-[11px] text-primary/80 font-medium block mt-1">
                                                         المستهدف: {log.target_user_name}
                                                     </span>
                                                 )}
                                             </TableCell>
 
                                             {/* Amount */}
-                                            <TableCell className="whitespace-nowrap">
+                                            <TableCell className="w-[120px] whitespace-nowrap align-top py-3">
                                                 {typeof log.amount === "number" && log.amount > 0 ? (
                                                     <div className="font-mono font-bold text-sm text-emerald-600 flex items-center gap-0.5">
                                                         <span>+{log.amount.toLocaleString()}</span>
@@ -751,12 +751,12 @@ export default function AdminLogsPage() {
                                             </TableCell>
 
                                             {/* Status */}
-                                            <TableCell>
+                                            <TableCell className="w-[110px] align-top py-3">
                                                 {getStatusBadge(log.status)}
                                             </TableCell>
 
                                             {/* Details Button */}
-                                            <TableCell className="text-center">
+                                            <TableCell className="w-[70px] text-center align-top py-3">
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"

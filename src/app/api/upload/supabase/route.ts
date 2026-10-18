@@ -132,15 +132,28 @@ export async function POST(request: NextRequest) {
 
         // Determine target bucket: avatars go to public bucket, everything else to private bucket
         const isAvatar = rawFolder === "avatars"
-        const targetBucket = isAvatar ? SUPABASE_PUBLIC_BUCKET : SUPABASE_BUCKET
+        let targetBucket = isAvatar ? SUPABASE_PUBLIC_BUCKET : SUPABASE_BUCKET
 
         // Upload to Supabase Storage
-        const { data, error: uploadError } = await supabaseAdmin.storage
+        let { data, error: uploadError } = await supabaseAdmin.storage
             .from(targetBucket)
             .upload(storagePath, fileBuffer, {
                 contentType: contentType || 'application/octet-stream',
                 upsert: true,
             })
+
+        // Fallback: If upload failed on public bucket, gracefully fallback to default SUPABASE_BUCKET
+        if (uploadError && isAvatar && targetBucket !== SUPABASE_BUCKET) {
+            console.warn(`Upload to ${targetBucket} failed: ${uploadError.message}. Retrying to ${SUPABASE_BUCKET}...`)
+            targetBucket = SUPABASE_BUCKET
+            const retryRes = await supabaseAdmin.storage
+                .from(targetBucket)
+                .upload(storagePath, fileBuffer, {
+                    contentType: contentType || 'application/octet-stream',
+                    upsert: true,
+                })
+            uploadError = retryRes.error
+        }
 
         if (uploadError) {
             console.error("Supabase Storage upload error:", uploadError)
