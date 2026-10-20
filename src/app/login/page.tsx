@@ -5,7 +5,7 @@ import { ThemeToggle } from "@/components/theme-toggle"
 
 export default function LoginPage() {
     return (
-        <div className="relative min-h-screen w-full flex items-center justify-center p-4 overflow-hidden bg-background">
+        <div className="relative min-h-screen w-full flex items-center justify-center p-3 sm:p-6 lg:p-8 py-8 sm:py-12 bg-background font-arabic">
             {/* Ambient Background Elements */}
             <div className="absolute top-0 left-0 w-full h-full -z-10 overflow-hidden opacity-20 pointer-events-none">
                 <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/20 blur-[120px] animate-pulse" />
@@ -16,7 +16,7 @@ export default function LoginPage() {
                 <ThemeToggle />
             </div>
 
-            <div className="w-full max-w-[1000px] grid lg:grid-cols-2 bg-card rounded-3xl border shadow-2xl overflow-hidden min-h-[600px]">
+            <div className="w-full max-w-[1000px] grid lg:grid-cols-2 bg-card rounded-3xl border shadow-2xl overflow-hidden my-auto">
                 {/* Left Side: Branding & Info */}
                 <div className="relative hidden lg:flex flex-col p-12 text-white overflow-hidden bg-primary">
                     <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary to-primary/80" />

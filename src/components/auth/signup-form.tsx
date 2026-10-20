@@ -22,7 +22,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
 import { logActivity } from "@/lib/activity-logger"
-import { Loader2, Eye, EyeOff, ShieldAlert, ShieldCheck, Shield } from "lucide-react"
+import { Loader2, Eye, EyeOff, ShieldAlert, ShieldCheck, Shield, GraduationCap, User } from "lucide-react"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
     Select,
@@ -303,257 +303,290 @@ export function SignupForm() {
 
     return (
         <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <FormField
-                    control={form.control}
-                    name="fullName"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>الاسم الكامل</FormLabel>
-                            <FormControl>
-                                <Input placeholder="أحمد محمد" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>البريد الإلكتروني</FormLabel>
-                            <FormControl>
-                                <Input placeholder="example@mail.com" {...field} dir="ltr" />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="password"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>كلمة المرور</FormLabel>
-                            <FormControl>
-                                <div className="space-y-2">
-                                    <div className="relative">
-                                        <Input 
-                                            type={showPassword ? "text" : "password"} 
-                                            placeholder="••••••••" 
-                                            {...field} 
-                                            dir="ltr" 
-                                            className="pr-10"
-                                        />
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3.5 sm:space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-3.5">
+                    {/* Full Name */}
+                    <FormField
+                        control={form.control}
+                        name="fullName"
+                        render={({ field }) => (
+                            <FormItem className="space-y-1">
+                                <FormLabel className="text-xs font-bold">الاسم الكامل</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="أحمد محمد" {...field} className="h-10 rounded-xl" />
+                                </FormControl>
+                                <FormMessage className="text-[11px]" />
+                            </FormItem>
+                        )}
+                    />
+
+                    {/* Email */}
+                    <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                            <FormItem className="space-y-1">
+                                <FormLabel className="text-xs font-bold">البريد الإلكتروني (Gmail فقط)</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="example@gmail.com" {...field} dir="ltr" className="h-10 rounded-xl font-mono text-sm" />
+                                </FormControl>
+                                <FormMessage className="text-[11px]" />
+                            </FormItem>
+                        )}
+                    />
+
+                    {/* Password */}
+                    <FormField
+                        control={form.control}
+                        name="password"
+                        render={({ field }) => (
+                            <FormItem className="space-y-1">
+                                <FormLabel className="text-xs font-bold">كلمة المرور</FormLabel>
+                                <FormControl>
+                                    <div className="space-y-1">
+                                        <div className="relative">
+                                            <Input 
+                                                type={showPassword ? "text" : "password"} 
+                                                placeholder="••••••••" 
+                                                {...field} 
+                                                dir="ltr" 
+                                                className="pr-10 h-10 rounded-xl"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPassword(!showPassword)}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                                            >
+                                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                            </button>
+                                        </div>
+                                        {/* Compact Strength Indicator */}
+                                        <div className="space-y-1 pt-0.5">
+                                            <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+                                                <div 
+                                                    className={`h-full transition-all duration-300 ${getStrengthLabels(calculateStrength(field.value)).color}`}
+                                                    style={{ width: `${calculateStrength(field.value)}%` }}
+                                                />
+                                            </div>
+                                            <div className="flex justify-between items-center text-[10px] font-bold">
+                                                <span className="text-muted-foreground text-[10px]">قوة كلمة المرور:</span>
+                                                <span className={calculateStrength(field.value) > 40 ? "text-primary text-[10px]" : "text-muted-foreground text-[10px]"}>
+                                                    {getStrengthLabels(calculateStrength(field.value)).label}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </FormControl>
+                                <FormMessage className="text-[11px]" />
+                            </FormItem>
+                        )}
+                    />
+
+                    {/* Phone + Country Code */}
+                    <div className="space-y-1">
+                        <FormLabel className="text-xs font-bold">رقم الهاتف</FormLabel>
+                        <div className="grid grid-cols-[105px_1fr] gap-1.5" dir="ltr">
+                            <FormField
+                                control={form.control}
+                                name="countryCode"
+                                render={({ field }) => (
+                                    <FormItem className="space-y-0">
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <FormControl>
+                                                <SelectTrigger className="h-10 text-xs px-2 rounded-xl" dir="ltr">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                {ARAB_COUNTRIES.map((c) => (
+                                                    <SelectItem key={c.code} value={c.code}>
+                                                        <span className="flex items-center gap-1.5 text-xs">
+                                                            <span>{c.flag}</span>
+                                                            <span className="font-mono">{c.code}</span>
+                                                        </span>
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={form.control}
+                                name="phone"
+                                render={({ field }) => (
+                                    <FormItem className="space-y-0">
+                                        <FormControl>
+                                            <Input 
+                                                placeholder="10xxxxxxxx" 
+                                                {...field} 
+                                                dir="ltr" 
+                                                className="h-10 rounded-xl font-mono text-sm"
+                                            />
+                                        </FormControl>
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
+                        {form.formState.errors.phone && (
+                            <p className="text-[11px] font-medium text-destructive mt-0.5">
+                                {form.formState.errors.phone.message}
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Role Selection (Toggle Cards) */}
+                    <FormField
+                        control={form.control}
+                        name="role"
+                        render={({ field }) => (
+                            <FormItem className="space-y-1.5 sm:col-span-2">
+                                <FormLabel className="text-xs font-bold text-muted-foreground">نوع الحساب</FormLabel>
+                                <FormControl>
+                                    <div className="grid grid-cols-2 gap-2.5">
                                         <button
                                             type="button"
-                                            onClick={() => setShowPassword(!showPassword)}
-                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                            onClick={() => field.onChange("student")}
+                                            className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border text-sm font-bold transition-all ${
+                                                field.value === "student"
+                                                    ? "border-primary bg-primary/10 text-primary shadow-xs ring-1 ring-primary/40"
+                                                    : "border-border/70 hover:border-primary/50 text-muted-foreground hover:bg-muted/40"
+                                            }`}
                                         >
-                                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                            <GraduationCap className="h-4 w-4" />
+                                            <span>طالب</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => field.onChange("instructor")}
+                                            className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border text-sm font-bold transition-all ${
+                                                field.value === "instructor"
+                                                    ? "border-primary bg-primary/10 text-primary shadow-xs ring-1 ring-primary/40"
+                                                    : "border-border/70 hover:border-primary/50 text-muted-foreground hover:bg-muted/40"
+                                            }`}
+                                        >
+                                            <User className="h-4 w-4" />
+                                            <span>مدرس</span>
                                         </button>
                                     </div>
-                                    {/* Strength Indicator */}
-                                    <div className="space-y-1.5">
-                                        <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                                            <div 
-                                                className={`h-full transition-all duration-300 ${getStrengthLabels(calculateStrength(field.value)).color}`}
-                                                style={{ width: `${calculateStrength(field.value)}%` }}
-                                            />
-                                        </div>
-                                        <div className="flex justify-between items-center text-[10px] font-bold">
-                                            <span className="text-muted-foreground">قوة كلمة المرور:</span>
-                                            <span className={calculateStrength(field.value) > 40 ? "text-primary" : "text-muted-foreground"}>
-                                                {getStrengthLabels(calculateStrength(field.value)).label}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <div className="grid grid-cols-4 gap-2">
-                    <FormField
-                        control={form.control}
-                        name="countryCode"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>الكود</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <FormControl>
-                                        <SelectTrigger dir="ltr">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                        {ARAB_COUNTRIES.map((c) => (
-                                            <SelectItem key={c.code} value={c.code}>
-                                                <span className="flex items-center gap-2">
-                                                    <span>{c.flag}</span>
-                                                    <span>{c.code}</span>
-                                                </span>
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="phone"
-                        render={({ field }) => (
-                            <FormItem className="col-span-3">
-                                <FormLabel>رقم الهاتف</FormLabel>
-                                <FormControl>
-                                    <Input placeholder="10xxxxxxxx" {...field} dir="ltr" />
                                 </FormControl>
-                                <FormMessage />
+                                <FormMessage className="text-[11px]" />
                             </FormItem>
                         )}
                     />
-                </div>
-                <FormField
-                    control={form.control}
-                    name="role"
-                    render={({ field }) => (
-                        <FormItem className="space-y-3">
-                            <FormLabel>نوع الحساب</FormLabel>
-                            <FormControl>
-                                <RadioGroup
-                                    onValueChange={field.onChange}
-                                    defaultValue={field.value}
-                                    className="flex flex-row space-x-4 space-x-reverse"
-                                >
-                                    <FormItem className="flex items-center space-x-2 space-x-reverse">
-                                        <FormControl>
-                                            <RadioGroupItem value="student" />
-                                        </FormControl>
-                                        <FormLabel className="font-normal cursor-pointer">
-                                            طالب
-                                        </FormLabel>
-                                    </FormItem>
-                                    <FormItem className="flex items-center space-x-2 space-x-reverse">
-                                        <FormControl>
-                                            <RadioGroupItem value="instructor" />
-                                        </FormControl>
-                                        <FormLabel className="font-normal cursor-pointer">
-                                            مدرس
-                                        </FormLabel>
-                                    </FormItem>
-                                </RadioGroup>
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
 
-                {form.watch("role") === "student" && (
-                    <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                        <FormField
-                            control={form.control}
-                            name="gradeLevel"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>المرحلة الدراسية</FormLabel>
-                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    {/* Student Dynamic Fields */}
+                    {form.watch("role") === "student" && (
+                        <>
+                            <FormField
+                                control={form.control}
+                                name="gradeLevel"
+                                render={({ field }) => (
+                                    <FormItem className="space-y-1">
+                                        <FormLabel className="text-xs font-bold">المرحلة الدراسية</FormLabel>
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <FormControl>
+                                                <SelectTrigger className="h-10 rounded-xl text-xs sm:text-sm">
+                                                    <SelectValue placeholder="اختر مرحلتك الدراسية" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                <SelectItem value="primary_4">الصف الرابع الابتدائي</SelectItem>
+                                                <SelectItem value="primary_5">الصف الخامس الابتدائي</SelectItem>
+                                                <SelectItem value="primary_6">الصف السادس الابتدائي</SelectItem>
+                                                <SelectItem value="prep_1">الصف الأول الإعدادي</SelectItem>
+                                                <SelectItem value="prep_2">الصف الثاني الإعدادي</SelectItem>
+                                                <SelectItem value="prep_3">الصف الثالث الإعدادي</SelectItem>
+                                                <SelectItem value="sec_1">الصف الأول الثانوي</SelectItem>
+                                                <SelectItem value="sec_2">الصف الثاني الثانوي</SelectItem>
+                                                <SelectItem value="sec_3">الصف الثالث الثانوي</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <FormMessage className="text-[11px]" />
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={form.control}
+                                name="parentPhone"
+                                render={({ field }) => (
+                                    <FormItem className="space-y-1">
+                                        <div className="flex items-center justify-between">
+                                            <FormLabel className="text-xs font-bold">رقم هاتف ولي الأمر</FormLabel>
+                                            <span className="text-[10px] text-muted-foreground">للتواصل عند الضرورة</span>
+                                        </div>
                                         <FormControl>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="اختر مرحلتك الدراسية" />
-                                            </SelectTrigger>
+                                            <Input placeholder="01xxxxxxxxx" {...field} dir="ltr" className="h-10 rounded-xl font-mono text-sm" />
                                         </FormControl>
-                                        <SelectContent>
-                                            <SelectItem value="primary_4">الصف الرابع الابتدائي</SelectItem>
-                                            <SelectItem value="primary_5">الصف الخامس الابتدائي</SelectItem>
-                                            <SelectItem value="primary_6">الصف السادس الابتدائي</SelectItem>
-                                            <SelectItem value="prep_1">الصف الأول الإعدادي</SelectItem>
-                                            <SelectItem value="prep_2">الصف الثاني الإعدادي</SelectItem>
-                                            <SelectItem value="prep_3">الصف الثالث الإعدادي</SelectItem>
-                                            <SelectItem value="sec_1">الصف الأول الثانوي</SelectItem>
-                                            <SelectItem value="sec_2">الصف الثاني الثانوي</SelectItem>
-                                            <SelectItem value="sec_3">الصف الثالث الثانوي</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="parentPhone"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>رقم هاتف ولي الأمر</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="01xxxxxxxxx" {...field} dir="ltr" />
-                                    </FormControl>
-                                    <FormDescription className="text-[10px]">مطلوب للتواصل عند الضرورة</FormDescription>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
+                                        <FormMessage className="text-[11px]" />
+                                    </FormItem>
+                                )}
+                            />
+                        </>
+                    )}
+
+                    {/* Instructor Dynamic Fields */}
+                    {form.watch("role") === "instructor" && (
+                        <>
+                            <FormField
+                                control={form.control}
+                                name="specialty"
+                                render={({ field }) => (
+                                    <FormItem className="space-y-1">
+                                        <FormLabel className="text-xs font-bold">التخصص</FormLabel>
+                                        <FormControl>
+                                            <Input placeholder="مثلاً: لغة عربية، رياضيات..." {...field} className="h-10 rounded-xl" />
+                                        </FormControl>
+                                        <FormMessage className="text-[11px]" />
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={form.control}
+                                name="bio"
+                                render={({ field }) => (
+                                    <FormItem className="space-y-1">
+                                        <FormLabel className="text-xs font-bold">نبذة عنك / الخبرة</FormLabel>
+                                        <FormControl>
+                                            <Input placeholder="أخبرنا قليلاً عن خبرتك التعليمية..." {...field} className="h-10 rounded-xl" />
+                                        </FormControl>
+                                        <FormMessage className="text-[11px]" />
+                                    </FormItem>
+                                )}
+                            />
+                        </>
+                    )}
+
+                    {/* Terms & Policies */}
+                    <FormField
+                        control={form.control}
+                        name="acceptPolicies"
+                        render={({ field }) => (
+                            <FormItem className="sm:col-span-2 flex flex-row items-center space-x-2.5 space-x-reverse rounded-xl border p-3 bg-muted/20">
+                                <FormControl>
+                                    <Checkbox
+                                        checked={field.value}
+                                        onCheckedChange={field.onChange}
+                                    />
+                                </FormControl>
+                                <div className="space-y-1 leading-none">
+                                    <FormLabel className="text-xs font-medium cursor-pointer">
+                                        أوافق على <Link href="/terms" className="text-primary font-bold hover:underline">شروط الاستخدام</Link> و <Link href="/privacy" className="text-primary font-bold hover:underline">سياسة الخصوصية</Link>
+                                    </FormLabel>
+                                    <FormMessage className="text-[11px]" />
+                                </div>
+                            </FormItem>
+                        )}
+                    />
+
+                    {/* Submit Button */}
+                    <div className="sm:col-span-2 pt-1">
+                        <Button type="submit" className="w-full h-11 text-base font-bold rounded-xl shadow-md hover:shadow-lg transition-all" disabled={isLoading}>
+                            {isLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+                            إنشاء حساب
+                        </Button>
                     </div>
-                )}
-
-                {form.watch("role") === "instructor" && (
-                    <>
-                        <FormField
-                            control={form.control}
-                            name="specialty"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>التخصص</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="مثلاً: لغة عربية، رياضيات..." {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="bio"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>نبذة عنك / الخبرة</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="أخبرنا قليلاً عن خبرتك التعليمية..." {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                    </>
-                )}
-                <FormField
-                    control={form.control}
-                    name="acceptPolicies"
-                    render={({ field }) => (
-                        <FormItem className="flex flex-row items-start space-x-3 space-x-reverse space-y-0 rounded-md border p-4 bg-muted/20">
-                            <FormControl>
-                                <Checkbox
-                                    checked={field.value}
-                                    onCheckedChange={field.onChange}
-                                />
-                            </FormControl>
-                            <div className="space-y-1 leading-none">
-                                <FormLabel className="text-sm font-medium cursor-pointer">
-                                    أوافق على <Link href="/terms" className="text-primary hover:underline">شروط الاستخدام</Link> و <Link href="/privacy" className="text-primary hover:underline">سياسة الخصوصية</Link>
-                                </FormLabel>
-                                <FormMessage />
-                            </div>
-                        </FormItem>
-                    )}
-                />
-
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
-                    إنشاء حساب
-                </Button>
+                </div>
             </form>
         </Form>
     )
