@@ -33,8 +33,8 @@ export async function POST(request: Request) {
             }
 
             const profilePrivateRef = adminDb.collection("profiles_private").doc(reqData.student_id);
-
             const amount = Number(reqData.amount || 0);
+            const txRef = adminDb.collection("transactions").doc();
 
             transaction.set(profilePrivateRef, {
                 wallet_balance: FieldValue.increment(amount),
@@ -46,6 +46,22 @@ export async function POST(request: Request) {
                 approved_by: adminUser.uid,
                 updated_at: new Date().toISOString(),
                 reviewed_at: new Date().toISOString(),
+            });
+
+            transaction.create(txRef, {
+                type: "wallet_recharge_manual",
+                student_id: reqData.student_id,
+                student_name: reqData.student_name || "طالب",
+                student_email: reqData.student_email || "",
+                amount: amount,
+                admin_id: adminUser.uid,
+                admin_name: adminUser.profile?.full_name || adminUser.email || "مسؤول المنصة",
+                payment_method: reqData.payment_method || "manual",
+                sender_number: reqData.sender_number || "",
+                proof_url: reqData.screenshot_url || reqData.proof_url || null,
+                wallet_request_id: requestId,
+                status: "completed",
+                created_at: new Date().toISOString(),
             });
         });
 

@@ -13,6 +13,13 @@ export interface CreateFawaterakSessionParams {
     customer: FawaterakCustomer;
     studentId: string;
     baseUrl: string;
+    itemName?: string;
+    type?: "course_purchase" | "wallet_recharge";
+    courseId?: string;
+    customSuccessUrl?: string;
+    customFailUrl?: string;
+    customPendingUrl?: string;
+    metadata?: Record<string, any>;
 }
 
 export interface FawaterakSessionResult {
@@ -83,12 +90,21 @@ export async function getFawaterakAccessToken(): Promise<string> {
 /**
  * Creates a hosted checkout transaction link on Fawaterak
  */
-export async function createFawaterakTransaction({
-    amount,
-    customer,
-    studentId,
-    baseUrl,
-}: CreateFawaterakSessionParams): Promise<FawaterakSessionResult> {
+export async function createFawaterakTransaction(params: CreateFawaterakSessionParams): Promise<FawaterakSessionResult> {
+    const {
+        amount,
+        customer,
+        studentId,
+        baseUrl,
+        itemName = "شراء دورة تعليمية - أكاديمية المنارة",
+        type = "wallet_recharge",
+        courseId,
+        customSuccessUrl,
+        customFailUrl,
+        customPendingUrl,
+        metadata = {},
+    } = params;
+
     const token = await getFawaterakAccessToken();
     const apiUrl = getBaseApiUrl();
 
@@ -107,9 +123,15 @@ export async function createFawaterakTransaction({
     const payloadData = {
         student_id: studentId,
         amount: Number(amount),
-        type: "wallet_recharge",
+        type,
+        course_id: courseId || null,
+        metadata,
         created_at: new Date().toISOString(),
     };
+
+    const successUrl = customSuccessUrl || `${baseUrl}/dashboard/wallet?fawaterak=success&amount=${amount}`;
+    const failUrl = customFailUrl || `${baseUrl}/dashboard/wallet?fawaterak=failed`;
+    const pendingUrl = customPendingUrl || `${baseUrl}/dashboard/wallet?fawaterak=pending`;
 
     const requestBody = {
         cartTotal: Number(amount),
@@ -123,16 +145,16 @@ export async function createFawaterakTransaction({
         },
         cartItems: [
             {
-                name: "شحن رصيد المحفظة - أكاديمية المنارة",
+                name: itemName,
                 price: Number(amount),
                 quantity: 1,
             },
         ],
         pay_load: payloadData,
         redirectionUrls: {
-            successUrl: `${baseUrl}/dashboard/wallet?fawaterak=success&amount=${amount}`,
-            failUrl: `${baseUrl}/dashboard/wallet?fawaterak=failed`,
-            pendingUrl: `${baseUrl}/dashboard/wallet?fawaterak=pending`,
+            successUrl,
+            failUrl,
+            pendingUrl,
             webhookUrl: `${baseUrl}/api/webhooks/fawaterak_json`,
         },
         list_style: "h",

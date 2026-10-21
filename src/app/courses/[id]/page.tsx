@@ -24,7 +24,12 @@ import {
     AlertCircle,
     Ticket,
     Activity,
-    Loader2
+    Loader2,
+    Wallet,
+    CreditCard,
+    ArrowRight,
+    Zap,
+    Sparkles
 } from "lucide-react"
 import { auth, db } from "@/lib/firebase/config"
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, runTransaction, increment } from "firebase/firestore"
@@ -34,6 +39,13 @@ import Link from "next/link"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { logActivity } from "@/lib/activity-logger"
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+} from "@/components/ui/dialog"
 
 export default function CourseDetailsPage() {
     const { id } = useParams()
@@ -45,19 +57,33 @@ export default function CourseDetailsPage() {
     const [user, setUser] = useState<any>(null)
     const [profile, setProfile] = useState<any>(null)
 
+    // Checkout modal states
+    const [showCheckoutDialog, setShowCheckoutDialog] = useState(false)
+    const [isFawaterakLoading, setIsFawaterakLoading] = useState(false)
+
     // Coupon states
     const [couponCode, setCouponCode] = useState("")
     const [isApplyingCoupon, setIsApplyingCoupon] = useState(false)
     const [appliedCoupon, setAppliedCoupon] = useState<any>(null)
 
-
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
             setUser(currentUser)
             if (currentUser) {
-                // Fetch profile
-                const pDoc = await getDoc(doc(db, "profiles", currentUser.uid))
-                if (pDoc.exists()) setProfile(pDoc.data())
+                // Fetch profile with real-time wallet balance
+                try {
+                    const res = await fetch("/api/profile/me")
+                    if (res.ok) {
+                        const data = await res.json()
+                        setProfile(data)
+                    } else {
+                        const pDoc = await getDoc(doc(db, "profiles", currentUser.uid))
+                        if (pDoc.exists()) setProfile(pDoc.data())
+                    }
+                } catch {
+                    const pDoc = await getDoc(doc(db, "profiles", currentUser.uid))
+                    if (pDoc.exists()) setProfile(pDoc.data())
+                }
 
                 if (id) {
                     const enrollmentRef = doc(db, "enrollments", `${currentUser.uid}_${id}`)
@@ -91,6 +117,45 @@ export default function CourseDetailsPage() {
         }
         fetchCourse()
     }, [id, router])
+
+    // Direct Fawaterak Online Payment for Course
+    const handleFawaterakCoursePay = async () => {
+        if (!user) {
+            toast.error("يرجى تسجيل الدخول أولاً للالتحاق بالكورس")
+            router.push(`/login?redirect=/courses/${id}`)
+            return
+        }
+
+        setIsFawaterakLoading(true)
+        try {
+            const idToken = await user.getIdToken()
+            const res = await fetch("/api/payments/fawaterak/initiate-course", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    courseId: course.id,
+                    couponCode: appliedCoupon?.code || null,
+                    idToken,
+                }),
+            })
+
+            const data = await res.json()
+            if (!res.ok) {
+                throw new Error(data.error || "فشل الاتصال ببوابة فواتيرك")
+            }
+
+            if (data.paymentUrl) {
+                toast.loading("جاري تحويلك إلى صفحة الدفع الآمنة في فواتيرك...")
+                window.location.href = data.paymentUrl
+            } else {
+                throw new Error("لم يتم استلام رابط الدفع من فواتيرك")
+            }
+        } catch (error: any) {
+            console.error("Fawaterak course pay error:", error)
+            toast.error(error.message || "حدث خطأ أثناء بدء عملية الدفع الإلكتروني")
+            setIsFawaterakLoading(false)
+        }
+    }
 
     const handleEnroll = async () => {
         if (!user) {
@@ -418,12 +483,38 @@ export default function CourseDetailsPage() {
                                     </div>
                                 ) : (
                                     <Button
-                                        className="w-full h-12 text-lg font-bold"
+                                        className="w-full h-12 text-lg font-bold shadow-lg hover:shadow-primary/25 transition-all gap-2"
                                         size="lg"
-                                        onClick={handleEnroll}
+                                        onClick={() => {
+                                            if (!user) {
+                                                toast.error("يرجى تسجيل الدخول أولاً للالتحاق بالكورس")
+                                                router.push(`/login?redirect=/courses/${id}`)
+                                                return
+                                            }
+                                            const cPrice = Number(course?.price || 0)
+                                            const dPct = appliedCoupon ? Number(appliedCoupon.discount_percent || 0) : 0
+                                            const fPrice = Math.max(0, cPrice - (cPrice * dPct) / 100)
+                                            if (fPrice === 0) {
+                                                handleEnroll()
+                                            } else {
+                                                setShowCheckoutDialog(true)
+                                            }
+                                        }}
                                         disabled={isEnrolling}
                                     >
-                                        {isEnrolling ? "جاري المعالجة..." : "الالتحاق بالكورس الآن"}
+                                        {isEnrolling ? (
+                                            <>
+                                                <Loader2 className="h-5 w-5 animate-spin" />
+                                                جاري المعالجة...
+                                            </>
+                                        ) : Number(course.price || 0) === 0 ? (
+                                            "الالتحاق بالكورس مجاناً"
+                                        ) : (
+                                            <>
+                                                <Sparkles className="h-5 w-5" />
+                                                الاشتراك وشراء الكورس الآن
+                                            </>
+                                        )}
                                     </Button>
                                 )}
 
@@ -456,6 +547,158 @@ export default function CourseDetailsPage() {
                     </div>
                 </div>
             </main>
+
+            {/* Checkout Dialog Modal */}
+            <Dialog open={showCheckoutDialog} onOpenChange={setShowCheckoutDialog}>
+                <DialogContent className="sm:max-w-md font-arabic text-right p-6 rounded-2xl" dir="rtl">
+                    <DialogHeader className="text-right space-y-2">
+                        <DialogTitle className="text-xl font-black flex items-center gap-2">
+                            <Sparkles className="h-5 w-5 text-primary" />
+                            تأكيد الاشتراك في الكورس
+                        </DialogTitle>
+                        <DialogDescription className="text-xs text-muted-foreground">
+                            اختر طريقة الدفع المناسبة لك لإتمام الالتحاق بكورس <strong className="text-foreground">"{course?.title}"</strong>
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {/* Price Breakdown */}
+                    {(() => {
+                        const cPrice = Number(course?.price || 0)
+                        const dPct = appliedCoupon ? Number(appliedCoupon.discount_percent || 0) : 0
+                        const fPrice = Math.max(0, cPrice - (cPrice * dPct) / 100)
+                        const walletBal = Number(profile?.wallet_balance ?? 0)
+
+                        return (
+                            <div className="space-y-4 pt-1">
+                                <div className="p-4 bg-muted/40 rounded-xl space-y-2 border">
+                                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                        <span>السعر الأصلي:</span>
+                                        <span className={appliedCoupon ? "line-through text-muted-foreground" : "font-bold text-foreground"}>
+                                            {cPrice} ج.م
+                                        </span>
+                                    </div>
+                                    {appliedCoupon && (
+                                        <div className="flex items-center justify-between text-xs text-emerald-600 font-bold">
+                                            <span>خصم الكوبون ({appliedCoupon.discount_percent}%):</span>
+                                            <span>- {((cPrice * Number(appliedCoupon.discount_percent)) / 100).toFixed(0)} ج.م</span>
+                                        </div>
+                                    )}
+                                    <div className="flex items-center justify-between pt-2 border-t font-black text-sm text-foreground">
+                                        <span>المبلغ المطلوب سداده:</span>
+                                        <span className="text-lg text-primary font-black">{fPrice} ج.م</span>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3">
+                                    {/* Option 1: Pay from Wallet */}
+                                    <div className={`p-4 rounded-xl border-2 transition-all space-y-3 ${
+                                        walletBal >= fPrice
+                                            ? "border-primary/40 bg-primary/5 hover:border-primary"
+                                            : "border-muted bg-muted/20 opacity-90"
+                                    }`}>
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2 font-bold text-sm text-foreground">
+                                                <Wallet className="h-4 w-4 text-primary" />
+                                                <span>الدفع من رصيد المحفظة الداخلي</span>
+                                            </div>
+                                            <Badge variant="outline" className="text-xs font-bold">
+                                                رصيدك: {walletBal} ج.م
+                                            </Badge>
+                                        </div>
+
+                                        {walletBal >= fPrice ? (
+                                            <Button
+                                                type="button"
+                                                onClick={async () => {
+                                                    await handleEnroll()
+                                                    setShowCheckoutDialog(false)
+                                                }}
+                                                disabled={isEnrolling}
+                                                className="w-full h-11 rounded-xl font-bold gap-2 shadow-md"
+                                            >
+                                                {isEnrolling ? (
+                                                    <>
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                        جاري الخصم والتفعيل...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <CheckCircle2 className="h-4 w-4" />
+                                                        تأكيد والخصم من المحفظة ({fPrice} ج.م)
+                                                    </>
+                                                )}
+                                            </Button>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <p className="text-[11px] text-amber-600 font-bold flex items-center gap-1">
+                                                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                                                    رصيد محفظتك غير كافٍ لإتمام الشراء من المحفظة.
+                                                </p>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    asChild
+                                                    className="w-full h-9 rounded-lg font-bold text-xs gap-1.5"
+                                                >
+                                                    <Link href="/dashboard/wallet" target="_blank">
+                                                        <span>شحن المحفظة يدوياً (فودافون كاش / إنستاباي)</span>
+                                                        <ArrowRight className="h-3 w-3 mr-auto" />
+                                                    </Link>
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Divider */}
+                                    <div className="relative flex py-1 items-center">
+                                        <div className="flex-grow border-t border-muted"></div>
+                                        <span className="flex-shrink mx-3 text-muted-foreground text-[10px] font-bold">أو ادفع مباشرة إلكترونياً</span>
+                                        <div className="flex-grow border-t border-muted"></div>
+                                    </div>
+
+                                    {/* Option 2: Fawaterak Instant Payment */}
+                                    <div className="p-4 rounded-xl border-2 border-emerald-500/40 bg-emerald-500/5 space-y-3">
+                                        <div className="space-y-1">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2 font-bold text-sm text-foreground">
+                                                    <Zap className="h-4 w-4 text-emerald-600 fill-emerald-600" />
+                                                    <span>دفع إلكتروني فوري (فواتيرك)</span>
+                                                </div>
+                                                <Badge className="bg-emerald-600 text-white text-[10px] font-bold">
+                                                    تفعيل لحظي ⚡
+                                                </Badge>
+                                            </div>
+                                            <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                                فيزا، ماستركارد، كروت ميزة، محافظ الهاتف، فوري باي، أو إنستاباي.
+                                            </p>
+                                        </div>
+
+                                        <Button
+                                            type="button"
+                                            onClick={handleFawaterakCoursePay}
+                                            disabled={isFawaterakLoading || fPrice < 10}
+                                            className="w-full h-12 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shadow-lg shadow-emerald-600/20"
+                                        >
+                                            {isFawaterakLoading ? (
+                                                <>
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                    جاري الاتصال ببوابة فواتيرك...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <CreditCard className="h-4 w-4" />
+                                                    <span>الانتقال لبوابة فواتيرك وسداد ({fPrice} ج.م)</span>
+                                                    <ArrowRight className="h-4 w-4 mr-auto" />
+                                                </>
+                                            )}
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        )
+                    })()}
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

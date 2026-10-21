@@ -284,6 +284,44 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Wallet requests: Student can read their own; admin can read/write.
+    match /wallet_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid || isAdmin()
+      );
+      allow create: if false; // Server only
+      allow update, delete: if isAdmin();
+    }
+
+    // Withdrawal requests: Instructor can read their own; admin can read/write.
+    match /withdrawal_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid || isAdmin()
+      );
+      allow create: if false; // Server only
+      allow update, delete: if isAdmin();
+    }
+
+    // Transactions: Student or instructor can read their own; admin can read.
+    match /transactions/{txId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid ||
+        resource.data.instructor_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow write: if false; // Server only
+    }
+
+    // Course Orders: Student or instructor can read their own; admin can read.
+    match /course_orders/{orderId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid ||
+        resource.data.instructor_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow write: if false; // Server only
+    }
+
     // Default deny for everything else
     match /{document=**} {
       allow read, write: if false;

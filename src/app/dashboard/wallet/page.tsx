@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
+import Link from "next/link"
 import { auth, db } from "@/lib/firebase/config"
 import { onAuthStateChanged } from "firebase/auth"
 import { doc, getDoc, collection, addDoc, query, where, getDocs } from "firebase/firestore"
@@ -44,11 +45,6 @@ function WalletContent() {
     const [amount, setAmount] = useState("")
     const [senderNumber, setSenderNumber] = useState("")
     const [file, setFile] = useState<File | null>(null)
-
-    // Fawaterak instant form state
-    const [fawaterakAmount, setFawaterakAmount] = useState("100")
-    const [fawaterakLoading, setFawaterakLoading] = useState(false)
-    const [activeRechargeTab, setActiveRechargeTab] = useState("fawaterak")
 
     // URL Status Banner
     const fawaterakStatus = searchParams.get("fawaterak")
@@ -193,50 +189,6 @@ function WalletContent() {
         }
     }
 
-    // Submit Fawaterak Instant Electronic Payment
-    const handleFawaterakRecharge = async (e: React.FormEvent) => {
-        e.preventDefault()
-        const chargeVal = Number(fawaterakAmount)
-        if (!chargeVal || chargeVal < 10) {
-            toast.error("الحد الأدنى للشحن عبر فواتيرك هو 10 ج.م")
-            return
-        }
-
-        if (!user) {
-            toast.error("يرجى تسجيل الدخول أولاً")
-            return
-        }
-
-        setFawaterakLoading(true)
-        try {
-            const idToken = await user.getIdToken()
-            const res = await fetch("/api/payments/fawaterak/initiate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    amount: chargeVal,
-                    idToken,
-                }),
-            })
-
-            const data = await res.json()
-            if (!res.ok) {
-                throw new Error(data.error || "فشل الاتصال ببوابة الدفع")
-            }
-
-            if (data.paymentUrl) {
-                toast.loading("جاري تحويلك إلى صفحة الدفع الآمنة...")
-                window.location.href = data.paymentUrl
-            } else {
-                throw new Error("لم يتم استلام رابط الدفع من فواتيرك")
-            }
-        } catch (error: any) {
-            console.error("Fawaterak recharge error:", error)
-            toast.error(error.message || "حدث خطأ أثناء بدء عملية الدفع")
-            setFawaterakLoading(false)
-        }
-    }
-
     const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text)
         toast.info("تم نسخ الرقم: " + text)
@@ -322,132 +274,42 @@ function WalletContent() {
                         </CardContent>
                     </Card>
 
-                    {/* Dual Recharge Options */}
+                    {/* Recharge Options */}
                     <Card className="border-2 shadow-sm">
                         <CardHeader className="pb-4">
                             <CardTitle className="text-xl font-bold flex items-center gap-2">
                                 <PlusCircle className="h-5 w-5 text-primary" />
-                                خيارات شحن المحفظة
+                                شحن المحفظة (فودافون كاش / إنستاباي)
                             </CardTitle>
-                            <CardDescription>اختر وسيلة الشحن الأنسب لك: دفع إلكتروني فوري أو تحويل يدوي</CardDescription>
+                            <CardDescription>قم بالتحويل اليدوي لأحد أرقامنا المعتمدة وسيقوم فريق الدعم بتأكيد الرصيد فوراً</CardDescription>
                         </CardHeader>
-                        <CardContent>
-                            <Tabs value={activeRechargeTab} onValueChange={setActiveRechargeTab} className="w-full">
-                                <TabsList className="grid grid-cols-2 h-14 p-1.5 bg-muted/60 rounded-2xl mb-6">
-                                    <TabsTrigger
-                                        value="manual"
-                                        className="rounded-xl font-bold gap-2 text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all"
-                                    >
+                        <CardContent className="space-y-6">
+                            {/* Direct Course Purchase Banner */}
+                            <div className="p-4 bg-emerald-500/10 border-2 border-emerald-500/20 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="space-y-1">
+                                    <h4 className="font-bold text-sm text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                                        <Zap className="h-4 w-4 text-emerald-600 fill-emerald-600" />
+                                        تريد الدفع الفوري بالفيزا أو كروت ميزة أو فوري؟
+                                    </h4>
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                        يمكنك التوجه مباشرة لصفحة أي كورس والضغط على <strong className="text-foreground">"الاشتراك وشراء الكورس"</strong> وستتمكن من سداد قيمته فورياً بأمان دون الحاجة لشحن المحفظة مسبقاً!
+                                    </p>
+                                </div>
+                                <Button size="sm" asChild className="shrink-0 font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-md">
+                                    <Link href="/courses">
+                                        <span>تصفح الكورسات</span>
+                                        <ArrowRight className="h-3.5 w-3.5 mr-auto" />
+                                    </Link>
+                                </Button>
+                            </div>
+
+                            {/* MANUAL TRANSFER FORM & NUMBERS */}
+                            <div className="bg-muted/50 p-6 rounded-2xl space-y-6 border-2 border-dashed border-primary/20">
+                                <div className="space-y-4">
+                                    <h3 className="font-bold text-sm flex items-center gap-2 text-primary">
                                         <Smartphone className="h-4 w-4" />
-                                        <span>تحويل يدوي (فودافون كاش / إنستاباي)</span>
-                                    </TabsTrigger>
-                                    <TabsTrigger
-                                        value="fawaterak"
-                                        className="rounded-xl font-bold gap-2 text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all"
-                                    >
-                                        <Zap className="h-4 w-4 text-amber-500 fill-amber-500" />
-                                        <span>دفع إلكتروني فوري</span>
-                                        <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-300 font-bold px-1.5 py-0 hidden sm:inline-flex">
-                                            فوري وآلي ⚡
-                                        </Badge>
-                                    </TabsTrigger>
-                                </TabsList>
-
-                                {/* TAB 1: FAWATERAK INSTANT PAYMENT */}
-                                <TabsContent value="fawaterak" className="space-y-6 animate-in fade-in-50">
-                                    <div className="p-4 rounded-2xl border bg-muted/20 space-y-3">
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                                                <ShieldCheck className="h-5 w-5" />
-                                            </div>
-                                            <div className="space-y-0.5">
-                                                <h4 className="font-bold text-sm text-foreground">دفع إلكتروني مؤمن 100%</h4>
-                                                <p className="text-[11px] text-muted-foreground">مشفر بأعلى معايير الأمان البنكي (3D Secure & SSL)</p>
-                                            </div>
-                                        </div>
-
-                                        <p className="text-xs text-muted-foreground leading-relaxed">
-                                            ادفع بأمان عبر <span className="font-bold text-foreground">الفيزا، الماستركارد، كروت ميزة، محافظ الهاتف (فودافون كاش، أورنج، اتصالات، وي باي)، فوري باي، أو إنستاباي</span>. يتم شحن رصيدك في المحفظة لحظياً بمجرد إتمام العملية!
-                                        </p>
-
-                                        {/* Payment Methods Badges Preview */}
-                                        <div className="flex flex-wrap gap-2 pt-1 border-t border-primary/10">
-                                            <span className="text-[11px] font-bold bg-background/80 px-2.5 py-1 rounded-lg border">💳 Visa / Mastercard</span>
-                                            <span className="text-[11px] font-bold bg-background/80 px-2.5 py-1 rounded-lg border">💳 كروت ميزة Meeza</span>
-                                            <span className="text-[11px] font-bold bg-background/80 px-2.5 py-1 rounded-lg border">📱 Vodafone Cash & Wallets</span>
-                                            <span className="text-[11px] font-bold bg-background/80 px-2.5 py-1 rounded-lg border">🏪 كود فوري Fawry Pay</span>
-                                            <span className="text-[11px] font-bold bg-background/80 px-2.5 py-1 rounded-lg border">⚡ InstaPay</span>
-                                        </div>
-                                    </div>
-
-                                    <form onSubmit={handleFawaterakRecharge} className="space-y-5">
-                                        <div className="space-y-3">
-                                            <Label className="text-sm font-bold">المبلغ المراد شحنه (ج.م)</Label>
-                                            
-                                            {/* Quick amount presets */}
-                                            <div className="grid grid-cols-4 gap-2">
-                                                {["50", "100", "200", "500"].map((preset) => (
-                                                    <Button
-                                                        key={preset}
-                                                        type="button"
-                                                        variant={fawaterakAmount === preset ? "default" : "outline"}
-                                                        onClick={() => setFawaterakAmount(preset)}
-                                                        className="h-11 rounded-xl font-bold text-sm"
-                                                    >
-                                                        {preset} ج.م
-                                                    </Button>
-                                                ))}
-                                            </div>
-
-                                            <div className="relative">
-                                                <Input
-                                                    type="number"
-                                                    min="10"
-                                                    step="1"
-                                                    placeholder="أو اكتب أي مبلغ آخر (مثال: 350)"
-                                                    className="h-12 rounded-xl border-2 text-base font-bold focus-visible:ring-primary/20 pl-14"
-                                                    value={fawaterakAmount}
-                                                    onChange={(e) => setFawaterakAmount(e.target.value)}
-                                                    required
-                                                />
-                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">ج.م</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="p-3.5 bg-muted/40 rounded-xl text-xs text-muted-foreground flex items-center justify-between">
-                                            <span>المبلغ الإجمالي المطلوب سداده:</span>
-                                            <span className="text-lg font-black text-primary">{Number(fawaterakAmount || 0).toLocaleString()} ج.م</span>
-                                        </div>
-
-                                        <Button
-                                            type="submit"
-                                            className="w-full h-13 text-base rounded-xl font-bold shadow-lg hover:shadow-primary/25 transition-all gap-2"
-                                            disabled={fawaterakLoading || !fawaterakAmount || Number(fawaterakAmount) < 10}
-                                        >
-                                            {fawaterakLoading ? (
-                                                <>
-                                                    <Loader2 className="h-5 w-5 animate-spin" />
-                                                    جاري الاتصال ببوابة فواتيرك...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <CreditCard className="h-5 w-5" />
-                                                    الانتقال لبوابة الدفع (فواتيرك) والشحن فوراً
-                                                    <ArrowRight className="h-4 w-4 mr-auto" />
-                                                </>
-                                            )}
-                                        </Button>
-                                    </form>
-                                </TabsContent>
-
-                                {/* TAB 2: MANUAL TRANSFER (PRESERVED EXACTLY AS EXISTING) */}
-                                <TabsContent value="manual" className="space-y-6 animate-in fade-in-50">
-                                    <div className="bg-muted/50 p-6 rounded-2xl space-y-6 border-2 border-dashed border-primary/20">
-                                        <div className="space-y-4">
-                                            <h3 className="font-bold text-sm flex items-center gap-2 text-primary">
-                                                <Smartphone className="h-4 w-4" />
-                                                1. المحافظ الإلكترونية (Vodafone, Orange, Etisalat Cash)
-                                            </h3>
+                                        1. المحافظ الإلكترونية (Vodafone, Orange, Etisalat Cash)
+                                    </h3>
                                             <div className="flex items-center justify-between bg-background p-3 rounded-xl border border-primary/10">
                                                 <div className="space-y-1">
                                                     <p className="text-[10px] text-muted-foreground font-bold">رقم التحويل للمحافظ</p>
@@ -543,8 +405,6 @@ function WalletContent() {
                                             )}
                                         </Button>
                                     </form>
-                                </TabsContent>
-                            </Tabs>
                         </CardContent>
                     </Card>
                 </div>
@@ -553,10 +413,18 @@ function WalletContent() {
                 <div className="space-y-6">
                     <Card className="border-2 shadow-sm h-fit">
                         <CardHeader className="bg-muted/30 border-b">
-                            <CardTitle className="text-lg font-bold flex items-center gap-2">
-                                <History className="h-5 w-5" />
-                                سجل عمليات الشحن
-                            </CardTitle>
+                            <div className="flex items-center justify-between">
+                                <CardTitle className="text-lg font-bold flex items-center gap-2">
+                                    <History className="h-5 w-5" />
+                                    سجل عمليات الشحن
+                                </CardTitle>
+                                <Button variant="ghost" size="sm" asChild className="text-xs font-bold gap-1 text-primary hover:text-primary">
+                                    <Link href="/dashboard/wallet/history">
+                                        <span>السجل الكامل</span>
+                                        <ArrowRight className="h-3 w-3" />
+                                    </Link>
+                                </Button>
+                            </div>
                         </CardHeader>
                         <CardContent className="p-0">
                             {history.length === 0 ? (
@@ -598,6 +466,16 @@ function WalletContent() {
                                     ))}
                                 </div>
                             )}
+
+                            {/* Full Ledger CTA Button */}
+                            <div className="p-3 border-t bg-muted/20 text-center">
+                                <Button variant="outline" size="sm" asChild className="w-full text-xs font-bold gap-2 rounded-xl shadow-xs">
+                                    <Link href="/dashboard/wallet/history">
+                                        <History className="h-4 w-4 text-primary" />
+                                        <span>عرض السجل المالي والمدفوعات بالكامل 📊</span>
+                                    </Link>
+                                </Button>
+                            </div>
                         </CardContent>
                     </Card>
 

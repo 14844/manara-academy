@@ -141,6 +141,7 @@ export async function POST(request: Request) {
                     // Audit log
                     t.create(txLogRef, {
                         type: "enrollment_payout",
+                        payment_method: "wallet",
                         amount: finalPrice,
                         instructor_id: course.instructor_id,
                         instructor_share: instructorEarnings,
@@ -150,6 +151,7 @@ export async function POST(request: Request) {
                         course_id: courseId,
                         course_title: course.title,
                         coupon_used: appliedCoupon?.code || null,
+                        status: "completed",
                         created_at: new Date().toISOString(),
                     });
                 }

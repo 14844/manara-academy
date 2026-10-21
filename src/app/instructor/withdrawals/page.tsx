@@ -30,7 +30,8 @@ import {
     AlertCircle,
     Printer,
     ArrowLeft,
-    Loader2
+    Loader2,
+    ShieldCheck
 } from "lucide-react"
 import { toast } from "sonner"
 import { logActivity } from "@/lib/activity-logger"
@@ -249,6 +250,24 @@ export default function InstructorWithdrawalsPage() {
                         <h1 className="text-3xl font-bold">المحفظة والأرباح</h1>
                         <p className="text-muted-foreground">إدارة طلبات سحب الأرباح والتقارير المالية</p>
                     </div>
+                </div>
+            </div>
+
+            {/* Transparency & Money Flow Banner */}
+            <div className="p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 flex items-start gap-3">
+                <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0 mt-0.5">
+                    <ShieldCheck className="h-5 w-5" />
+                </div>
+                <div className="space-y-1 text-xs">
+                    <h4 className="font-bold text-foreground text-sm flex items-center gap-2">
+                        <span>نظام احتساب وتوزيع الأرباح (شفافية كاملة 100%)</span>
+                        <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-300 font-bold">
+                            صافي أرباحك 95%
+                        </Badge>
+                    </h4>
+                    <p className="text-muted-foreground leading-relaxed">
+                        يتم إيداع حصتك الصافية (<strong className="text-foreground">95%</strong> من قيمة كل اشتراك) تلقائياً في رصيدك المتاح للسحب لحظة التحاق أي طالب، سواء سدد الطالب عبر <strong className="text-foreground">الدفع الإلكتروني المباشر (فواتيرك - فيزا/فوري/ميزة)</strong> أو من خلال <strong className="text-foreground">رصيد محفظته</strong>. يمكنك تقديم طلب سحب أرباحك في أي وقت وسيتم تحويلها فوراً إلى حسابك (فودافون كاش / إنستاباي / حساب بنكي).
+                    </p>
                 </div>
             </div>
 

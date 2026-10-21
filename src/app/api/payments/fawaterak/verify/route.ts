@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { getFawaterakTransactionData } from "@/lib/payments/fawaterak";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { getServerAuth } from "@/lib/server-auth";
@@ -18,7 +19,169 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Missing intentKey" }, { status: 400 });
         }
 
-        // 1. Verify intentKey ownership from wallet_requests
+        // 1. Check if intent belongs to a course order
+        const courseOrderSnap = await adminDb
+            .collection("course_orders")
+            .where("fawaterak_intent_key", "==", intentKey)
+            .limit(1)
+            .get();
+
+        if (!courseOrderSnap.empty) {
+            const orderDoc = courseOrderSnap.docs[0];
+            const orderData = orderDoc.data();
+
+            if (orderData.student_id !== user.uid) {
+                return NextResponse.json({ error: "غير مصرح لك بتأكيد هذا الدفع" }, { status: 403 });
+            }
+
+            const txRef = adminDb.collection("transactions").doc(intentKey);
+            const existingTx = await txRef.get();
+
+            if (existingTx.exists || orderData.status === "completed") {
+                return NextResponse.json({
+                    status: "success",
+                    type: "course_purchase",
+                    course_id: orderData.course_id,
+                    already_credited: true,
+                    message: "تم تأكيد اشتراكك في الكورس بنجاح!",
+                });
+            }
+
+            // Query Fawaterak API for status
+            const txData = await getFawaterakTransactionData(intentKey);
+            if (!txData || !txData.data) {
+                return NextResponse.json({
+                    status: "pending",
+                    message: "جاري تأكيد المعاملة من البنك...",
+                });
+            }
+
+            const data = txData.data;
+            const txStatus = (data.status || "").toLowerCase();
+
+            if (txStatus === "paid" || txStatus === "success") {
+                const requestedAmount = Number(orderData.amount || 0);
+                const finalPaid = requestedAmount;
+                const instructorEarnings = Number(orderData.instructor_share ?? (finalPaid * 0.95));
+                const platformCommission = Number(orderData.platform_commission ?? (finalPaid * 0.05));
+                const transactionId = data.id || data.transaction_id || intentKey;
+                const paymentMethod = data.payment_method || "Online";
+
+                const enrollmentRef = adminDb.collection("enrollments").doc(`${user.uid}_${orderData.course_id}`);
+                const courseRef = adminDb.collection("courses").doc(orderData.course_id);
+                const instructorPrivateRef = orderData.instructor_id
+                    ? adminDb.collection("profiles_private").doc(orderData.instructor_id)
+                    : null;
+
+                let alreadyProcessed = false;
+
+                await adminDb.runTransaction(async (t) => {
+                    const txDoc = await t.get(txRef);
+                    if (txDoc.exists) {
+                        alreadyProcessed = true;
+                        return;
+                    }
+
+                    t.set(enrollmentRef, {
+                        id: `${user.uid}_${orderData.course_id}`,
+                        student_id: user.uid,
+                        student_name: orderData.student_name || "طالب",
+                        student_unique_id: orderData.student_unique_id || "N/A",
+                        course_id: orderData.course_id,
+                        course_title: orderData.course_title || "",
+                        instructor_id: orderData.instructor_id || "",
+                        instructor_name: orderData.instructor_name || "",
+                        enrolled_at: new Date().toISOString(),
+                        progress: 0,
+                        status: "active",
+                        paid_amount: finalPaid,
+                        original_price: orderData.original_price || finalPaid,
+                        coupon_used: orderData.coupon_code || null,
+                        payment_method: "fawaterak_online",
+                    }, { merge: true });
+
+                    t.update(courseRef, { students_count: FieldValue.increment(1) });
+
+                    if (instructorPrivateRef) {
+                        t.set(instructorPrivateRef, {
+                            wallet_balance: FieldValue.increment(instructorEarnings),
+                            updated_at: new Date().toISOString(),
+                        }, { merge: true });
+                    }
+
+                    t.create(txRef, {
+                        type: "course_purchase_fawaterak",
+                        student_id: user.uid,
+                        student_name: orderData.student_name || "طالب",
+                        student_email: orderData.student_email || "",
+                        course_id: orderData.course_id,
+                        course_title: orderData.course_title || "",
+                        instructor_id: orderData.instructor_id || "",
+                        instructor_name: orderData.instructor_name || "",
+                        amount: finalPaid,
+                        instructor_share: instructorEarnings,
+                        platform_commission: platformCommission,
+                        payment_method: "fawaterak",
+                        provider_method: paymentMethod,
+                        fawaterak_transaction_id: transactionId,
+                        fawaterak_transaction_key: intentKey,
+                        intent_key: intentKey,
+                        coupon_used: orderData.coupon_code || null,
+                        status: "completed",
+                        created_at: new Date().toISOString(),
+                    });
+                });
+
+                if (alreadyProcessed) {
+                    return NextResponse.json({
+                        status: "success",
+                        type: "course_purchase",
+                        course_id: orderData.course_id,
+                        already_credited: true,
+                        message: "تم تفعيل الكورس بنجاح مسبقاً!",
+                    });
+                }
+
+                await orderDoc.ref.update({
+                    status: "completed",
+                    fawaterak_transaction_id: transactionId,
+                    payment_method_name: paymentMethod,
+                    updated_at: new Date().toISOString(),
+                });
+
+                await logServerActivity({
+                    action: "course_purchased_fawaterak_verified",
+                    category: "financial",
+                    title: `تأكيد شراء كورس إلكترونياً (${orderData.course_title})`,
+                    description: `تم التحقق وتأكيد دفع كورس "${orderData.course_title}" للطالب "${orderData.student_name}" عبر فواتيرك`,
+                    status: "success",
+                    user_id: user.uid,
+                    user_name: orderData.student_name || "طالب",
+                    user_email: orderData.student_email || "",
+                    user_role: "student",
+                    amount: finalPaid,
+                    metadata: {
+                        course_id: orderData.course_id,
+                        course_title: orderData.course_title,
+                        amount: finalPaid,
+                    },
+                });
+
+                return NextResponse.json({
+                    status: "success",
+                    type: "course_purchase",
+                    course_id: orderData.course_id,
+                    message: "تم تفعيل الكورس بنجاح!",
+                });
+            }
+
+            return NextResponse.json({
+                status: txStatus || "pending",
+                message: "حالة المعاملة قيد المعالجة أو لم تكتمل بعد.",
+            });
+        }
+
+        // 2. Fallback to wallet_requests
         const walletReqSnap = await adminDb
             .collection("wallet_requests")
             .where("fawaterak_intent_key", "==", intentKey)
@@ -26,7 +189,7 @@ export async function POST(request: Request) {
             .get();
 
         if (walletReqSnap.empty) {
-            return NextResponse.json({ error: "طلب الشحن غير مسجل" }, { status: 404 });
+            return NextResponse.json({ error: "طلب الدفع غير مسجل" }, { status: 404 });
         }
 
         const walletReqDoc = walletReqSnap.docs[0];
@@ -36,11 +199,6 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "غير مصرح لك بتأكيد هذا الدفع" }, { status: 403 });
         }
 
-        if (walletData.status !== "pending_payment" && walletData.status !== "pending") {
-            return NextResponse.json({ error: "طلب الشحن تم معالجته مسبقاً أو غير صالح" }, { status: 400 });
-        }
-
-        // 2. Fixed doc id for unified idempotency check with webhook
         const txRef = adminDb.collection("transactions").doc(intentKey);
         const existingTx = await txRef.get();
 
@@ -52,7 +210,7 @@ export async function POST(request: Request) {
             });
         }
 
-        // 3. Query Fawaterak API for status
+        // Query Fawaterak API for status
         const txData = await getFawaterakTransactionData(intentKey);
         if (!txData || !txData.data) {
             return NextResponse.json({
@@ -65,28 +223,7 @@ export async function POST(request: Request) {
         const txStatus = (data.status || "").toLowerCase();
 
         if (txStatus === "paid" || txStatus === "success") {
-            const rawAmount =
-                data.paid_amount ??
-                data.paidAmount ??
-                data.amount ??
-                data.total ??
-                data.cartTotal ??
-                data.payment_data?.amount ??
-                data.payment_data?.paid_amount ??
-                data.invoice?.total ??
-                data.invoice?.paid_amount ??
-                data.invoice_total ??
-                null;
-
             const requestedAmount = Number(walletData.amount || 0);
-
-            if (rawAmount !== null && rawAmount !== undefined) {
-                const fawaterakPaid = Number(rawAmount);
-                if (!isNaN(fawaterakPaid) && fawaterakPaid > 0 && fawaterakPaid < requestedAmount) {
-                    return NextResponse.json({ error: "المبلغ المدفوع غير مطابق للطلب" }, { status: 400 });
-                }
-            }
-
             const paidAmount = requestedAmount;
             const transactionId = data.id || data.transaction_id || intentKey;
             const paymentMethod = data.payment_method || "Online";
@@ -148,7 +285,6 @@ export async function POST(request: Request) {
                     updated_at: new Date().toISOString(),
                 });
 
-                // Log activity
                 await logServerActivity({
                     action: "wallet_recharge_fawaterak_verified",
                     category: "financial",
