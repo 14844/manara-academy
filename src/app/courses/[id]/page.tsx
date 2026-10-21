@@ -673,10 +673,17 @@ export default function CourseDetailsPage() {
                                             </p>
                                         </div>
 
+                                        {fPrice < 5 && (
+                                            <p className="text-[11px] text-amber-600 font-bold flex items-center gap-1">
+                                                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                                                الحد الأدنى للدفع المباشر عبر فواتيرك هو 5 ج.م.
+                                            </p>
+                                        )}
+
                                         <Button
                                             type="button"
                                             onClick={handleFawaterakCoursePay}
-                                            disabled={isFawaterakLoading || fPrice < 10}
+                                            disabled={isFawaterakLoading || fPrice < 5}
                                             className="w-full h-12 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shadow-lg shadow-emerald-600/20"
                                         >
                                             {isFawaterakLoading ? (
