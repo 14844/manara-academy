@@ -12,6 +12,7 @@ import Link from "next/link"
 import { auth, db } from "@/lib/firebase/config"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import { useEffect } from "react"
+import { getCourseThumbnailUrl } from "@/lib/utils"
 import {
     Sheet,
     SheetContent,
@@ -253,7 +254,7 @@ function CourseCard({ course }: { course: any }) {
         <Card className="overflow-hidden hover:shadow-lg transition-shadow border-muted/60">
             <div className="aspect-video relative overflow-hidden">
                 <img
-                    src={course.thumbnail_url || "https://images.unsplash.com/photo-1501504905252-473c47e087f8?q=80&w=2074&auto=format&fit=crop"}
+                    src={getCourseThumbnailUrl(course.thumbnail_url)}
                     alt={course.title}
                     className="object-cover w-full h-full hover:scale-105 transition-transform duration-300"
                 />

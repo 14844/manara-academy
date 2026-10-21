@@ -13,6 +13,7 @@ import { collection, query, where, getDocs, doc, getDoc } from "firebase/firesto
 import { onAuthStateChanged } from "firebase/auth"
 import { Loader2 } from "lucide-react"
 import { useSupportSettings } from "@/hooks/use-support-settings"
+import { getCourseThumbnailUrl } from "@/lib/utils"
 
 export default function StudentDashboard() {
     const { settings: supportSettings } = useSupportSettings()
@@ -224,7 +225,7 @@ export default function StudentDashboard() {
                                             <div className="flex flex-col md:flex-row h-full">
                                                 <div className="w-full md:w-56 aspect-video md:aspect-auto relative shrink-0 overflow-hidden">
                                                     <img 
-                                                        src={course.thumbnail_url || "https://images.unsplash.com/photo-1501504905252-473c47e087f8?q=80&w=2074&auto=format&fit=crop"} 
+                                                        src={getCourseThumbnailUrl(course.thumbnail_url)} 
                                                         alt={course.title} 
                                                         className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500" 
                                                     />
@@ -288,7 +289,7 @@ export default function StudentDashboard() {
                                             <Card key={course.id} className="overflow-hidden border-muted group cursor-pointer hover:border-primary/50 transition-colors shadow-sm hover:shadow-md">
                                                 <div className="aspect-[16/9] relative">
                                                     <img 
-                                                        src={course.thumbnail_url || "https://images.unsplash.com/photo-1501504905252-473c47e087f8?q=80&w=2074&auto=format&fit=crop"} 
+                                                        src={getCourseThumbnailUrl(course.thumbnail_url)} 
                                                         alt={course.title} 
                                                         className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"
                                                     />

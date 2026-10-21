@@ -39,6 +39,7 @@ import Link from "next/link"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { logActivity } from "@/lib/activity-logger"
+import { getCourseThumbnailUrl } from "@/lib/utils"
 import {
     Dialog,
     DialogContent,
@@ -343,7 +344,7 @@ export default function CourseDetailsPage() {
                         </div>
                         <div className="relative aspect-video rounded-xl overflow-hidden shadow-2xl border">
                             <img
-                                src={course.thumbnail_url || "https://images.unsplash.com/photo-1501504905252-473c47e087f8?q=80&w=2074&auto=format&fit=crop"}
+                                src={getCourseThumbnailUrl(course.thumbnail_url)}
                                 alt={course.title}
                                 className="object-cover w-full h-full"
                             />

@@ -147,13 +147,15 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: `فشل الرفع لمساحة التخزين: ${uploadError.message}` }, { status: 500 })
         }
 
-        // Avatars: permanent non-expiring URL via platform storage route
+        // Avatars and Thumbnails: permanent non-expiring URL via platform storage routes
         // Completely free of tokens and expiration dates - works forever (20, 50, 100 years)
         // while keeping the main bucket strictly private against leaks.
         // Protected assets (videos, files, payment_proofs, questions) use short-lived signed URLs (15m)
         let finalUrl = ""
         if (isAvatar) {
             finalUrl = `/api/storage/avatar?path=${encodeURIComponent(storagePath)}`
+        } else if (rawFolder === "thumbnails") {
+            finalUrl = `/api/storage/thumbnail?path=${encodeURIComponent(storagePath)}`
         } else {
             // Protected asset in private bucket: generate short-lived signed URL (valid for 15 minutes = 900s)
             const { data: signedData, error: signError } = await supabaseAdmin.storage
