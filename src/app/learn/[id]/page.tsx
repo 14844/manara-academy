@@ -115,7 +115,7 @@ export default function LearnPage() {
                 const enrollmentRef = doc(db, "enrollments", `${user.uid}_${id}`)
                 const enrollmentSnap = await getDoc(enrollmentRef)
 
-                if (!enrollmentSnap.exists() && !isPreviewMode) {
+                if ((!enrollmentSnap.exists() || enrollmentSnap.data()?.status === "refunded") && !isPreviewMode) {
                     router.push(`/restricted-access?reason=course&courseId=${id}`)
                     return
                 }

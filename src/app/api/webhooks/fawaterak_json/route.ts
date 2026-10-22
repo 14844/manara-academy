@@ -46,11 +46,21 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Signature verification failed" }, { status: 401 });
         }
 
+        const intentKey = transactionKey;
+
         if (status !== "paid") {
+            const isRefundEvent = ["refunded", "refund", "chargeback", "reversed", "canceled", "cancelled"].includes(status);
+            if (isRefundEvent) {
+                return await processRefundEvent({
+                    intentKey,
+                    transactionId,
+                    payload,
+                    status,
+                });
+            }
             return NextResponse.json({ status: "acknowledged", payment_status: status });
         }
 
-        const intentKey = transactionKey;
         if (!intentKey) {
             return NextResponse.json({ error: "Missing intent_key" }, { status: 400 });
         }
@@ -319,5 +329,244 @@ export async function POST(request: Request) {
         }).catch(() => {});
 
         return NextResponse.json({ error: "فشل معالجة إشعار الدفع" }, { status: 500 });
+    }
+}
+
+/**
+ * Handle refund and chargeback webhook events from Fawaterak
+ * - Revokes student course enrollment immediately
+ * - Deducts 95% earnings from instructor's wallet (allows negative balance to protect the platform)
+ * - Decrements course students_count
+ * - Records refund transaction in the financial ledger
+ * - Logs server security activity
+ */
+async function processRefundEvent({
+    intentKey,
+    transactionId,
+    payload,
+    status,
+}: {
+    intentKey: string;
+    transactionId: string;
+    payload: any;
+    status: string;
+}) {
+    try {
+        console.warn(`[REFUND] Processing Fawaterak refund/chargeback event for intentKey: ${intentKey}, txId: ${transactionId}, status: ${status}`);
+
+        // 1. Check Course Orders
+        let orderDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+        if (intentKey) {
+            const snap = await adminDb
+                .collection("course_orders")
+                .where("fawaterak_intent_key", "==", intentKey)
+                .limit(1)
+                .get();
+            if (!snap.empty) orderDoc = snap.docs[0];
+        }
+
+        if (!orderDoc && transactionId) {
+            const snap = await adminDb
+                .collection("course_orders")
+                .where("fawaterak_transaction_id", "==", transactionId)
+                .limit(1)
+                .get();
+            if (!snap.empty) orderDoc = snap.docs[0];
+        }
+
+        if (orderDoc) {
+            const orderData = orderDoc.data();
+
+            if (orderData.status === "refunded") {
+                return NextResponse.json({ status: "already_refunded" });
+            }
+
+            const studentId = orderData.student_id;
+            const courseId = orderData.course_id;
+            const instructorId = orderData.instructor_id;
+            const finalPaid = Number(orderData.amount || 0);
+            const instructorShare = Number(orderData.instructor_share ?? (finalPaid * 0.95));
+
+            const enrollmentRef = adminDb.collection("enrollments").doc(`${studentId}_${courseId}`);
+            const courseRef = adminDb.collection("courses").doc(courseId);
+            const instructorProfileRef = instructorId ? adminDb.collection("profiles").doc(instructorId) : null;
+            const instructorPrivateRef = instructorId ? adminDb.collection("profiles_private").doc(instructorId) : null;
+            const studentProfileRef = adminDb.collection("profiles").doc(studentId);
+            const refundTxRef = adminDb.collection("transactions").doc(`refund_${intentKey || transactionId || Date.now()}`);
+
+            await adminDb.runTransaction(async (t) => {
+                // A. Update order status to refunded
+                t.update(orderDoc!.ref, {
+                    status: "refunded",
+                    refund_status: status,
+                    refund_reason: payload.reason || payload.message || "fawaterak_chargeback_or_refund",
+                    refunded_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                });
+
+                // B. Revoke student enrollment
+                t.set(enrollmentRef, {
+                    status: "refunded",
+                    revoked_at: new Date().toISOString(),
+                    refund_reason: "fawaterak_chargeback_or_refund",
+                }, { merge: true });
+
+                // C. Remove course from student's enrolled courses list
+                t.update(studentProfileRef, {
+                    enrolled_courses: FieldValue.arrayRemove(courseId),
+                    updated_at: new Date().toISOString(),
+                });
+
+                // D. Decrement course student counter
+                t.update(courseRef, {
+                    students_count: FieldValue.increment(-1),
+                });
+
+                // E. Deduct instructor share (can go negative to protect platform)
+                if (instructorPrivateRef) {
+                    t.set(instructorPrivateRef, {
+                        wallet_balance: FieldValue.increment(-instructorShare),
+                        updated_at: new Date().toISOString(),
+                    }, { merge: true });
+                }
+                if (instructorProfileRef) {
+                    t.set(instructorProfileRef, {
+                        wallet_balance: FieldValue.increment(-instructorShare),
+                        total_earned: FieldValue.increment(-instructorShare),
+                        updated_at: new Date().toISOString(),
+                    }, { merge: true });
+                }
+
+                // F. Record refund transaction in ledger
+                t.set(refundTxRef, {
+                    type: "course_refund_fawaterak",
+                    original_intent_key: intentKey || "N/A",
+                    original_transaction_id: transactionId || "N/A",
+                    student_id: studentId,
+                    student_name: orderData.student_name || "طالب",
+                    student_email: orderData.student_email || "",
+                    course_id: courseId,
+                    course_title: orderData.course_title || "",
+                    instructor_id: instructorId || "",
+                    amount: finalPaid,
+                    instructor_deduction: instructorShare,
+                    platform_deduction: Number(orderData.platform_commission || 0),
+                    status: "refunded",
+                    refund_type: status,
+                    payment_gateway: "fawaterak",
+                    created_at: new Date().toISOString(),
+                });
+            });
+
+            // Log server activity
+            await logServerActivity({
+                action: "fawaterak_course_refund_processed",
+                category: "financial",
+                title: `تم تنفيذ استرداد وإلغاء كورس (${orderData.course_title})`,
+                description: `تم استرداد مبلغ ${finalPaid} ج.م وإلغاء اشتراك الطالب "${orderData.student_name}" وخصم ${instructorShare} ج.م من محفظة المحاضر (${status})`,
+                status: "info",
+                user_id: studentId,
+                user_name: orderData.student_name,
+                amount: finalPaid,
+                metadata: {
+                    course_id: courseId,
+                    instructor_id: instructorId,
+                    intent_key: intentKey,
+                    transaction_id: transactionId,
+                    instructor_deduction: instructorShare,
+                    refund_status: status,
+                },
+            });
+
+            return NextResponse.json({
+                status: "refund_processed",
+                type: "course_purchase",
+                refunded_amount: finalPaid,
+                instructor_deduction: instructorShare,
+            });
+        }
+
+        // 2. Check Wallet Recharge
+        let reqDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+        if (intentKey) {
+            const snap = await adminDb
+                .collection("wallet_requests")
+                .where("fawaterak_intent_key", "==", intentKey)
+                .limit(1)
+                .get();
+            if (!snap.empty) reqDoc = snap.docs[0];
+        }
+
+        if (!reqDoc && transactionId) {
+            const snap = await adminDb
+                .collection("wallet_requests")
+                .where("fawaterak_transaction_id", "==", transactionId)
+                .limit(1)
+                .get();
+            if (!snap.empty) reqDoc = snap.docs[0];
+        }
+
+        if (reqDoc) {
+            const reqData = reqDoc.data();
+            if (reqData.status === "refunded") {
+                return NextResponse.json({ status: "already_refunded" });
+            }
+
+            const studentId = reqData.student_id;
+            const amount = Number(reqData.amount || 0);
+
+            const studentPrivateRef = adminDb.collection("profiles_private").doc(studentId);
+            const studentProfileRef = adminDb.collection("profiles").doc(studentId);
+            const refundTxRef = adminDb.collection("transactions").doc(`refund_recharge_${intentKey || transactionId || Date.now()}`);
+
+            await adminDb.runTransaction(async (t) => {
+                t.update(reqDoc!.ref, {
+                    status: "refunded",
+                    refunded_at: new Date().toISOString(),
+                    refund_reason: payload.reason || status,
+                });
+
+                t.set(studentPrivateRef, {
+                    wallet_balance: FieldValue.increment(-amount),
+                    updated_at: new Date().toISOString(),
+                }, { merge: true });
+
+                t.set(studentProfileRef, {
+                    wallet_balance: FieldValue.increment(-amount),
+                    updated_at: new Date().toISOString(),
+                }, { merge: true });
+
+                t.set(refundTxRef, {
+                    type: "wallet_recharge_refund",
+                    original_intent_key: intentKey || "N/A",
+                    student_id: studentId,
+                    amount: amount,
+                    status: "refunded",
+                    payment_gateway: "fawaterak",
+                    created_at: new Date().toISOString(),
+                });
+            });
+
+            await logServerActivity({
+                action: "wallet_recharge_refund_processed",
+                category: "financial",
+                title: `استرداد شحن محفظة عبر فواتيرك (${amount} ج.م)`,
+                description: `تم سحب ${amount} ج.م من محفظة الطالب نتيجة استرداد عملية الشحن (${status})`,
+                status: "info",
+                user_id: studentId,
+                amount: amount,
+            });
+
+            return NextResponse.json({
+                status: "refund_processed",
+                type: "wallet_recharge",
+                deducted_amount: amount,
+            });
+        }
+
+        return NextResponse.json({ error: "Order or recharge not found for refund" }, { status: 404 });
+    } catch (err: any) {
+        console.error("Error processing refund event:", err);
+        return NextResponse.json({ error: "Internal error processing refund" }, { status: 500 });
     }
 }

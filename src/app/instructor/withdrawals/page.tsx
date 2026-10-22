@@ -229,6 +229,18 @@ export default function InstructorWithdrawalsPage() {
         }
     }
 
+    const sortedRequests = [...requests].sort((a: any, b: any) =>
+        new Date(b.requested_at || b.created_at).getTime() - new Date(a.requested_at || a.created_at).getTime()
+    )
+    const hasPending = sortedRequests.some(r => r.status === "pending")
+    const latestReq = sortedRequests[0]
+    const lastReqTime = latestReq ? new Date(latestReq.requested_at || latestReq.created_at).getTime() : 0
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
+    const diffMs = Date.now() - lastReqTime
+    const isWithinWeek = latestReq && diffMs < sevenDaysMs
+    const remainingDays = Math.ceil((sevenDaysMs - diffMs) / (1000 * 60 * 60 * 24))
+    const nextEligibleDate = latestReq ? new Date(lastReqTime + sevenDaysMs).toLocaleDateString('ar-EG', { dateStyle: 'medium' }) : ""
+
     if (isLoading) {
         return (
             <div className="flex min-h-screen items-center justify-center bg-zinc-50/50">
@@ -253,6 +265,19 @@ export default function InstructorWithdrawalsPage() {
                 </div>
             </div>
 
+            {/* Negative Balance Alert */}
+            {balance.net < 0 && (
+                <div className="p-4 rounded-2xl border-2 border-red-500/30 bg-red-500/10 text-red-700 flex items-start gap-3">
+                    <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                    <div className="space-y-1 text-xs">
+                        <h4 className="font-bold text-sm">تنبيه مالي: رصيد المحفظة الحالي بالسالب ({balance.net.toLocaleString()} ج.م)</h4>
+                        <p className="leading-relaxed">
+                            تم تسجيل رصيد سالب نتيجة استرداد بنكي أو إلغاء كورس سابق (Chargeback / Refund). سيتم تسوية هذا المبلغ تلقائياً وخصمه من مبيعات الكورسات القادمة حتى يعود الرصيد موجباً.
+                        </p>
+                    </div>
+                </div>
+            )}
+
             {/* Transparency & Money Flow Banner */}
             <div className="p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 flex items-start gap-3">
                 <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0 mt-0.5">
@@ -264,33 +289,54 @@ export default function InstructorWithdrawalsPage() {
                         <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-300 font-bold">
                             صافي أرباحك 95%
                         </Badge>
+                        <Badge variant="secondary" className="text-[10px] font-bold">
+                            السحب أسبوعياً ⏱️
+                        </Badge>
                     </h4>
                     <p className="text-muted-foreground leading-relaxed">
-                        يتم إيداع حصتك الصافية (<strong className="text-foreground">95%</strong> من قيمة كل اشتراك) تلقائياً في رصيدك المتاح للسحب لحظة التحاق أي طالب، سواء سدد الطالب عبر <strong className="text-foreground">الدفع الإلكتروني المباشر (فواتيرك - فيزا/فوري/ميزة)</strong> أو من خلال <strong className="text-foreground">رصيد محفظته</strong>. يمكنك تقديم طلب سحب أرباحك في أي وقت وسيتم تحويلها فوراً إلى حسابك (فودافون كاش / إنستاباي / حساب بنكي).
+                        يتم إيداع حصتك الصافية (<strong className="text-foreground">95%</strong> من قيمة كل اشتراك) تلقائياً في رصيدك لحظة التحاق أي طالب، سواء سدد الطالب عبر <strong className="text-foreground">الدفع الإلكتروني المباشر (فواتيرك - فيزا/فوري/ميزة)</strong> أو من خلال <strong className="text-foreground">رصيد محفظته</strong>. يُسمح بتقديم طلب سحب الأرباح <strong className="text-foreground">مرة واحدة كل 7 أيام (أسبوعياً)</strong> لضمان استقرار المعاملات البنكية وحماية المنصة والمحاضر ضد نزاعات الاسترداد (Chargeback).
                     </p>
                 </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card className="bg-primary text-primary-foreground shadow-xl border-none overflow-hidden relative">
+                <Card className={`text-primary-foreground shadow-xl border-none overflow-hidden relative ${balance.net < 0 ? 'bg-red-600' : 'bg-primary'}`}>
                     <div className="absolute top-0 right-0 p-8 opacity-10">
                         <Wallet className="h-24 w-24" />
                     </div>
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium opacity-80 uppercase tracking-wider">صافي الربح المتاح</CardTitle>
+                        <CardTitle className="text-sm font-medium opacity-80 uppercase tracking-wider">
+                            {balance.net < 0 ? "الرصيد المستحق (مدين)" : "صافي الربح المتاح"}
+                        </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="text-4xl font-black">
                             {balance.net.toLocaleString()} <span className="text-lg">ج.م</span>
                         </div>
-                        <div className="flex items-center gap-2 pt-2">
-                            <Dialog open={showRequestModal} onOpenChange={setShowRequestModal}>
-                                <DialogTrigger asChild>
-                                    <Button className="w-full bg-white text-primary hover:bg-zinc-100 font-bold gap-2">
-                                        <ArrowUpRight className="h-4 w-4" />
-                                        طلب سحب الأرباح الآن
-                                    </Button>
-                                </DialogTrigger>
+                        <div className="flex flex-col gap-2 pt-2">
+                            {balance.net <= 0 ? (
+                                <Button disabled className="w-full bg-white/20 text-white cursor-not-allowed font-bold gap-2">
+                                    <AlertCircle className="h-4 w-4" />
+                                    {balance.net < 0 ? "الرصيد بالسالب (غير مؤهل للسحب)" : "لا يوجد رصيد متاح للسحب"}
+                                </Button>
+                            ) : hasPending ? (
+                                <Button disabled className="w-full bg-white/20 text-white cursor-not-allowed font-bold gap-2">
+                                    <Clock className="h-4 w-4" />
+                                    يوجد طلب سحب قيد المعالجة
+                                </Button>
+                            ) : isWithinWeek ? (
+                                <Button disabled className="w-full bg-white/20 text-white cursor-not-allowed font-bold text-xs gap-1.5">
+                                    <Clock className="h-4 w-4" />
+                                    السحب القادم متاح بعد {remainingDays} {remainingDays === 1 ? 'يوم' : 'أيام'} ({nextEligibleDate})
+                                </Button>
+                            ) : (
+                                <Dialog open={showRequestModal} onOpenChange={setShowRequestModal}>
+                                    <DialogTrigger asChild>
+                                        <Button className="w-full bg-white text-primary hover:bg-zinc-100 font-bold gap-2">
+                                            <ArrowUpRight className="h-4 w-4" />
+                                            طلب سحب الأرباح الآن
+                                        </Button>
+                                    </DialogTrigger>
                                 <DialogContent className="font-arabic rtl">
                                     <DialogHeader>
                                         <DialogTitle>تأكيد طلب السحب</DialogTitle>
@@ -324,6 +370,7 @@ export default function InstructorWithdrawalsPage() {
                                     </DialogFooter>
                                 </DialogContent>
                             </Dialog>
+                            )}
                         </div>
                     </CardContent>
                 </Card>
