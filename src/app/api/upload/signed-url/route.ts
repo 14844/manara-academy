@@ -139,7 +139,9 @@ export async function POST(request: NextRequest) {
         } else if (rawFolder === "thumbnails") {
             finalUrl = `/api/storage/thumbnail?path=${encodeURIComponent(storagePath)}`
         } else {
-            finalUrl = `/api/storage/sign?url=${encodeURIComponent(storagePath)}`
+            // For videos, files, and questions: store clean storagePath (e.g. videos/courses/...)
+            // This is recognized by /api/video/token and all platform streaming routes
+            finalUrl = storagePath
         }
 
         return NextResponse.json({

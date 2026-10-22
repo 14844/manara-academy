@@ -65,7 +65,9 @@ export async function GET(request: Request) {
         const privateMediaSnap = await adminDb.doc(`courses/${courseId}/private/media`).get();
         if (privateMediaSnap.exists) {
             const mediaData = privateMediaSnap.data() || {};
-            const lessonMedia = mediaData[lessonId];
+            // Match lessonId as string, as number, or fuzzy key
+            const matchKey = Object.keys(mediaData).find(k => k?.toString() === lessonId?.toString());
+            const lessonMedia = matchKey ? mediaData[matchKey] : mediaData[lessonId];
             if (lessonMedia) {
                 videoPath = typeof lessonMedia === "string" ? lessonMedia : (lessonMedia.video_path || lessonMedia.url || null);
             }
@@ -96,11 +98,33 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: "Lesson media not found" }, { status: 404 });
         }
 
+        // Decode and normalize videoPath if it was wrapped in /api/storage/sign or similar
+        let rawPath = videoPath.trim();
+        if (rawPath.includes("/api/storage/sign") || rawPath.includes("storage/sign?")) {
+            try {
+                const parsed = new URL(rawPath, "https://placeholder.local");
+                const extracted = parsed.searchParams.get("url") || parsed.searchParams.get("path");
+                if (extracted) {
+                    rawPath = decodeURIComponent(extracted);
+                }
+            } catch {
+                const match = rawPath.match(/[?&](?:url|path)=([^&]+)/);
+                if (match) rawPath = decodeURIComponent(match[1]);
+            }
+        }
+
         // 3. توكن قصير الأجل (15 دقيقة / 900 ثانية فقط)
         const expirationSeconds = 900;
         const expiration = Math.floor(Date.now() / 1000) + expirationSeconds;
 
-        const youtubeId = extractYouTubeId(videoPath);
+        const youtubeId = extractYouTubeId(rawPath);
+
+        const isSupabase = rawPath.startsWith("supabase://") ||
+            rawPath.includes("supabase.co") ||
+            rawPath.startsWith("videos/") ||
+            rawPath.startsWith("files/") ||
+            rawPath.startsWith("/videos/") ||
+            rawPath.startsWith("/files/");
 
         if (youtubeId) {
             const token = obfuscate(youtubeId);
@@ -110,17 +134,20 @@ export async function GET(request: Request) {
                 embed: true,
                 origin: new URL(request.url).origin,
             });
-        } else if (videoPath.includes("drive.google.com")) {
+        } else if (rawPath.includes("drive.google.com")) {
             // Extract file ID to prevent leaking any raw query strings or view parameters
-            const match = videoPath.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || videoPath.match(/id=([a-zA-Z0-9_-]+)/);
+            const match = rawPath.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || rawPath.match(/id=([a-zA-Z0-9_-]+)/);
             const fileId = match ? match[1] : null;
             const driveEmbedUrl = fileId 
                 ? `https://drive.google.com/file/d/${fileId}/preview`
-                : videoPath.replace(/\/view(\?.*)?$/, "/preview").replace(/\/edit(\?.*)?$/, "/preview");
+                : rawPath.replace(/\/view(\?.*)?$/, "/preview").replace(/\/edit(\?.*)?$/, "/preview");
             return NextResponse.json({ type: "drive", url: driveEmbedUrl, embed: true });
-        } else if (videoPath.startsWith("supabase://") || videoPath.includes("supabase.co") || videoPath.startsWith("videos/")) {
+        } else if (isSupabase) {
             const { supabaseAdmin, SUPABASE_BUCKET } = await import("@/lib/supabase/admin");
-            let cleanStoragePath = videoPath.replace(/^supabase:\/\//, "");
+            let cleanStoragePath = rawPath
+                .replace(/^supabase:\/\//, "")
+                .replace(/^\//, "");
+
             if (cleanStoragePath.includes("supabase.co/storage/v1/object/")) {
                 const parts = cleanStoragePath.split(/supabase\.co\/storage\/v1\/object\/(?:public|sign)\//);
                 if (parts[1]) {
@@ -136,12 +163,13 @@ export async function GET(request: Request) {
                 .createSignedUrl(cleanStoragePath, expirationSeconds);
 
             if (signErr || !signedData?.signedUrl) {
+                console.error("Supabase createSignedUrl error:", signErr);
                 return NextResponse.json({ error: "فشل إنشاء رابط الفيديو الآمن" }, { status: 500 });
             }
 
             return NextResponse.json({ type: "direct", url: signedData.signedUrl });
-        } else if (videoPath.startsWith("bunny_stream://")) {
-            const guid = videoPath.split("://")[1];
+        } else if (rawPath.startsWith("bunny_stream://")) {
+            const guid = rawPath.split("://")[1];
             const securityKey = BUNNY_CONFIG.SECURITY_KEY;
             const libraryId = BUNNY_CONFIG.VIDEO_LIBRARY_ID;
             
@@ -158,12 +186,12 @@ export async function GET(request: Request) {
                 url: embedUrl,
                 guid: guid
             });
-        } else if (videoPath.startsWith("http")) {
-            let finalUrl = videoPath;
-            if (videoPath.includes("b-cdn.net")) {
+        } else if (rawPath.startsWith("http")) {
+            let finalUrl = rawPath;
+            if (rawPath.includes("b-cdn.net")) {
                 const securityKey = BUNNY_CONFIG.SECURITY_KEY;
                 if (securityKey) {
-                    finalUrl = signBunnyUrl(videoPath, securityKey, expirationSeconds); 
+                    finalUrl = signBunnyUrl(rawPath, securityKey, expirationSeconds); 
                 }
             }
             return NextResponse.json({ type: "direct", url: finalUrl });

@@ -140,6 +140,7 @@ export function FileUploader({
                         onUploadComplete(signedData.finalUrl)
                         toast.success(isVideo ? "تم رفع الفيديو بنجاح 🎬" : "تم رفع الملف بنجاح 📁")
                     } else {
+                        console.error("Direct upload failed:", xhr.status, xhr.responseText)
                         toast.error(`فشل الرفع المباشر: ${xhr.status}`)
                     }
                 }

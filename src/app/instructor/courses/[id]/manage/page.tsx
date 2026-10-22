@@ -66,6 +66,18 @@ export default function ManageCoursePage() {
 
     async function fetchCourse() {
         try {
+            // First attempt to load via secure server endpoint with private media and answers
+            const res = await fetch(`/api/courses/save-media?courseId=${id}`)
+            if (res.ok) {
+                const data = await res.json()
+                if (data.course) {
+                    setCourse(data.course)
+                    setModules(data.course.modules || [])
+                    return
+                }
+            }
+
+            // Fallback to client Firestore
             const docSnap = await getDoc(doc(db, "courses", id as string))
             if (docSnap.exists()) {
                 const data = docSnap.data()
@@ -296,6 +308,7 @@ export default function ManageCoursePage() {
                                                                                 const newModules = [...modules]
                                                                                 newModules[mIdx].lessons[iIdx].video_path = url
                                                                                 setModules(newModules)
+                                                                                toast.info("تم رفع الفيديو وتحديث الدرس! لا تنسَ الضغط على 'حفظ التعديلات' بالأعلى لحفظ الكورس.")
                                                                             }}
                                                                         />
                                                                     </DialogContent>
@@ -352,6 +365,7 @@ export default function ManageCoursePage() {
                                                                                 const newModules = [...modules]
                                                                                 newModules[mIdx].lessons[iIdx].url = url
                                                                                 setModules(newModules)
+                                                                                toast.info("تم رفع الملف وتحديث الدرس! لا تنسَ الضغط على 'حفظ التعديلات' بالأعلى لحفظ الكورس.")
                                                                             }}
                                                                         />
                                                                     </DialogContent>
