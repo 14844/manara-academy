@@ -90,6 +90,7 @@ service cloud.firestore {
     }
 
     // Transactions: Strictly read-only for participants and admin. Writes are server-side.
+    // (Single canonical rule defined below with course_orders)
     match /transactions/{txId} {
       allow read: if isAuthenticated() && (
         resource.data.student_id == request.auth.uid ||
@@ -97,6 +98,25 @@ service cloud.firestore {
         isAdmin()
       );
       allow write: if false;
+    }
+
+    // Wallet requests: Student can read own; admin reads & manages. Client create blocked (server only).
+    match /wallet_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid || isAdmin()
+      );
+      allow create: if false;
+      allow update, delete: if isAdmin();
+    }
+
+    // Withdrawal requests: Instructor can read own. Admin reads & manages status.
+    // Client create forbidden — withdrawals only via /api/instructor/withdrawals/request.
+    match /withdrawal_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid || isAdmin()
+      );
+      allow create: if false;
+      allow update, delete: if isAdmin();
     }
 
     // Coupons: Read restricted to coupon owner and admin.
@@ -130,19 +150,10 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
     }
 
-    // Wallet requests: Read by student or admin. Client cannot write (handled strictly via server routes).
-    match /wallet_requests/{requestId} {
-      allow read: if isAuthenticated() && (resource.data.student_id == request.auth.uid || isAdmin());
+    // Refund locks: Internal server-only collection for idempotent refund processing.
+    match /refund_locks/{lockId} {
+      allow read: if isAdmin();
       allow write: if false;
-    }
-
-    // Withdrawal requests: Instructor can read own. Admin reads all & updates status.
-    // Client create forbidden — withdrawals only via /api/instructor/withdrawals/request.
-    match /withdrawal_requests/{requestId} {
-      allow read: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
-      allow create: if false;
-      allow update: if isAdmin();
-      allow delete: if false;
     }
 
     // Courses: Publicly readable. Created by instructor (must be pending, zero students, no is_published).
@@ -282,34 +293,6 @@ service cloud.firestore {
     match /system/{docId} {
       allow read: if isAdmin();
       allow write: if false;
-    }
-
-    // Wallet requests: Student can read their own; admin can read/write.
-    match /wallet_requests/{requestId} {
-      allow read: if isAuthenticated() && (
-        resource.data.student_id == request.auth.uid || isAdmin()
-      );
-      allow create: if false; // Server only
-      allow update, delete: if isAdmin();
-    }
-
-    // Withdrawal requests: Instructor can read their own; admin can read/write.
-    match /withdrawal_requests/{requestId} {
-      allow read: if isAuthenticated() && (
-        resource.data.instructor_id == request.auth.uid || isAdmin()
-      );
-      allow create: if false; // Server only
-      allow update, delete: if isAdmin();
-    }
-
-    // Transactions: Student or instructor can read their own; admin can read.
-    match /transactions/{txId} {
-      allow read: if isAuthenticated() && (
-        resource.data.student_id == request.auth.uid ||
-        resource.data.instructor_id == request.auth.uid ||
-        isAdmin()
-      );
-      allow write: if false; // Server only
     }
 
     // Course Orders: Student or instructor can read their own; admin can read.

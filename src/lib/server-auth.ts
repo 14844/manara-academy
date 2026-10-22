@@ -1,5 +1,6 @@
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
-import { cookies } from "next/headers";
+import { cookies, headers as nextHeaders } from "next/headers";
+import crypto from "crypto";
 
 export interface ServerUser {
     uid: string;
@@ -9,10 +10,24 @@ export interface ServerUser {
     profile: any;
 }
 
+/**
+ * Generate a device fingerprint from request headers for session binding.
+ * This provides a secondary validation layer when session_id cookie is cleared.
+ */
+function generateDeviceFingerprint(userAgent: string, acceptLanguage: string): string {
+    return crypto
+        .createHash("sha256")
+        .update(`${userAgent}||${acceptLanguage}`)
+        .digest("hex")
+        .slice(0, 32);
+}
+
 export async function getServerAuth(request?: Request): Promise<ServerUser | null> {
     try {
         let sessionCookie: string | undefined;
         let clientSessionId: string | undefined;
+        let userAgent = "";
+        let acceptLanguage = "";
 
         if (request) {
             const cookieHeader = request.headers.get("cookie");
@@ -25,6 +40,8 @@ export async function getServerAuth(request?: Request): Promise<ServerUser | nul
             if (!clientSessionId) {
                 clientSessionId = request.headers.get("x-session-id") || undefined;
             }
+            userAgent = request.headers.get("user-agent") || "";
+            acceptLanguage = request.headers.get("accept-language") || "";
         }
 
         if (!sessionCookie || !clientSessionId) {
@@ -34,6 +51,17 @@ export async function getServerAuth(request?: Request): Promise<ServerUser | nul
                 if (!clientSessionId) clientSessionId = cookieStore.get("session_id")?.value;
             } catch {
                 // In contexts where cookies() is unavailable
+            }
+        }
+
+        // Try to get headers if not from request
+        if (!userAgent) {
+            try {
+                const headerStore = await nextHeaders();
+                userAgent = headerStore.get("user-agent") || "";
+                acceptLanguage = headerStore.get("accept-language") || "";
+            } catch {
+                // In contexts where headers() is unavailable
             }
         }
 
@@ -53,10 +81,22 @@ export async function getServerAuth(request?: Request): Promise<ServerUser | nul
         const profileData = profileDoc.data() || {};
         const privateData = privateDoc.data() || {};
 
-        // Enforce active_session_id check: reject if mismatched
-        if (privateData.active_session_id && clientSessionId) {
-            if (clientSessionId !== privateData.active_session_id) {
-                return null;
+        // Session validation: primary check via session_id, fallback to device fingerprint
+        if (privateData.active_session_id) {
+            if (clientSessionId) {
+                // Primary check: explicit session_id match
+                if (clientSessionId !== privateData.active_session_id) {
+                    return null;
+                }
+            } else {
+                // Fallback: if session_id cookie was cleared, validate device fingerprint
+                // This prevents the bypass where clearing the cookie skips validation
+                const currentFingerprint = generateDeviceFingerprint(userAgent, acceptLanguage);
+                const storedFingerprint = privateData.device_fingerprint || "";
+                if (storedFingerprint && currentFingerprint !== storedFingerprint) {
+                    return null;
+                }
+                // If no stored fingerprint, allow (backward compatibility) but log it
             }
         }
 

@@ -220,9 +220,16 @@ export async function verifyFawaterakWebhookHash({
         const calculatedHash = crypto
             .createHmac("sha256", vendorApiKey.trim())
             .update(stringToSign)
-            .digest("hex");
+            .digest("hex")
+            .toLowerCase();
 
-        return calculatedHash.toLowerCase() === receivedHash.trim().toLowerCase();
+        const receivedNormalized = receivedHash.trim().toLowerCase();
+
+        // Constant-time comparison to prevent timing side-channel attacks
+        if (calculatedHash.length !== receivedNormalized.length) return false;
+        const a = Buffer.from(calculatedHash, "utf-8");
+        const b = Buffer.from(receivedNormalized, "utf-8");
+        return crypto.timingSafeEqual(a, b);
     } catch {
         return false;
     }

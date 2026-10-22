@@ -98,51 +98,106 @@ export function FileUploader({
                 targetFolder = "files"
             }
 
-            const courseParam = courseId ? `&courseId=${encodeURIComponent(courseId)}` : ''
-            const uploadUrl = `/api/upload/supabase?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(targetFolder)}${courseParam}`
+            // For files > 4MB (especially videos), use direct-to-Supabase upload
+            // to bypass Vercel's 4.5MB body size limit
+            const useDirectUpload = file.size > 4 * 1024 * 1024
 
-            const xhr = new XMLHttpRequest()
-            xhr.open('POST', uploadUrl, true)
-            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+            if (useDirectUpload) {
+                // Step 1: Get signed upload URL from our API
+                const signedRes = await fetch('/api/upload/signed-url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        fileName,
+                        folder: targetFolder,
+                        courseId: courseId || null,
+                        contentType: file.type,
+                        fileSize: file.size,
+                    }),
+                })
 
-            xhr.upload.onprogress = (event) => {
-                if (event.lengthComputable) {
-                    const pct = Math.round((event.loaded / event.total) * 100)
-                    setProgress(pct)
+                const signedData = await signedRes.json()
+                if (!signedRes.ok || !signedData.success) {
+                    throw new Error(signedData.error || "فشل إنشاء رابط الرفع")
                 }
-            }
 
-            xhr.onload = () => {
-                setIsUploading(false)
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    try {
-                        const response = JSON.parse(xhr.responseText)
-                        if (response.success && response.url) {
-                            setIsComplete(true)
-                            onUploadComplete(response.url)
-                            toast.success(isVideo ? "تم رفع الفيديو بنجاح 🎬" : "تم رفع الملف بنجاح 📁")
-                        } else {
-                            toast.error(response.error || "فشل معالجة رد الرفع")
+                // Step 2: Upload directly to Supabase Storage using the signed URL
+                const xhr = new XMLHttpRequest()
+                xhr.open('PUT', signedData.signedUrl, true)
+                xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        const pct = Math.round((event.loaded / event.total) * 100)
+                        setProgress(pct)
+                    }
+                }
+
+                xhr.onload = () => {
+                    setIsUploading(false)
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        setIsComplete(true)
+                        onUploadComplete(signedData.finalUrl)
+                        toast.success(isVideo ? "تم رفع الفيديو بنجاح 🎬" : "تم رفع الملف بنجاح 📁")
+                    } else {
+                        toast.error(`فشل الرفع المباشر: ${xhr.status}`)
+                    }
+                }
+
+                xhr.onerror = () => {
+                    setIsUploading(false)
+                    toast.error("خطأ في الاتصال أثناء الرفع المباشر")
+                }
+
+                xhr.send(file)
+            } else {
+                // Small files: use the original server-side upload route
+                const courseParam = courseId ? `&courseId=${encodeURIComponent(courseId)}` : ''
+                const uploadUrl = `/api/upload/supabase?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(targetFolder)}${courseParam}`
+
+                const xhr = new XMLHttpRequest()
+                xhr.open('POST', uploadUrl, true)
+                xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        const pct = Math.round((event.loaded / event.total) * 100)
+                        setProgress(pct)
+                    }
+                }
+
+                xhr.onload = () => {
+                    setIsUploading(false)
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            const response = JSON.parse(xhr.responseText)
+                            if (response.success && response.url) {
+                                setIsComplete(true)
+                                onUploadComplete(response.url)
+                                toast.success(isVideo ? "تم رفع الفيديو بنجاح 🎬" : "تم رفع الملف بنجاح 📁")
+                            } else {
+                                toast.error(response.error || "فشل معالجة رد الرفع")
+                            }
+                        } catch (e) {
+                            toast.error("خطأ في معالجة رد السيرفر")
                         }
-                    } catch (e) {
-                        toast.error("خطأ في معالجة رد السيرفر")
-                    }
-                } else {
-                    try {
-                        const err = JSON.parse(xhr.responseText)
-                        toast.error(err.error || `فشل الرفع: ${xhr.status}`)
-                    } catch {
-                        toast.error(`فشل الرفع: ${xhr.status}`)
+                    } else {
+                        try {
+                            const err = JSON.parse(xhr.responseText)
+                            toast.error(err.error || `فشل الرفع: ${xhr.status}`)
+                        } catch {
+                            toast.error(`فشل الرفع: ${xhr.status}`)
+                        }
                     }
                 }
-            }
 
-            xhr.onerror = () => {
-                setIsUploading(false)
-                toast.error("خطأ في الاتصال بالسيرفر أثناء الرفع")
-            }
+                xhr.onerror = () => {
+                    setIsUploading(false)
+                    toast.error("خطأ في الاتصال بالسيرفر أثناء الرفع")
+                }
 
-            xhr.send(file)
+                xhr.send(file)
+            }
         } catch (err: any) {
             setIsUploading(false)
             toast.error(err.message || "حدث خطأ غير متوقع")

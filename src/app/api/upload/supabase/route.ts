@@ -4,6 +4,7 @@ import { getServerAuth } from "@/lib/server-auth"
 import { adminDb } from "@/lib/firebase/admin"
 
 export const runtime = 'nodejs'
+export const maxDuration = 300 // 5 minutes for uploads
 
 // Maximum file size limits per folder
 const SIZE_LIMITS: Record<string, number> = {

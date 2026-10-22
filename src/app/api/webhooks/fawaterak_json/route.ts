@@ -392,9 +392,29 @@ async function processRefundEvent({
             const instructorProfileRef = instructorId ? adminDb.collection("profiles").doc(instructorId) : null;
             const instructorPrivateRef = instructorId ? adminDb.collection("profiles_private").doc(instructorId) : null;
             const studentProfileRef = adminDb.collection("profiles").doc(studentId);
-            const refundTxRef = adminDb.collection("transactions").doc(`refund_${intentKey || transactionId || Date.now()}`);
+            const refundLockId = `refund_${intentKey || transactionId}`;
+            const refundLockRef = adminDb.collection("refund_locks").doc(refundLockId);
+            const refundTxRef = adminDb.collection("transactions").doc(refundLockId);
 
+            let alreadyRefunded = false;
+
+            try {
             await adminDb.runTransaction(async (t) => {
+                // Idempotency guard: check if refund lock already exists
+                const lockDoc = await t.get(refundLockRef);
+                if (lockDoc.exists) {
+                    alreadyRefunded = true;
+                    return;
+                }
+
+                // Create lock doc atomically (prevents race condition with concurrent webhooks)
+                t.create(refundLockRef, {
+                    intent_key: intentKey,
+                    transaction_id: transactionId,
+                    processed_at: new Date().toISOString(),
+                    status: "processed",
+                });
+
                 // A. Update order status to refunded
                 t.update(orderDoc!.ref, {
                     status: "refunded",
@@ -457,6 +477,17 @@ async function processRefundEvent({
                     created_at: new Date().toISOString(),
                 });
             });
+            } catch (txErr: any) {
+                // If the lock doc already exists (race condition), treat as already processed
+                if (txErr.code === 6 || txErr.message?.includes("ALREADY_EXISTS")) {
+                    return NextResponse.json({ status: "already_refunded", reason: "concurrent_duplicate" });
+                }
+                throw txErr;
+            }
+
+            if (alreadyRefunded) {
+                return NextResponse.json({ status: "already_refunded" });
+            }
 
             // Log server activity
             await logServerActivity({
@@ -517,9 +548,28 @@ async function processRefundEvent({
 
             const studentPrivateRef = adminDb.collection("profiles_private").doc(studentId);
             const studentProfileRef = adminDb.collection("profiles").doc(studentId);
-            const refundTxRef = adminDb.collection("transactions").doc(`refund_recharge_${intentKey || transactionId || Date.now()}`);
+            const rechargeLockId = `refund_recharge_${intentKey || transactionId}`;
+            const rechargeLockRef = adminDb.collection("refund_locks").doc(rechargeLockId);
+            const refundTxRef = adminDb.collection("transactions").doc(rechargeLockId);
 
+            let alreadyRefunded = false;
+
+            try {
             await adminDb.runTransaction(async (t) => {
+                // Idempotency guard for wallet recharge refunds
+                const lockDoc = await t.get(rechargeLockRef);
+                if (lockDoc.exists) {
+                    alreadyRefunded = true;
+                    return;
+                }
+
+                t.create(rechargeLockRef, {
+                    intent_key: intentKey,
+                    transaction_id: transactionId,
+                    processed_at: new Date().toISOString(),
+                    status: "processed",
+                });
+
                 t.update(reqDoc!.ref, {
                     status: "refunded",
                     refunded_at: new Date().toISOString(),
@@ -546,6 +596,16 @@ async function processRefundEvent({
                     created_at: new Date().toISOString(),
                 });
             });
+            } catch (txErr: any) {
+                if (txErr.code === 6 || txErr.message?.includes("ALREADY_EXISTS")) {
+                    return NextResponse.json({ status: "already_refunded", reason: "concurrent_duplicate" });
+                }
+                throw txErr;
+            }
+
+            if (alreadyRefunded) {
+                return NextResponse.json({ status: "already_refunded" });
+            }
 
             await logServerActivity({
                 action: "wallet_recharge_refund_processed",

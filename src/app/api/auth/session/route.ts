@@ -2,6 +2,7 @@ import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
+import crypto from "crypto";
 
 export async function POST(request: Request) {
     const { idToken, deviceId, sessionId } = await request.json();
@@ -22,6 +23,15 @@ export async function POST(request: Request) {
         const effectiveSessionId = (sessionId && typeof sessionId === "string" && sessionId.trim())
             ? sessionId.trim()
             : `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+        // Generate device fingerprint for session binding
+        const userAgent = request.headers.get("user-agent") || "";
+        const acceptLanguage = request.headers.get("accept-language") || "";
+        const deviceFingerprint = crypto
+            .createHash("sha256")
+            .update(`${userAgent}||${acceptLanguage}`)
+            .digest("hex")
+            .slice(0, 32);
 
         // Verify account status and handle device/session inside atomic transaction on profiles_private
         const profileRef = adminDb.collection("profiles").doc(uid);
@@ -46,6 +56,7 @@ export async function POST(request: Request) {
             const updatePrivateData: any = {
                 updated_at: now,
                 active_session_id: effectiveSessionId,
+                device_fingerprint: deviceFingerprint,
             };
 
             // Server-side device limit check for students inside transaction
