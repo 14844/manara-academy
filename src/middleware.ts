@@ -17,40 +17,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/dashboard', request.url))
     }
 
-    // Generate CSP nonce for this request
-    const nonce = generateNonce()
-    const response = NextResponse.next()
-
-    // Set CSP header with nonce replacing unsafe-inline for script-src
-    // Note: style-src keeps 'unsafe-inline' because Next.js injects inline styles
-    const csp = [
-        `default-src 'self'`,
-        `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://apis.google.com https://www.gstatic.com https://www.youtube.com https://s.ytimg.com`,
-        `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
-        `img-src 'self' blob: data: https:`,
-        `font-src 'self' https://fonts.gstatic.com data:`,
-        `frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://drive.google.com https://docs.google.com`,
-        `connect-src 'self' https://*.supabase.co https://*.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com wss://*.firebaseio.com https://manara-academy.b-cdn.net https://storage.bunnycdn.com`,
-        `media-src 'self' blob: https:`,
-        `object-src 'none'`,
-        `base-uri 'self'`,
-        `form-action 'self'`,
-    ].join('; ')
-
-    response.headers.set('Content-Security-Policy', csp)
-    response.headers.set('x-nonce', nonce)
-
-    return response
-}
-
-/**
- * Generate a cryptographically random nonce for CSP headers.
- * Uses Web Crypto API available in Edge Runtime.
- */
-function generateNonce(): string {
-    const array = new Uint8Array(16)
-    crypto.getRandomValues(array)
-    return btoa(String.fromCharCode(...array))
+    return NextResponse.next()
 }
 
 export const config = {

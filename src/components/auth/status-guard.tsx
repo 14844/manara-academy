@@ -62,7 +62,12 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
 
                 // Real-time Session & Status Monitoring via profiles_private/{user.uid}
                 const { onSnapshot } = await import("firebase/firestore");
+                const safetyTimer = setTimeout(() => {
+                    setIsLoading(false);
+                }, 4000);
+
                 profileUnsubscribe = onSnapshot(doc(db, "profiles_private", user.uid), async (docSnap) => {
+                    clearTimeout(safetyTimer);
                     const privateData = docSnap.exists() ? docSnap.data() : null;
                     const status = privateData?.status || "pending";
                     const activeSessionId = privateData?.active_session_id;
@@ -112,6 +117,10 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                             router.push(target);
                         }
                     }
+                    setIsLoading(false);
+                }, (snapError) => {
+                    clearTimeout(safetyTimer);
+                    console.warn("StatusGuard listener error, continuing:", snapError);
                     setIsLoading(false);
                 });
             } catch (error) {
