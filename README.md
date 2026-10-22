@@ -1,36 +1,142 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# المنارة أكاديمي | Manara Academy
 
-## Getting Started
+> منصة تعليمية مصرية تتيح للمدرسين بيع كورساتهم أونلاين بحماية قوية للمحتوى وعمولة منخفضة **5% فقط**، وتمنح الطلاب تجربة تعلم منظمة وتفاعلية.
 
-First, run the development server:
+🌐 **الموقع:** [manara-academy.vercel.app](https://manara-academy.vercel.app/)
+
+---
+
+## رسالتنا وهدفنا
+
+**الرسالة:** أن يتمكن كل مدرس مصري من بناء مصدر دخل حقيقي من علمه دون الحاجة لمبرمج أو لمنصة غالية، وأن يحصل كل طالب على تعليم جيد بسهولة وأمان.
+
+**الهدف:**
+- منصة عربية بالكامل (واجهة من اليمين لليسار) مصممة لاحتياجات الطالب والمدرس في مصر.
+- عمولة **5%** فقط على المبيعات، بلا اشتراك شهري ثابت.
+- حماية محتوى المدرس من التسريب والقرصنة.
+- طرق دفع تناسب السوق المصري (محافظ إلكترونية وبوابة دفع).
+- متابعة حقيقية للطالب، مع تقارير لأولياء الأمور.
+
+**لمن هذه المنصة؟**
+
+| الفئة | ماذا تقدم لهم المنصة |
+|---|---|
+| **المدرس** | بناء كورسات، رفع فيديوهات وملفات، اختبارات، متابعة الطلاب، أرباح وسحب |
+| **الطالب** | كورسات منظمة، اختبارات، معامل افتراضية، تقدم محفوظ، محفظة |
+| **ولي الأمر** | تقرير دوري عن أداء الطالب برابط خاص |
+| **الإدارة** | مراجعة الحسابات والكورسات والمدفوعات والسحوبات |
+
+---
+
+## المميزات
+
+### 🎓 للطالب
+- **مشغّل دروس** مع فتح تدريجي: الدروس التالية لا تُفتح قبل اجتياز التقييمات السابقة.
+- **حفظ التقدم** تلقائياً في كل كورس والعودة لآخر درس.
+- **اختبارات** اختيار من متعدد ومقالية مع مؤقت، والتصحيح يتم على السيرفر، بحد أقصى 3 محاولات للدرس.
+- **واجبات** ومتابعة التصحيح من المدرس.
+- **معامل افتراضية تفاعلية:** دوائر كهربائية، تفاعلات كيميائية ومعادلات، بناء الجزيئات، ورسم الدوال.
+- **محفظة إلكترونية** لشراء الكورسات وشحن الرصيد.
+- **كوبونات خصم** عند الشراء.
+- **وصف لكل درس** وتصفح منظم لمحتوى الكورس.
+- **مساعد دعم تلقائي** وزر دعم سريع وصفحات مساعدة وأسئلة شائعة.
+
+### 👨‍🏫 للمدرس
+- **منشئ كورسات** بأنواع دروس متعددة: فيديو، ملف/ملخص، واجب، واختبار.
+- **رفع الفيديوهات** عبر Bunny Stream والملفات عبر التخزين الآمن.
+- **تصحيح** الأسئلة المقالية والواجبات من لوحة واحدة.
+- **إدارة الطلاب:** قائمة الطلاب، صفحة تفصيلية لكل طالب، وإمكانية إزالة طالب من الكورس.
+- **تقارير أولياء الأمور:** تقارير فردية وصفية برابط خاص آمن يُرسل عبر واتساب.
+- **كوبونات خصم** خاصة بكورساتك.
+- **لوحة تحليلات:** الإيرادات وصافي الربح.
+- **طلب سحب الأرباح** بحسابات تتم على السيرفر.
+- **إعدادات الملف الشخصي** والنبذة التعريفية.
+
+### 🛠️ للإدارة
+- مراجعة واعتماد الحسابات (معلّق / مرفوض / محظور).
+- إدارة المستخدمين والكورسات والكوبونات.
+- مراجعة واعتماد طلبات الشحن اليدوي (فودافون كاش وإنستا باي بإيصال).
+- إدارة طلبات السحب والتسويات.
+- مؤشرات أداء (KPIs) وسجل نشاط.
+- عمولة المنصة **5%** ثابتة، تُحسب على السيرفر.
+
+### 💳 المدفوعات
+- **بوابة Fawaterak** مع التحقق من التوقيع (Webhook) ومنع تكرار الشحن.
+- **محفظة الطالب** تُخصم عند شراء كورس.
+- **شحن يدوي** عبر فودافون كاش وإنستا باي برفع الإيصال والمراجعة.
+- كل العمليات المالية تتم داخل **Transactions ذرية** على السيرفر.
+
+### 🔒 الأمان وحماية المحتوى
+- **فيديو محمي:** روابط موقعة قصيرة الأجل (15 دقيقة) لا تُمنح إلا لطالب مشترك، مع علامة مائية متحركة وحجب عند تبديل التبويب أو التقاط الشاشة.
+- **ملفات وPDF:** وصول بروابط موقعة مرتبطة بكورس بعينه، وعارض PDF بعلامة مائية باسم الطالب.
+- **حد الأجهزة:** جهازان لكل طالب وجلسة واحدة نشطة، تُفرض على السيرفر.
+- **بيانات خاصة منفصلة:** الإيميل والهاتف والرصيد والحالة في مستند محمي (`profiles_private`) لا يقرؤه إلا صاحبه والإدارة.
+- **Firestore Rules** تمنع الكتابة المباشرة من المتصفح على الأرصدة والاشتراكات والأدوار والمعاملات.
+- **كل المنطق الحساس على السيرفر:** الشراء، الكوبونات، السحب، تصحيح الامتحانات، تحديث التقدم.
+- تحديد معدل الطلبات (Rate limiting)، وترويسات أمان (CSP / HSTS)، وإخفاء رسائل الأخطاء الداخلية.
+- تقارير أولياء الأمور برموز عشوائية طويلة وبمدة صلاحية.
+
+### 🔍 SEO
+- بيانات `metadata` وOpenGraph وJSON-LD، وخريطة موقع (`sitemap`) ديناميكية تشمل الكورسات، و`robots.txt`.
+- اتجاه RTL كامل ولغة عربية.
+
+---
+
+## التقنيات المستخدمة
+
+| الجزء | التقنية |
+|---|---|
+| الواجهة والسيرفر | Next.js (App Router) + TypeScript |
+| المصادقة وقاعدة البيانات | Firebase Auth + Firestore (Admin SDK على السيرفر) |
+| الفيديو | Bunny Stream |
+| تخزين الملفات | Supabase Storage (bucket خاص + روابط موقعة) |
+| الدفع | Fawaterak + محفظة داخلية |
+| الاستضافة | Vercel |
+| تحديد المعدل | Upstash Redis (مع بديل داخلي) |
+
+---
+
+## تشغيل المشروع محلياً
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+ثم افتح [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### متغيرات البيئة (Environment Variables)
+أنشئ ملف `.env.local` بالقيم التالية (لا ترفعه إلى Git أبداً):
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| المتغير | الوصف |
+|---|---|
+| `NEXT_PUBLIC_FIREBASE_*` | إعدادات Firebase للواجهة |
+| `FIREBASE_*` / حساب الخدمة | مفاتيح Firebase Admin (سيرفر فقط) |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase العام |
+| `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_BUCKET` | Supabase السري (سيرفر فقط) |
+| `BUNNY_*` | مفاتيح Bunny Stream والتخزين |
+| `FAWATERAK_*` | بيانات بوابة الدفع |
+| `UPSTASH_*` | (اختياري) لتحديد المعدل |
+| `NEXT_PUBLIC_APP_URL` | رابط الموقع |
 
-## Learn More
+> ⚠️ **تحذير:** أي مفتاح سري (`service_role`، مفاتيح Bunny، مفتاح Firebase Admin، بيانات Fawaterak) يُحفظ في متغيرات Vercel فقط، ولا يُكتب داخل الكود.
 
-To learn more about Next.js, take a look at the following resources:
+### النشر وقواعد Firestore
+- الكود يُنشر عبر Vercel.
+- قواعد الأمان في `firestore.rules`، تُنشر من Firebase Console ← Firestore ← Rules (أو `firebase deploy --only firestore:rules`).
+- قبل نشر أي تغيير في القواعد راجع `docs/rules-deploy-checklist.md`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## خريطة الطريق (قريباً)
+- شهادات إتمام فعلية قابلة للتحميل.
+- بث مباشر للحصص.
+- تكامل Paymob وفوري.
+- نطاق فرعي وهوية خاصة لكل مدرس.
+- إشعارات واتساب تلقائية لأولياء الأمور.
+- تطبيق جوال (PWA).
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## المساهمة والتواصل
+المشروع قيد التطوير النشط. للاستفسارات أو الانضمام كمدرس، تواصل معنا عبر المنصة: [manara-academy.vercel.app](https://manara-academy.vercel.app/)

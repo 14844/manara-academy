@@ -1,10 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
+import Link from "next/link"
 import { auth, db } from "@/lib/firebase/config"
 import { onAuthStateChanged } from "firebase/auth"
-import { doc, getDoc, collection, addDoc, query, where, getDocs, orderBy } from "firebase/firestore"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
+import { doc, getDoc, collection, addDoc, query, where, getDocs } from "firebase/firestore"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,42 +21,59 @@ import {
     Clock,
     XCircle,
     Copy,
-    AlertCircle
+    AlertCircle,
+    CreditCard,
+    Zap,
+    ShieldCheck,
+    ArrowRight,
+    Lock
 } from "lucide-react"
 import { toast } from "sonner"
-import { supabase, SUPABASE_BUCKET } from "@/lib/supabase/config"
+import { logActivity } from "@/lib/activity-logger"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-export default function WalletPage() {
+function WalletContent() {
+    const searchParams = useSearchParams()
     const [user, setUser] = useState<any>(null)
     const [profile, setProfile] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [submitting, setSubmitting] = useState(false)
     const [history, setHistory] = useState<any[]>([])
 
-    // Form state
+    // Manual transfer form state
     const [amount, setAmount] = useState("")
     const [senderNumber, setSenderNumber] = useState("")
     const [file, setFile] = useState<File | null>(null)
-    const [uploadProgress, setUploadProgress] = useState(0)
+
+    // URL Status Banner
+    const fawaterakStatus = searchParams.get("fawaterak")
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
             setUser(currentUser)
             if (currentUser) {
-                fetchProfile(currentUser.uid)
-                fetchHistory(currentUser.uid)
-            } else {
-                setLoading(false)
+                await fetchProfile(currentUser.uid)
+                await fetchHistory(currentUser.uid)
             }
+            setLoading(false)
         })
         return () => unsubscribe()
     }, [])
 
     async function fetchProfile(uid: string) {
-        const pDoc = await getDoc(doc(db, "profiles", uid))
-        if (pDoc.exists()) setProfile(pDoc.data())
-        setLoading(false)
+        try {
+            const res = await fetch("/api/profile/me")
+            if (res.ok) {
+                const data = await res.json()
+                setProfile(data)
+                return
+            }
+            const pDoc = await getDoc(doc(db, "profiles", uid))
+            if (pDoc.exists()) setProfile(pDoc.data())
+        } catch (e) {
+            console.error("Profile fetch error:", e)
+        }
     }
 
     async function fetchHistory(uid: string) {
@@ -83,7 +102,8 @@ export default function WalletPage() {
         }
     }
 
-    const handleSubmitRequest = async (e: React.FormEvent) => {
+    // Submit Manual Transfer Request (Vodafone Cash / InstaPay)
+    const handleSubmitManualRequest = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!amount || !senderNumber || !file) {
             toast.error("يرجى ملء جميع البيانات ورفع صورة التحويل")
@@ -92,36 +112,69 @@ export default function WalletPage() {
 
         setSubmitting(true)
         try {
-            // 1. Upload screenshot to Supabase
+            // Upload screenshot to Supabase Storage via secure server API
             const fileExt = file.name.split('.').pop()
             const fileName = `${user.uid}_${Date.now()}.${fileExt}`
-            const filePath = `payment_proofs/${fileName}`
+            const folder = "payment_proofs"
 
-            const { data: uploadData, error: uploadError } = await supabase.storage
-                .from(SUPABASE_BUCKET)
-                .upload(filePath, file)
-
-            if (uploadError) throw uploadError
-
-            const { data: { publicUrl } } = supabase.storage
-                .from(SUPABASE_BUCKET)
-                .getPublicUrl(filePath)
-
-            // 2. Create request in Firestore
-            await addDoc(collection(db, "wallet_requests"), {
-                student_id: user.uid,
-                student_name: profile?.full_name || user.displayName,
-                student_email: user.email,
-                student_unique_id: profile?.student_id || "N/A",
-                amount: Number(amount),
-                sender_number: senderNumber,
-                screenshot_url: publicUrl,
-                status: "pending",
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
+            const uploadRes = await fetch(`/api/upload/supabase?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`, {
+                method: 'POST',
+                body: file,
+                headers: {
+                    'Content-Type': file.type || 'application/octet-stream'
+                }
             })
 
+            if (!uploadRes.ok) {
+                const errText = await uploadRes.text()
+                let errorMsg = "فشل رفع الصورة"
+                try {
+                    const errJson = JSON.parse(errText)
+                    errorMsg = errJson.error || errorMsg
+                } catch (e) {
+                    errorMsg = `خطأ السيرفر: ${uploadRes.status}`
+                }
+                throw new Error(errorMsg)
+            }
+
+            const { url: publicUrl } = await uploadRes.json()
+
+            // Create request via secure server route
+            const manualRes = await fetch("/api/wallet/manual-request", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    amount: Number(amount),
+                    senderNumber,
+                    screenshotUrl: publicUrl,
+                }),
+            })
+            const manualData = await manualRes.json()
+            if (!manualRes.ok) {
+                throw new Error(manualData.error || "فشل إرسال طلب الشحن")
+            }
+            const reqRef = { id: manualData.requestId }
+
             toast.success("تم إرسال طلب الشحن بنجاح! سيتم مراجعته من قبل الإدارة خلال ساعات.")
+
+            // Log activity
+            logActivity({
+                action: "wallet_recharge_manual_request",
+                category: "financial",
+                title: "طلب شحن محفظة (يدوي)",
+                description: `قام الطالب بتقديم طلب شحن محفظة بقيمة ${amount} ج.م من رقم (${senderNumber}) بانتظار مراجعة الإدارة`,
+                status: "pending",
+                user_id: user.uid,
+                user_name: profile?.full_name || user.displayName || "طالب",
+                user_email: user.email || "",
+                user_role: "student",
+                amount: Number(amount),
+                metadata: {
+                    request_id: reqRef.id,
+                    sender_number: senderNumber,
+                    proof_url: publicUrl,
+                }
+            }).catch(() => {})
 
             // Clean up
             setAmount("")
@@ -130,7 +183,7 @@ export default function WalletPage() {
             fetchHistory(user.uid)
         } catch (error: any) {
             console.error("Wallet request error:", error)
-            toast.error("حدث خطأ أثناء إرسال الطلب")
+            toast.error(error.message || "حدث خطأ أثناء إرسال الطلب")
         } finally {
             setSubmitting(false)
         }
@@ -156,119 +209,202 @@ export default function WalletPage() {
                     <Wallet className="h-8 w-8 text-primary" />
                     المحفظة الرقمية
                 </h1>
-                <p className="text-muted-foreground mt-1 italic">بوابتك لإدارة رصيدك والتحكم الدقيق في عمليات الشراء</p>
+                <p className="text-muted-foreground mt-1">بوابتك لإدارة رصيدك والتحكم الدقيق في عمليات الشراء والاشتراك في الكورسات</p>
             </div>
 
+            {/* Notification Banners based on Fawaterak Redirect */}
+            {fawaterakStatus === "success" && (
+                <div className="bg-emerald-500/10 border-2 border-emerald-500/30 text-emerald-950 dark:text-emerald-200 p-5 rounded-2xl flex items-center gap-4 animate-in slide-in-from-top-4">
+                    <div className="h-10 w-10 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+                    </div>
+                    <div>
+                        <h4 className="font-bold text-base">تم شحن المحفظة بنجاح عبر فواتيرك! 🎉</h4>
+                        <p className="text-xs text-muted-foreground mt-0.5">تمت إضافة الرصيد إلى محفظتك بنجاح وهو متاح الآن للاشتراك في أي كورس فوراً.</p>
+                    </div>
+                </div>
+            )}
+
+            {fawaterakStatus === "failed" && (
+                <div className="bg-destructive/10 border-2 border-destructive/30 text-destructive p-5 rounded-2xl flex items-center gap-4 animate-in slide-in-from-top-4">
+                    <div className="h-10 w-10 rounded-xl bg-destructive/20 flex items-center justify-center shrink-0">
+                        <XCircle className="h-6 w-6 text-destructive" />
+                    </div>
+                    <div>
+                        <h4 className="font-bold text-base">تعذر استكمال عملية الدفع الإلكتروني</h4>
+                        <p className="text-xs opacity-90 mt-0.5">تم إلغاء عملية الدفع أو رفضها من قبل البنك. يمكنك المحاولة مجدداً أو استخدام التحويل اليدوي.</p>
+                    </div>
+                </div>
+            )}
+
+            {fawaterakStatus === "pending" && (
+                <div className="bg-amber-500/10 border-2 border-amber-500/30 text-amber-900 dark:text-amber-200 p-5 rounded-2xl flex items-center gap-4 animate-in slide-in-from-top-4">
+                    <div className="h-10 w-10 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
+                        <Clock className="h-6 w-6 text-amber-600" />
+                    </div>
+                    <div>
+                        <h4 className="font-bold text-base">عملية الدفع قيد المعالجة (فوري / أمان)</h4>
+                        <p className="text-xs text-muted-foreground mt-0.5">إذا قمت بالدفع عبر كود فوري أو أمان، سيتم شحن رصيدك تلقائياً فور تأكيد السداد لدى المحل.</p>
+                    </div>
+                </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Column: Balance & Charge Form */}
+                {/* Left Column: Balance & Recharge Methods */}
                 <div className="lg:col-span-2 space-y-6">
                     {/* Balance Card */}
-                    <Card className="bg-primary text-primary-foreground border-none shadow-xl overflow-hidden relative">
-                        <div className="absolute top-[-20px] right-[-20px] w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
+                    <Card className="bg-gradient-to-br from-primary via-primary/95 to-indigo-900 text-primary-foreground border-none shadow-xl overflow-hidden relative">
+                        <div className="absolute top-[-20px] right-[-20px] w-48 h-48 bg-white/10 rounded-full blur-3xl pointer-events-none"></div>
+                        <div className="absolute bottom-[-30px] left-[-30px] w-40 h-40 bg-purple-500/20 rounded-full blur-2xl pointer-events-none"></div>
                         <CardHeader>
-                            <CardTitle className="text-lg font-medium opacity-80">الرصيد الحالي</CardTitle>
+                            <div className="flex items-center justify-between">
+                                <CardTitle className="text-lg font-medium opacity-90">الرصيد المتاح بالمحفظة</CardTitle>
+                                <Badge variant="secondary" className="bg-white/20 hover:bg-white/30 text-white border-none gap-1 font-bold">
+                                    <ShieldCheck className="h-3 w-3" />
+                                    حساب موثق
+                                </Badge>
+                            </div>
                         </CardHeader>
                         <CardContent className="pb-8">
                             <div className="flex items-baseline gap-3">
-                                <span className="text-5xl font-black">{profile?.wallet_balance?.toLocaleString() || 0}</span>
-                                <span className="text-xl font-bold opacity-80">ج.م</span>
+                                <span className="text-5xl font-black tracking-tight">{profile?.wallet_balance?.toLocaleString() || 0}</span>
+                                <span className="text-2xl font-bold opacity-80">ج.م</span>
                             </div>
+                            <p className="text-xs opacity-75 mt-2">يمكنك استخدام هذا الرصيد للاشتراك في أي كورس فورياً بضغطة زر واحدة.</p>
                         </CardContent>
                     </Card>
 
-                    {/* Charge Form */}
+                    {/* Recharge Options */}
                     <Card className="border-2 shadow-sm">
-                        <CardHeader>
+                        <CardHeader className="pb-4">
                             <CardTitle className="text-xl font-bold flex items-center gap-2">
                                 <PlusCircle className="h-5 w-5 text-primary" />
-                                شحن المحفظة
+                                شحن المحفظة (فودافون كاش / إنستاباي)
                             </CardTitle>
-                            <CardDescription>اتبع الخطوات التالية لشحن رصيدك بأمان</CardDescription>
+                            <CardDescription>قم بالتحويل اليدوي لأحد أرقامنا المعتمدة وسيقوم فريق الدعم بتأكيد الرصيد فوراً</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            {/* Instructions */}
-                            <div className="bg-muted/50 p-6 rounded-2xl space-y-4 border-2 border-dashed border-primary/20">
-                                <h3 className="font-bold text-sm flex items-center gap-2">
-                                    <Smartphone className="h-4 w-4 text-primary" />
-                                    خطوات الدفع عبر إنستا باي (InstaPay)
-                                </h3>
-                                <div className="space-y-3">
-                                    <div className="flex items-center justify-between bg-background p-3 rounded-xl border border-primary/10">
-                                        <div className="space-y-1">
-                                            <p className="text-xs text-muted-foreground font-bold">رقم التحويل (إنستا باي)</p>
-                                            <p className="text-lg font-black tracking-widest text-primary">01122331600</p>
-                                        </div>
-                                        <Button variant="ghost" size="icon" onClick={() => copyToClipboard("01122331600")} className="h-10 w-10 text-primary">
-                                            <Copy className="h-4 w-4" />
-                                        </Button>
-                                    </div>
+                            {/* Direct Course Purchase Banner */}
+                            <div className="p-4 bg-emerald-500/10 border-2 border-emerald-500/20 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="space-y-1">
+                                    <h4 className="font-bold text-sm text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                                        <Zap className="h-4 w-4 text-emerald-600 fill-emerald-600" />
+                                        تريد الدفع الفوري بالفيزا أو كروت ميزة أو فوري؟
+                                    </h4>
                                     <p className="text-xs text-muted-foreground leading-relaxed">
-                                        * قم بتحويل المبلغ المطلوب للرقم أعلاه، ثم قم بتصوير "سكرين شوت" لعملية التحويل الناجحة وإرفاقها في النموذج أدناه. سيتم مراجعة الطلب وإضافة الرصيد لحسابك.
+                                        يمكنك التوجه مباشرة لصفحة أي كورس والضغط على <strong className="text-foreground">"الاشتراك وشراء الكورس"</strong> وستتمكن من سداد قيمته فورياً بأمان دون الحاجة لشحن المحفظة مسبقاً!
                                     </p>
                                 </div>
+                                <Button size="sm" asChild className="shrink-0 font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-md">
+                                    <Link href="/courses">
+                                        <span>تصفح الكورسات</span>
+                                        <ArrowRight className="h-3.5 w-3.5 mr-auto" />
+                                    </Link>
+                                </Button>
                             </div>
 
-                            <form onSubmit={handleSubmitRequest} className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label className="text-xs font-bold">المبلغ المراد شحنه (ج.م)</Label>
-                                        <Input
-                                            type="number"
-                                            placeholder="مثال: 500"
-                                            className="h-12 rounded-xl border-2 focus-visible:ring-primary/20"
-                                            value={amount}
-                                            onChange={(e) => setAmount(e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-xs font-bold">الرقم المحول منه</Label>
-                                        <Input
-                                            placeholder="رقم المحفظة التي قمت بالتحويل منها"
-                                            className="h-12 rounded-xl border-2 focus-visible:ring-primary/20"
-                                            value={senderNumber}
-                                            onChange={(e) => setSenderNumber(e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                </div>
+                            {/* MANUAL TRANSFER FORM & NUMBERS */}
+                            <div className="bg-muted/50 p-6 rounded-2xl space-y-6 border-2 border-dashed border-primary/20">
+                                <div className="space-y-4">
+                                    <h3 className="font-bold text-sm flex items-center gap-2 text-primary">
+                                        <Smartphone className="h-4 w-4" />
+                                        1. المحافظ الإلكترونية (Vodafone, Orange, Etisalat Cash)
+                                    </h3>
+                                            <div className="flex items-center justify-between bg-background p-3 rounded-xl border border-primary/10">
+                                                <div className="space-y-1">
+                                                    <p className="text-[10px] text-muted-foreground font-bold">رقم التحويل للمحافظ</p>
+                                                    <p className="text-lg font-black tracking-widest text-primary">01068206660</p>
+                                                </div>
+                                                <Button variant="ghost" size="icon" onClick={() => copyToClipboard("01068206660")} className="h-10 w-10 text-primary">
+                                                    <Copy className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        </div>
 
-                                <div className="space-y-2">
-                                    <Label className="text-xs font-bold">إثبات التحويل (سكرين شوت)</Label>
-                                    <div className="relative group">
-                                        <input
-                                            type="file"
-                                            accept="image/*"
-                                            className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                                            onChange={handleFileUpload}
-                                            required={!file}
-                                        />
-                                        <div className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center gap-2 transition-all ${file ? "border-primary/50 bg-primary/5" : "border-muted-foreground/20 hover:border-primary/30 hover:bg-muted/30"}`}>
-                                            <CloudUpload className={`h-10 w-10 ${file ? "text-primary" : "text-muted-foreground/50"}`} />
-                                            <p className="text-sm font-bold">{file ? file.name : "اضغط هنا لرفع الصورة أو اسحبها"}</p>
-                                            <p className="text-[10px] text-muted-foreground">JPEG, PNG تصل إلى 5 ميجابايت</p>
+                                        <div className="space-y-4 border-t pt-4">
+                                            <h3 className="font-bold text-sm flex items-center gap-2 text-primary">
+                                                <Smartphone className="h-4 w-4" />
+                                                2. التحويل عبر إنستا باي (InstaPay)
+                                            </h3>
+                                            <div className="flex items-center justify-between bg-background p-3 rounded-xl border border-primary/10">
+                                                <div className="space-y-1">
+                                                    <p className="text-[10px] text-muted-foreground font-bold">رقم التحويل (إنستا باي)</p>
+                                                    <p className="text-lg font-black tracking-widest text-primary">01122331600</p>
+                                                </div>
+                                                <Button variant="ghost" size="icon" onClick={() => copyToClipboard("01122331600")} className="h-10 w-10 text-primary">
+                                                    <Copy className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-3 bg-primary/5 rounded-xl border border-primary/10">
+                                            <p className="text-xs text-muted-foreground leading-relaxed font-medium">
+                                                <span className="text-primary font-bold">ملحوظة هامة:</span> بعد إتمام عملية التحويل، يرجى رفع "سكرين شوت" واضحة لعملية التحويل أدناه. ستقوم الإدارة بمراجعة الطلب وتأكيد شحن المحفظة خلال ساعات.
+                                            </p>
                                         </div>
                                     </div>
-                                </div>
 
-                                <Button
-                                    type="submit"
-                                    className="w-full h-12 rounded-xl font-bold shadow-lg hover:shadow-primary/20 transition-all gap-2"
-                                    disabled={submitting}
-                                >
-                                    {submitting ? (
-                                        <>
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                            جاري معالجة الطلب...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <CheckCircle2 className="h-4 w-4" />
-                                            تأكيد وإرسال لطلب الشحن
-                                        </>
-                                    )}
-                                </Button>
-                            </form>
+                                    <form onSubmit={handleSubmitManualRequest} className="space-y-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-bold">المبلغ المراد شحنه (ج.م)</Label>
+                                                <Input
+                                                    type="number"
+                                                    placeholder="مثال: 500"
+                                                    className="h-12 rounded-xl border-2 focus-visible:ring-primary/20"
+                                                    value={amount}
+                                                    onChange={(e) => setAmount(e.target.value)}
+                                                    required
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-bold">الرقم المحول منه</Label>
+                                                <Input
+                                                    placeholder="رقم المحفظة التي قمت بالتحويل منها"
+                                                    className="h-12 rounded-xl border-2 focus-visible:ring-primary/20"
+                                                    value={senderNumber}
+                                                    onChange={(e) => setSenderNumber(e.target.value)}
+                                                    required
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-bold">إثبات التحويل (سكرين شوت)</Label>
+                                            <div className="relative group">
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                                                    onChange={handleFileUpload}
+                                                    required={!file}
+                                                />
+                                                <div className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center gap-2 transition-all ${file ? "border-primary/50 bg-primary/5" : "border-muted-foreground/20 hover:border-primary/30 hover:bg-muted/30"}`}>
+                                                    <CloudUpload className={`h-10 w-10 ${file ? "text-primary" : "text-muted-foreground/50"}`} />
+                                                    <p className="text-sm font-bold">{file ? file.name : "اضغط هنا لرفع الصورة أو اسحبها"}</p>
+                                                    <p className="text-[10px] text-muted-foreground">JPEG, PNG تصل إلى 5 ميجابايت</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <Button
+                                            type="submit"
+                                            className="w-full h-12 rounded-xl font-bold shadow-lg hover:shadow-primary/20 transition-all gap-2"
+                                            disabled={submitting}
+                                        >
+                                            {submitting ? (
+                                                <>
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                    جاري معالجة الطلب...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <CheckCircle2 className="h-4 w-4" />
+                                                    تأكيد وإرسال طلب الشحن اليدوي
+                                                </>
+                                            )}
+                                        </Button>
+                                    </form>
                         </CardContent>
                     </Card>
                 </div>
@@ -277,10 +413,18 @@ export default function WalletPage() {
                 <div className="space-y-6">
                     <Card className="border-2 shadow-sm h-fit">
                         <CardHeader className="bg-muted/30 border-b">
-                            <CardTitle className="text-lg font-bold flex items-center gap-2">
-                                <History className="h-5 w-5" />
-                                سجل العمليات
-                            </CardTitle>
+                            <div className="flex items-center justify-between">
+                                <CardTitle className="text-lg font-bold flex items-center gap-2">
+                                    <History className="h-5 w-5" />
+                                    سجل عمليات الشحن
+                                </CardTitle>
+                                <Button variant="ghost" size="sm" asChild className="text-xs font-bold gap-1 text-primary hover:text-primary">
+                                    <Link href="/dashboard/wallet/history">
+                                        <span>السجل الكامل</span>
+                                        <ArrowRight className="h-3 w-3" />
+                                    </Link>
+                                </Button>
+                            </div>
                         </CardHeader>
                         <CardContent className="p-0">
                             {history.length === 0 ? (
@@ -289,7 +433,7 @@ export default function WalletPage() {
                                     <p className="text-xs text-muted-foreground italic">لا توجد عمليات شحن سابقة</p>
                                 </div>
                             ) : (
-                                <div className="divide-y">
+                                <div className="divide-y max-h-[500px] overflow-y-auto">
                                     {history.map((req) => (
                                         <div key={req.id} className="p-4 space-y-3">
                                             <div className="flex items-center justify-between">
@@ -301,22 +445,37 @@ export default function WalletPage() {
                                                 </div>
                                                 <Badge
                                                     variant={req.status === 'approved' ? 'default' : req.status === 'rejected' ? 'destructive' : 'secondary'}
-                                                    className="rounded-full text-[10px] gap-1 px-2 py-0.5"
+                                                    className="rounded-full text-[10px] gap-1 px-2.5 py-0.5"
                                                 >
                                                     {req.status === 'approved' && <CheckCircle2 className="h-3 w-3" />}
                                                     {req.status === 'pending' && <Clock className="h-3 w-3" />}
+                                                    {req.status === 'pending_payment' && <Clock className="h-3 w-3" />}
                                                     {req.status === 'rejected' && <XCircle className="h-3 w-3" />}
-                                                    {req.status === 'approved' ? 'مقبول' : req.status === 'rejected' ? 'مرفوض' : 'بانتظار المراجعة'}
+                                                    {req.status === 'approved' ? 'مقبول ومضاف' : req.status === 'rejected' ? 'مرفوض' : req.status === 'pending_payment' ? 'بانتظار السداد' : 'بانتظار المراجعة'}
                                                 </Badge>
                                             </div>
                                             <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 p-2 rounded-lg truncate">
-                                                <Smartphone className="h-3 w-3" />
-                                                <span>من: {req.sender_number}</span>
+                                                {req.payment_gateway === 'fawaterak' ? (
+                                                    <CreditCard className="h-3.5 w-3.5 text-primary shrink-0" />
+                                                ) : (
+                                                    <Smartphone className="h-3.5 w-3.5 shrink-0" />
+                                                )}
+                                                <span className="truncate">{req.sender_number || "دفع إلكتروني فواتيرك"}</span>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
                             )}
+
+                            {/* Full Ledger CTA Button */}
+                            <div className="p-3 border-t bg-muted/20 text-center">
+                                <Button variant="outline" size="sm" asChild className="w-full text-xs font-bold gap-2 rounded-xl shadow-xs">
+                                    <Link href="/dashboard/wallet/history">
+                                        <History className="h-4 w-4 text-primary" />
+                                        <span>عرض السجل المالي والمدفوعات بالكامل 📊</span>
+                                    </Link>
+                                </Button>
+                            </div>
                         </CardContent>
                     </Card>
 
@@ -326,11 +485,23 @@ export default function WalletPage() {
                             تنبيه هام
                         </h4>
                         <p className="text-xs text-orange-800/80 leading-relaxed font-medium">
-                            عمليات الشحن تتم مراجعتها بدقة من قبل الإدارة. أي محاولة تزيير لإثباتات الدفع قد تؤدي إلى تجميد حسابك نهائياً.
+                            عمليات الدفع عبر فواتيرك مشفرة ومؤمنة بالكامل بنظام الحماية البنكية 3D Secure. في حالة التحويل اليدوي، يتم فحص وتأكيد الإيصالات بدقة من قبل فريق الدعم.
                         </p>
                     </div>
                 </div>
             </div>
         </div>
+    )
+}
+
+export default function WalletPage() {
+    return (
+        <Suspense fallback={
+            <div className="flex min-h-[400px] items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        }>
+            <WalletContent />
+        </Suspense>
     )
 }

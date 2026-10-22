@@ -20,7 +20,8 @@ import {
     Loader2,
     Wallet,
     Fingerprint,
-    PlusCircle
+    PlusCircle,
+    Calendar
 } from "lucide-react"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
@@ -35,6 +36,8 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { increment, runTransaction } from "firebase/firestore"
+import { auth } from "@/lib/firebase/config"
+import { logActivity } from "@/lib/activity-logger"
 
 export default function AdminUsersPage() {
     const [users, setUsers] = useState<any[]>([])
@@ -54,6 +57,12 @@ export default function AdminUsersPage() {
     async function fetchUsers() {
         setLoading(true)
         try {
+            const res = await fetch("/api/admin/users")
+            if (res.ok) {
+                const data = await res.json()
+                setUsers(data.users || [])
+                return
+            }
             const q = query(collection(db, "profiles"), orderBy("created_at", "desc"))
             const querySnapshot = await getDocs(q)
             const usersData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
@@ -71,11 +80,17 @@ export default function AdminUsersPage() {
 
         setIsRecharging(true)
         try {
-            const userRef = doc(db, "profiles", selectedUserForRecharge.id)
-            await updateDoc(userRef, {
-                wallet_balance: increment(Number(rechargeAmount)),
-                updated_at: new Date().toISOString()
+            const res = await fetch("/api/admin/wallet/adjust", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    targetUserId: selectedUserForRecharge.id,
+                    amount: Number(rechargeAmount),
+                    type: "recharge",
+                }),
             })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "فشل تعديل الرصيد")
 
             setUsers(users.map(u =>
                 u.id === selectedUserForRecharge.id
@@ -84,6 +99,29 @@ export default function AdminUsersPage() {
             ))
 
             toast.success(`تم إضافة ${rechargeAmount} ج.م لمحفظة ${selectedUserForRecharge.full_name}`)
+            
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "admin_manual_recharge",
+                category: "financial",
+                title: "شحن رصيد يدوي بواسطة الإدارة",
+                description: `قام المسؤول بشحن مبلغ ${rechargeAmount} ج.م مباشرة إلى محفظة المستخدم "${selectedUserForRecharge.full_name}" (${selectedUserForRecharge.email || selectedUserForRecharge.id})`,
+                status: "success",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: selectedUserForRecharge.id,
+                target_user_name: selectedUserForRecharge.full_name,
+                amount: Number(rechargeAmount),
+                metadata: {
+                    user_id: selectedUserForRecharge.id,
+                    user_role: selectedUserForRecharge.role,
+                    amount_added: Number(rechargeAmount),
+                }
+            }).catch(() => {})
+
             setSelectedUserForRecharge(null)
             setRechargeAmount("")
         } catch (error) {
@@ -99,7 +137,6 @@ export default function AdminUsersPage() {
 
         setIsWithdrawing(true)
         try {
-            const userRef = doc(db, "profiles", selectedUserForWithdraw.id)
             const currentBalance = selectedUserForWithdraw.wallet_balance || 0
 
             if (Number(withdrawAmount) > currentBalance) {
@@ -108,10 +145,17 @@ export default function AdminUsersPage() {
                 return
             }
 
-            await updateDoc(userRef, {
-                wallet_balance: increment(-Number(withdrawAmount)),
-                updated_at: new Date().toISOString()
+            const res = await fetch("/api/admin/wallet/adjust", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    targetUserId: selectedUserForWithdraw.id,
+                    amount: Number(withdrawAmount),
+                    type: "withdraw",
+                }),
             })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "فشل تعديل الرصيد")
 
             setUsers(users.map(u =>
                 u.id === selectedUserForWithdraw.id
@@ -120,6 +164,29 @@ export default function AdminUsersPage() {
             ))
 
             toast.success(`تم سحب ${withdrawAmount} ج.م من محفظة ${selectedUserForWithdraw.full_name}`)
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "admin_manual_deduct",
+                category: "financial",
+                title: "خصم رصيد يدوي بواسطة الإدارة",
+                description: `قام المسؤول بخصم مبلغ ${withdrawAmount} ج.م من محفظة المستخدم "${selectedUserForWithdraw.full_name}" (${selectedUserForWithdraw.email || selectedUserForWithdraw.id})`,
+                status: "success",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: selectedUserForWithdraw.id,
+                target_user_name: selectedUserForWithdraw.full_name,
+                amount: -Number(withdrawAmount),
+                metadata: {
+                    user_id: selectedUserForWithdraw.id,
+                    user_role: selectedUserForWithdraw.role,
+                    amount_deducted: Number(withdrawAmount),
+                }
+            }).catch(() => {})
+
             setSelectedUserForWithdraw(null)
             setWithdrawAmount("")
         } catch (error) {
@@ -132,15 +199,98 @@ export default function AdminUsersPage() {
 
     const handleUpdateStatus = async (userId: string, newStatus: string) => {
         try {
-            await updateDoc(doc(db, "profiles", userId), {
-                status: newStatus,
-                updated_at: new Date().toISOString()
-            })
+            const targetUser = users.find(u => u.id === userId);
+            const res = await fetch("/api/admin/users", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    userId,
+                    action: "update_status",
+                    status: newStatus,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.error || "فشل تحديث الحالة");
+            }
+
             setUsers(users.map(u => u.id === userId ? { ...u, status: newStatus } : u))
             toast.success(newStatus === 'approved' ? "تم تفعيل الحساب بنجاح" : "تم رفض الحساب")
-        } catch (error) {
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "user_status_changed",
+                category: "admin_action",
+                title: newStatus === "approved" ? "تفعيل حساب مستخدم" : "رفض / تعليق حساب مستخدم",
+                description: `قام المسؤول بـ (${newStatus === "approved" ? "تفعيل واعتماد" : "رفض"}) حساب المستخدم "${targetUser?.full_name || userId}"`,
+                status: "success",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: userId,
+                target_user_name: targetUser?.full_name,
+                metadata: {
+                    user_id: userId,
+                    user_role: targetUser?.role,
+                    new_status: newStatus,
+                }
+            }).catch(() => {})
+        } catch (error: any) {
             console.error("Update status error:", error)
-            toast.error("حدث خطأ أثناء تحديث الحالة")
+            toast.error(error.message || "حدث خطأ أثناء تحديث الحالة")
+        }
+    }
+
+    const handleResetDevices = async (userId: string) => {
+        try {
+            const res = await fetch("/api/admin/users", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    userId,
+                    action: "reset_devices",
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.error || "فشل تصفير الأجهزة");
+            }
+
+            setUsers(users.map(u => u.id === userId ? { ...u, active_devices: [] } : u))
+            toast.success("تم تصفير الأجهزة المسجلة بنجاح")
+        } catch (error: any) {
+            console.error("Reset devices error:", error)
+            toast.error(error.message || "حدث خطأ أثناء تصفير الأجهزة")
+        }
+    }
+
+    const handleToggleVerify = async (userId: string, currentStatus: boolean) => {
+        try {
+            await updateDoc(doc(db, "profiles", userId), {
+                is_verified: !currentStatus,
+                updated_at: new Date().toISOString()
+            })
+            setUsers(users.map(u => u.id === userId ? { ...u, is_verified: !currentStatus } : u))
+            toast.success(!currentStatus ? "تم توثيق المدرس بنجاح" : "تم إلغاء توثيق المدرس")
+        } catch (error) {
+            console.error("Toggle verify error:", error)
+            toast.error("حدث خطأ أثناء تحديث حالة التوثيق")
+        }
+    }
+
+    const handleToggleAutoReport = async (userId: string, currentStatus: boolean) => {
+        try {
+            await updateDoc(doc(db, "profiles", userId), {
+                auto_report_unlocked: !currentStatus,
+                updated_at: new Date().toISOString()
+            })
+            setUsers(users.map(u => u.id === userId ? { ...u, auto_report_unlocked: !currentStatus } : u))
+            toast.success(!currentStatus ? "تم تفعيل الجدولة التلقائية للمدرس بنجاح" : "تم قفل الجدولة التلقائية للمدرس")
+        } catch (error) {
+            console.error("Toggle auto report error:", error)
+            toast.error("حدث خطأ أثناء تحديث حالة الجدولة التلقائية")
         }
     }
 
@@ -203,14 +353,17 @@ export default function AdminUsersPage() {
                     <div className="grid gap-6">
                         {PendingUsers.length > 0 ? (
                             PendingUsers.map((user) => (
-                                <UserCard
-                                    key={user.id}
-                                    user={user}
-                                    onApprove={() => handleUpdateStatus(user.id, 'approved')}
-                                    onReject={() => handleUpdateStatus(user.id, 'rejected')}
-                                    onRecharge={(u: any) => setSelectedUserForRecharge(u)}
-                                    onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
-                                />
+                                    <UserCard
+                                        key={user.id}
+                                        user={user}
+                                        onApprove={() => handleUpdateStatus(user.id, 'approved')}
+                                        onReject={() => handleUpdateStatus(user.id, 'rejected')}
+                                        onRecharge={(u: any) => setSelectedUserForRecharge(u)}
+                                        onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
+                                        onResetDevices={() => handleResetDevices(user.id)}
+                                        onToggleVerify={handleToggleVerify}
+                                        onToggleAutoReport={handleToggleAutoReport}
+                                    />
                             ))
                         ) : (
                             <div className="text-center py-12 border-2 border-dashed rounded-2xl text-muted-foreground">
@@ -229,25 +382,31 @@ export default function AdminUsersPage() {
                                 onReject={() => handleUpdateStatus(user.id, 'rejected')}
                                 onRecharge={(u: any) => setSelectedUserForRecharge(u)}
                                 onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
+                                onResetDevices={() => handleResetDevices(user.id)}
+                                onToggleVerify={handleToggleVerify}
+                                onToggleAutoReport={handleToggleAutoReport}
                             />
                         ))}
                     </div>
                 </TabsContent>
 
-                <TabsContent value="all" className="pt-6">
-                    <div className="grid gap-6">
-                        {filteredUsers.map((user) => (
-                            <UserCard
-                                key={user.id}
-                                user={user}
-                                onApprove={user.status !== 'approved' ? () => handleUpdateStatus(user.id, 'approved') : undefined}
-                                onReject={user.status !== 'rejected' ? () => handleUpdateStatus(user.id, 'rejected') : undefined}
-                                onRecharge={(u: any) => setSelectedUserForRecharge(u)}
-                                onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
-                            />
-                        ))}
-                    </div>
-                </TabsContent>
+                        <TabsContent value="all" className="pt-6">
+                            <div className="grid gap-6">
+                                {filteredUsers.map((user) => (
+                                    <UserCard
+                                        key={user.id}
+                                        user={user}
+                                        onApprove={user.status !== 'approved' ? () => handleUpdateStatus(user.id, 'approved') : undefined}
+                                        onReject={user.status !== 'rejected' ? () => handleUpdateStatus(user.id, 'rejected') : undefined}
+                                        onRecharge={(u: any) => setSelectedUserForRecharge(u)}
+                                        onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
+                                        onResetDevices={() => handleResetDevices(user.id)}
+                                        onToggleVerify={handleToggleVerify}
+                                        onToggleAutoReport={handleToggleAutoReport}
+                                    />
+                                ))}
+                            </div>
+                        </TabsContent>
             </Tabs>
 
             {/* Recharge Dialog */}
@@ -344,16 +503,18 @@ function StatCard({ title, value, icon: Icon, color }: any) {
     )
 }
 
-function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw }: any) {
+function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices, onToggleVerify, onToggleAutoReport }: any) {
+    const avatarUrl = user.photoURL || user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.full_name || user.id}`
+
     return (
         <Card className="hover:shadow-md transition-shadow">
             <CardContent className="p-6">
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
                     <div className="flex items-start gap-4">
-                        <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 relative">
-                            {user.role === 'instructor' ? <ShieldCheck className="h-7 w-7" /> : <GraduationCap className="h-7 w-7" />}
+                        <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 relative overflow-hidden border-2 border-primary/10">
+                            <img src={avatarUrl} className="w-full h-full object-cover" alt="User Avatar" />
                             {user.status === 'approved' && (
-                                <div className="absolute -bottom-1 -right-1 bg-background rounded-full p-0.5 shadow-sm">
+                                <div className="absolute -bottom-1 -right-1 bg-background rounded-full p-0.5 shadow-sm z-10">
                                     <CheckCircle2 className="h-5 w-5 text-green-500 fill-green-50" />
                                 </div>
                             )}
@@ -403,9 +564,21 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw }: any) {
                                     </>
                                 )}
                                 {user.role === 'instructor' && (
-                                    <div className="flex items-center gap-2">
-                                        <User className="h-3.5 w-3.5" />
-                                        التخصص: {user.specialty}
+                                    <div className="flex flex-col gap-1.5">
+                                        <div className="flex items-center gap-2">
+                                            <User className="h-3.5 w-3.5" />
+                                            التخصص: {user.specialty}
+                                            {user.is_verified && <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 text-[10px]">موثق</Badge>}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Calendar className="h-3.5 w-3.5 text-purple-500" />
+                                            <span>الجدولة التلقائية:</span>
+                                            {user.auto_report_unlocked ? (
+                                                <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 text-[10px] font-bold">نشطة</Badge>
+                                            ) : (
+                                                <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50 text-[10px] font-bold">مغلقة</Badge>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -413,6 +586,28 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw }: any) {
                     </div>
 
                     <div className="flex flex-col gap-2 shrink-0 sm:min-w-[140px]">
+                        {user.role === 'instructor' && (
+                            <>
+                                <Button 
+                                    variant="outline" 
+                                    className={`w-full gap-2 h-9 font-bold ${user.is_verified ? 'text-amber-600 border-amber-200 bg-amber-50' : 'text-blue-600 border-blue-200 bg-blue-50'}`}
+                                    size="sm" 
+                                    onClick={() => onToggleVerify(user.id, user.is_verified)}
+                                >
+                                    <ShieldCheck className="h-4 w-4" />
+                                    {user.is_verified ? 'إلغاء التوثيق' : 'توثيق المدرس'}
+                                </Button>
+                                <Button 
+                                    variant="outline" 
+                                    className={`w-full gap-2 h-9 font-bold ${user.auto_report_unlocked ? 'text-rose-600 border-rose-200 bg-rose-50 hover:bg-rose-100 hover:text-rose-700' : 'text-purple-600 border-purple-200 bg-purple-50 hover:bg-purple-100 hover:text-purple-700'}`}
+                                    size="sm" 
+                                    onClick={() => onToggleAutoReport(user.id, user.auto_report_unlocked)}
+                                >
+                                    <Calendar className="h-4 w-4" />
+                                    {user.auto_report_unlocked ? 'قفل الجدولة' : 'تفعيل الجدولة'}
+                                </Button>
+                            </>
+                        )}
                         {onApprove && (
                             <Button className="w-full gap-2 bg-green-600 hover:bg-green-700 h-9" size="sm" onClick={onApprove}>
                                 <CheckCircle2 className="h-4 w-4" />
@@ -425,16 +620,31 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw }: any) {
                                 {user.status === 'approved' ? 'حظر الحساب' : 'رفض الطلب'}
                             </Button>
                         )}
-                        {user.role === 'student' && onRecharge && (
-                            <Button
-                                variant="outline"
-                                className="w-full gap-2 border-primary/20 text-primary hover:bg-primary/5 h-9"
-                                size="sm"
-                                onClick={() => onRecharge(user)}
-                            >
-                                <PlusCircle className="h-4 w-4" />
-                                شحن المحفظة
-                            </Button>
+                        {user.role === 'student' && (
+                            <>
+                                {onRecharge && (
+                                    <Button
+                                        variant="outline"
+                                        className="w-full gap-2 border-primary/20 text-primary hover:bg-primary/5 h-9"
+                                        size="sm"
+                                        onClick={() => onRecharge(user)}
+                                    >
+                                        <PlusCircle className="h-4 w-4" />
+                                        شحن المحفظة
+                                    </Button>
+                                )}
+                                {onResetDevices && user.active_devices && user.active_devices.length > 0 && (
+                                    <Button
+                                        variant="outline"
+                                        className="w-full gap-2 border-blue-200 text-blue-600 hover:bg-blue-50 h-9"
+                                        size="sm"
+                                        onClick={onResetDevices}
+                                    >
+                                        <Fingerprint className="h-4 w-4" />
+                                        تصفير الأجهزة ({user.active_devices.length})
+                                    </Button>
+                                )}
+                            </>
                         )}
                         {user.role === 'student' && onWithdraw && user.status === 'approved' && (
                             <Button

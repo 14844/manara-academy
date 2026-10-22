@@ -47,6 +47,7 @@ export default function InstructorCoursesPage() {
     async function fetchCourses(instructorId: string) {
         setIsLoading(true)
         try {
+            // 1. Fetch Courses
             const q = query(
                 collection(db, "courses"),
                 where("instructor_id", "==", instructorId)
@@ -56,7 +57,22 @@ export default function InstructorCoursesPage() {
                 id: doc.id,
                 ...doc.data()
             }))
-            setCourses(coursesData.sort((a: any, b: any) =>
+
+            // 2. Fetch Enrollments to get real student counts
+            const enrollmentsQ = query(
+                collection(db, "enrollments"),
+                where("instructor_id", "==", instructorId)
+            )
+            const enrollmentsSnap = await getDocs(enrollmentsQ)
+            const enrollments = enrollmentsSnap.docs.map(doc => doc.data())
+
+            // 3. Map student counts to courses
+            const updatedCourses = coursesData.map(course => ({
+                ...course,
+                real_students_count: enrollments.filter(e => e.course_id === course.id).length
+            }))
+
+            setCourses(updatedCourses.sort((a: any, b: any) =>
                 new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
             ))
         } catch (error) {
@@ -192,7 +208,7 @@ export default function InstructorCoursesPage() {
                                 <div className="flex items-center justify-between text-xs font-bold text-muted-foreground border-t pt-4">
                                     <div className="flex items-center gap-1">
                                         <Users className="h-3 w-3" />
-                                        <span>32 طالب</span>
+                                        <span>{course.real_students_count || 0} طالب</span>
                                     </div>
                                     <div className="flex items-center gap-1">
                                         <TrendingUp className="h-3 w-3" />

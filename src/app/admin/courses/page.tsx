@@ -14,6 +14,8 @@ import {
     Loader2
 } from "lucide-react"
 import { toast } from "sonner"
+import { auth } from "@/lib/firebase/config"
+import { logActivity } from "@/lib/activity-logger"
 import Link from "next/link"
 
 export default function AdminCoursesPage() {
@@ -41,12 +43,34 @@ export default function AdminCoursesPage() {
 
     const handleApprove = async (courseId: string) => {
         try {
+            const courseObj = courses.find(c => c.id === courseId)
             await updateDoc(doc(db, "courses", courseId), {
                 status: "approved",
                 updated_at: new Date().toISOString()
             })
             toast.success("تم اعتماد الكورس بنجاح!")
             setCourses(courses.filter(c => c.id !== courseId))
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "course_approved",
+                category: "admin_action",
+                title: "اعتماد ونشر كورس جديد",
+                description: `وافق المسؤول على نشر كورس "${courseObj?.title || courseId}" للمحاضر "${courseObj?.instructor_name || "محاضر"}"`,
+                status: "success",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: courseObj?.instructor_id,
+                target_user_name: courseObj?.instructor_name,
+                metadata: {
+                    course_id: courseId,
+                    course_title: courseObj?.title,
+                    price: courseObj?.price,
+                }
+            }).catch(() => {})
         } catch (error) {
             console.error("Approval error:", error)
             toast.error("حدث خطأ أثناء اعتماد الكورس")
@@ -55,13 +79,33 @@ export default function AdminCoursesPage() {
 
     const handleReject = async (courseId: string) => {
         try {
-            // we could also add a rejection reason field
+            const courseObj = courses.find(c => c.id === courseId)
             await updateDoc(doc(db, "courses", courseId), {
                 status: "rejected",
                 updated_at: new Date().toISOString()
             })
             toast.info("تم رفض الكورس")
             setCourses(courses.filter(c => c.id !== courseId))
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "course_rejected",
+                category: "admin_action",
+                title: "رفض كورس",
+                description: `رفض المسؤول نشر كورس "${courseObj?.title || courseId}" للمحاضر "${courseObj?.instructor_name || "محاضر"}"`,
+                status: "failed",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: courseObj?.instructor_id,
+                target_user_name: courseObj?.instructor_name,
+                metadata: {
+                    course_id: courseId,
+                    course_title: courseObj?.title,
+                }
+            }).catch(() => {})
         } catch (error) {
             console.error("Rejection error:", error)
             toast.error("حدث خطأ أثناء رفض الكورس")

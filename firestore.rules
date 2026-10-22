@@ -1,0 +1,313 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserRole() {
+      return request.auth.token.role != null
+        ? request.auth.token.role
+        : get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        request.auth.token.role == 'admin' ||
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function isInstructor() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'instructor' ||
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'instructor'
+      );
+    }
+
+    function isAccountActive() {
+      return isAuthenticated() && (
+        isAdmin() ||
+        request.auth.token.status == 'active' ||
+        request.auth.token.status == 'approved' ||
+        get(/databases/$(database)/documents/profiles_private/$(request.auth.uid)).data.status == 'active' ||
+        get(/databases/$(database)/documents/profiles_private/$(request.auth.uid)).data.status == 'approved' ||
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.status == 'active' ||
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.status == 'approved'
+      );
+    }
+
+    // Profiles (PUBLIC fields only): full_name, avatar_url, bio, specialty, role, is_verified, grade_level, school_name, created_at, updated_at
+    // get: any authenticated user. list: admin only.
+    // Client create forbidden (handled by server). Owner can only update allowlisted fields.
+    match /profiles/{userId} {
+      allow get: if isAuthenticated();
+      allow list: if isAdmin();
+      allow create: if false;
+      allow update: if isAdmin() || (
+        isOwner(userId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'avatar_url', 'updated_at'
+        ])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Profiles Private (SENSITIVE fields): email, phone, parent_phone, wallet_balance,
+    // active_devices, active_session_id, status, student_id
+    // Only the owner or admin can read. All writes are server-side only.
+    match /profiles_private/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow write: if false;
+    }
+
+    // Enrollments: Readable by student, course instructor, or admin.
+    // Progress update NOT allowed from client (must go through /api/courses/progress).
+    // Delete allowed for admin. Writes/purchases are server-side.
+    match /enrollments/{enrollmentId} {
+      allow get: if isAuthenticated() && (
+        resource == null ||
+        resource.data.student_id == request.auth.uid ||
+        resource.data.instructor_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid ||
+        resource.data.instructor_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+      allow create: if false;
+    }
+
+    // Transactions: Strictly read-only for participants and admin. Writes are server-side.
+    // (Single canonical rule defined below with course_orders)
+    match /transactions/{txId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid ||
+        resource.data.instructor_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow write: if false;
+    }
+
+    // Wallet requests: Student can read own; admin reads & manages. Client create blocked (server only).
+    match /wallet_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid || isAdmin()
+      );
+      allow create: if false;
+      allow update, delete: if isAdmin();
+    }
+
+    // Withdrawal requests: Instructor can read own. Admin reads & manages status.
+    // Client create forbidden — withdrawals only via /api/instructor/withdrawals/request.
+    match /withdrawal_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid || isAdmin()
+      );
+      allow create: if false;
+      allow update, delete: if isAdmin();
+    }
+
+    // Coupons: Read restricted to coupon owner and admin.
+    // Create: admin or active instructor owning the course (course_id == 'all' only for admin).
+    // Update: owner/admin (course_id, instructor_id, and usage_count protected; discount_percent between 1 and 100).
+    match /coupons/{couponId} {
+      allow read: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isAccountActive() &&
+        request.resource.data.discount_percent is number &&
+        request.resource.data.discount_percent >= 1 &&
+        request.resource.data.discount_percent <= 100 && (
+          isAdmin() || (
+            isInstructor() &&
+            request.resource.data.instructor_id == request.auth.uid &&
+            'course_id' in request.resource.data &&
+            request.resource.data.course_id != 'all' &&
+            get(/databases/$(database)/documents/courses/$(request.resource.data.course_id)).data.instructor_id == request.auth.uid
+          )
+        );
+      allow update: if isAuthenticated() && isAccountActive() && (
+        isAdmin() || (
+          resource.data.instructor_id == request.auth.uid &&
+          request.resource.data.instructor_id == resource.data.instructor_id &&
+          request.resource.data.course_id == resource.data.course_id &&
+          request.resource.data.discount_percent is number &&
+          request.resource.data.discount_percent >= 1 &&
+          request.resource.data.discount_percent <= 100 &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['usage_count'])
+        )
+      );
+      allow delete: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
+    }
+
+    // Refund locks: Internal server-only collection for idempotent refund processing.
+    match /refund_locks/{lockId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Courses: Publicly readable. Created by instructor (must be pending, zero students, no is_published).
+    // Instructor cannot tamper with students_count, status, is_published, instructor_verified,
+    // rating, price (after create), or instructor_id.
+    match /courses/{courseId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isAccountActive() && (
+        isAdmin() || (
+          isInstructor() &&
+          request.resource.data.instructor_id == request.auth.uid &&
+          request.resource.data.status == "pending" &&
+          (!('students_count' in request.resource.data) || request.resource.data.students_count == 0) &&
+          !('is_published' in request.resource.data) &&
+          !('instructor_verified' in request.resource.data) &&
+          !('rating' in request.resource.data) &&
+          !('video_path' in request.resource.data) &&
+          !('url' in request.resource.data) &&
+          !('correctAnswer' in request.resource.data) &&
+          !('answers' in request.resource.data)
+        )
+      );
+      allow update: if isAuthenticated() && isAccountActive() && (
+        isAdmin() || (
+          resource.data.instructor_id == request.auth.uid &&
+          request.resource.data.instructor_id == resource.data.instructor_id &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'students_count', 'status', 'is_published', 'instructor_verified',
+            'rating', 'price', 'modules', 'video_path', 'url', 'correctAnswer', 'answers'
+          ])
+        )
+      );
+      allow delete: if isAuthenticated() && (
+        isAdmin() || (
+          resource.data.instructor_id == request.auth.uid &&
+          (!('students_count' in resource.data) || resource.data.students_count == 0)
+        )
+      );
+
+      // Private media: strictly server-side only
+      match /private/{docId} {
+        allow read, write: if false;
+      }
+    }
+
+    // Submissions: All creates go through /api/courses/exams/submit. Instructors/admin read and grade.
+    match /submissions/{subId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid ||
+        resource.data.instructor_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if false;
+      allow update: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Video progress: Student can read/create/update their own progress; admin can read.
+    // Update/delete must verify existing doc belongs to user.
+    match /video_progress/{progressId} {
+      allow get: if isAuthenticated() && (
+        resource == null ||
+        resource.data.student_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.student_id == request.auth.uid || isAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        isAdmin() || (
+          resource.data.student_id == request.auth.uid &&
+          request.resource.data.student_id == request.auth.uid
+        )
+      );
+      allow delete: if isAuthenticated() && (
+        isAdmin() || resource.data.student_id == request.auth.uid
+      );
+    }
+
+    // Parent Reports: Access via token through server route /api/reports/[token].
+    // Authenticated access restricted to report owner instructor, student, or admin.
+    // Create requires instructor to have the student enrolled in one of their courses.
+    match /parent_reports/{reportId} {
+      allow read: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid ||
+        resource.data.student_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && isAccountActive() && (
+        isAdmin() || (
+          isInstructor() &&
+          request.resource.data.instructor_id == request.auth.uid &&
+          exists(/databases/$(database)/documents/enrollments/$(request.resource.data.student_id + '_' + request.resource.data.course_id)) &&
+          get(/databases/$(database)/documents/enrollments/$(request.resource.data.student_id + '_' + request.resource.data.course_id)).data.instructor_id == request.auth.uid
+        )
+      );
+      allow update: if isAuthenticated() && isAccountActive() && (
+        (isInstructor() && resource.data.instructor_id == request.auth.uid) || isAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        (isInstructor() && resource.data.instructor_id == request.auth.uid) || isAdmin()
+      );
+    }
+
+    // Report Schedules: Only the instructor who owns the schedule or admin.
+    match /report_schedules/{scheduleId} {
+      allow read: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid || isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        (isInstructor() && request.resource.data.instructor_id == request.auth.uid) || isAdmin()
+      );
+      allow update, delete: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid || isAdmin()
+      );
+    }
+
+    // Internal activity logs: Admin reads. Client create BLOCKED — must go through /api/logs/record.
+    match /activity_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if false;
+      allow update, delete: if false;
+    }
+
+    // System configurations: Only settings/support is publicly readable; rest require admin.
+    match /settings/{settingId} {
+      allow read: if settingId == 'support' || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /system/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Course Orders: Student or instructor can read their own; admin can read.
+    match /course_orders/{orderId} {
+      allow read: if isAuthenticated() && (
+        resource.data.student_id == request.auth.uid ||
+        resource.data.instructor_id == request.auth.uid ||
+        isAdmin()
+      );
+      allow write: if false; // Server only
+    }
+
+    // Default deny for everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

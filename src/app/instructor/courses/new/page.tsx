@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { auth, db } from "@/lib/firebase/config"
-import { collection, doc, setDoc } from "firebase/firestore"
+import { collection, doc, getDoc, setDoc } from "firebase/firestore"
 import { Button } from "@/components/ui/button"
 import {
     Form,
@@ -85,10 +85,15 @@ export default function NewCoursePage() {
         setIsLoading(true)
         try {
             const courseRef = doc(collection(db, "courses"))
+            const userProfileRef = doc(db, "profiles", auth.currentUser.uid)
+            const userProfileSnap = await getDoc(userProfileRef)
+            const isVerified = userProfileSnap.exists() ? (userProfileSnap.data()?.is_verified || false) : false
+            const instructorName = userProfileSnap.exists() ? (userProfileSnap.data()?.full_name || auth.currentUser.displayName || "مدرس") : (auth.currentUser.displayName || "مدرس")
+
             await setDoc(courseRef, {
                 id: courseRef.id,
                 instructor_id: auth.currentUser.uid,
-                instructor_name: auth.currentUser.displayName || "مدرس غير معروف",
+                instructor_name: instructorName,
                 title: values.title,
                 description: values.description,
                 category: values.category,
@@ -96,11 +101,24 @@ export default function NewCoursePage() {
                 price: parseFloat(values.price),
                 duration: parseFloat(values.duration),
                 thumbnail_url: form.getValues("thumbnail_url" as any) || "",
-                status: "pending", // Courses need admin approval
-                modules: modules, // Dynamic modules/lessons from state
+                status: "pending", // Strictly pending on creation
+                students_count: 0,
+                modules: [], // Initialized cleanly
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             })
+
+            // Save modules & media privately via server route
+            if (modules && modules.length > 0) {
+                const mediaRes = await fetch("/api/courses/save-media", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ courseId: courseRef.id, modules }),
+                })
+                if (!mediaRes.ok) {
+                    console.warn("Could not save private media for new course")
+                }
+            }
 
             toast.success("تم إنشاء الكورس بنجاح وهو بانتظار مراجعة الإدارة")
             router.push("/instructor")

@@ -21,6 +21,8 @@ import {
     History as HistoryIcon
 } from "lucide-react"
 import { toast } from "sonner"
+import { auth } from "@/lib/firebase/config"
+import { logActivity } from "@/lib/activity-logger"
 import {
     Dialog,
     DialogContent,
@@ -52,6 +54,12 @@ export default function AdminPaymentsPage() {
 
     async function fetchStudentBalance(uid: string) {
         try {
+            const privRef = doc(db, "profiles_private", uid)
+            const privSnap = await getDoc(privRef)
+            if (privSnap.exists()) {
+                setStudentBalance(privSnap.data().wallet_balance || 0)
+                return
+            }
             const docRef = doc(db, "profiles", uid)
             const snap = await getDoc(docRef)
             if (snap.exists()) {
@@ -83,31 +91,42 @@ export default function AdminPaymentsPage() {
 
         setIsActionLoading(true)
         try {
-            await runTransaction(db, async (transaction) => {
-                const profileRef = doc(db, "profiles", request.student_id)
-                const requestRef = doc(db, "wallet_requests", request.id)
-
-                const profileSnap = await transaction.get(profileRef)
-                if (!profileSnap.exists()) throw new Error("Profile not found")
-
-                // 1. Update Profile Balance
-                transaction.update(profileRef, {
-                    wallet_balance: increment(request.amount),
-                    updated_at: new Date().toISOString()
-                })
-
-                // 2. Update Request Status
-                transaction.update(requestRef, {
-                    status: "approved",
-                    updated_at: new Date().toISOString(),
-                    reviewed_at: new Date().toISOString()
-                })
+            const res = await fetch("/api/admin/payments/approve", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ requestId: request.id }),
             })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "فشل اعتماد الطلب")
 
             toast.success("تم اعتماد الدفع وإضافة الرصيد لمحفظة الطالب")
             setSelectedRequest(null)
             setConfirmingApproval(false)
             fetchRequests()
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "wallet_recharge_manual_approved",
+                category: "financial",
+                title: "موافقة على شحن محفظة (يدوي)",
+                description: `وافق المسؤول على طلب شحن محفظة بمبلغ ${request.amount} ج.م للطالب "${request.student_name || request.student_id}" عبر (${request.payment_method || "تحويل يدوي"})`,
+                status: "success",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: request.student_id,
+                target_user_name: request.student_name,
+                amount: request.amount,
+                metadata: {
+                    request_id: request.id,
+                    student_id: request.student_id,
+                    amount: request.amount,
+                    sender_number: request.sender_number,
+                    transaction_reference: request.transaction_reference,
+                }
+            }).catch(() => {})
         } catch (error) {
             console.error("Approve error:", error)
             toast.error("حدث خطأ أثناء اعتماد العملية")
@@ -119,16 +138,43 @@ export default function AdminPaymentsPage() {
     const handleReject = async (request: any) => {
         setIsActionLoading(true)
         try {
-            const requestRef = doc(db, "wallet_requests", request.id)
-            await updateDoc(requestRef, {
-                status: "rejected",
-                updated_at: new Date().toISOString(),
-                reviewed_at: new Date().toISOString()
+            const res = await fetch("/api/admin/payments/reject", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ requestId: request.id }),
             })
+
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+                throw new Error(data.error || "فشل رفض طلب الدفع")
+            }
+
             toast.info("تم رفض طلب الدفع")
             setSelectedRequest(null)
             setConfirmingApproval(false) // Reset confirmation state on reject
             fetchRequests()
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "wallet_recharge_manual_rejected",
+                category: "financial",
+                title: "رفض طلب شحن محفظة (يدوي)",
+                description: `رفض المسؤول طلب شحن محفظة بمبلغ ${request.amount} ج.م للطالب "${request.student_name || request.student_id}"`,
+                status: "failed",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: "admin",
+                target_user_id: request.student_id,
+                target_user_name: request.student_name,
+                amount: request.amount,
+                metadata: {
+                    request_id: request.id,
+                    student_id: request.student_id,
+                    amount: request.amount,
+                }
+            }).catch(() => {})
         } catch (error) {
             console.error("Reject error:", error)
             toast.error("حدث خطأ أثناء رفض العملية")
