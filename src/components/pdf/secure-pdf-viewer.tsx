@@ -33,94 +33,6 @@ interface SecurePdfViewerProps {
 }
 
 
-/** Renders the PDF pages onto canvases (no iframe / no external viewer), so the watermark overlay stays on top. */
-function PdfPages({ fileUrl, zoom, hidden, onFail }: { fileUrl: string; zoom: number; hidden: boolean; onFail: () => void }) {
-    const hostRef = useRef<HTMLDivElement>(null)
-    const [loading, setLoading] = useState(true)
-
-    useEffect(() => {
-        let cancelled = false
-        let doc: any = null
-        const host = hostRef.current
-        if (!host) return
-        host.innerHTML = ""
-        setLoading(true)
-
-        ;(async () => {
-            try {
-                const pdfjs = await import("pdfjs-dist")
-                pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs"
-                const res = await fetch(fileUrl, { credentials: "same-origin" })
-                if (!res.ok) throw new Error(`HTTP ${res.status}`)
-                const data = new Uint8Array(await res.arrayBuffer())
-                doc = await pdfjs.getDocument({
-                    data,
-                    standardFontDataUrl: "/pdfjs/standard_fonts/",
-                    cMapUrl: "/pdfjs/cmaps/",
-                    cMapPacked: true,
-                    useSystemFonts: false,
-                    isEvalSupported: false,
-                }).promise
-                const dpr = Math.min(window.devicePixelRatio || 1, 2)
-                for (let i = 1; i <= doc.numPages; i++) {
-                    if (cancelled) return
-                    const page = await doc.getPage(i)
-                    const base = page.getViewport({ scale: 1 })
-                    const cssWidth = Math.max(host.clientWidth || 800, 300)
-                    const scale = (cssWidth / base.width) * dpr
-                    const viewport = page.getViewport({ scale })
-                    const canvas = document.createElement("canvas")
-                    canvas.width = Math.floor(viewport.width)
-                    canvas.height = Math.floor(viewport.height)
-                    canvas.style.width = "100%"
-                    canvas.style.display = "block"
-                    canvas.style.background = "#fff"
-                    canvas.style.marginBottom = "8px"
-                    const ctx = canvas.getContext("2d")
-                    if (!ctx) continue
-                    host.appendChild(canvas)
-                    await page.render({ canvasContext: ctx, viewport }).promise
-                    if (i === 1) setLoading(false)
-                }
-                setLoading(false)
-            } catch (err) {
-                console.error("PDF render failed", err)
-                if (!cancelled) onFail()
-            }
-        })()
-
-        return () => {
-            cancelled = true
-            try { doc?.destroy() } catch {}
-        }
-    }, [fileUrl, onFail])
-
-    return (
-        <div
-            className="relative w-full h-[80vh] overflow-y-auto bg-zinc-800 p-2"
-            onContextMenu={(e) => e.preventDefault()}
-        >
-            {loading && (
-                <div className="absolute inset-0 flex items-center justify-center text-white/80 text-sm gap-2 pointer-events-none">
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    جاري تحميل الملف...
-                </div>
-            )}
-            <div
-                ref={hostRef}
-                style={{
-                    width: `${zoom}%`,
-                    margin: "0 auto",
-                    opacity: hidden ? 0 : 1,
-                    filter: hidden ? "blur(40px)" : "none",
-                    transition: "opacity 60ms linear",
-                    userSelect: "none",
-                }}
-            />
-        </div>
-    )
-}
-
 export function SecurePdfViewer({
     fileUrl,
     title,
@@ -149,7 +61,10 @@ export function SecurePdfViewer({
             if (document.hidden) block("تم حجب المحتوى مؤقتاً لخروجك من نافذة الدرس.")
             else setIsBlocked(false)
         }
-        const onBlur = () => block("تم حجب المحتوى مؤقتاً لخروجك من نافذة الدرس. سيعود بمجرد عودتك.")
+        const onBlur = () => {
+            if (document.activeElement instanceof HTMLIFrameElement) return
+            block("تم حجب المحتوى مؤقتاً لخروجك من نافذة الدرس. سيعود بمجرد عودتك.")
+        }
         const onFocus = () => setIsBlocked(false)
         const onKey = (e: KeyboardEvent) => {
             const key = e.key
@@ -215,6 +130,23 @@ export function SecurePdfViewer({
             setIsFullscreen(false)
         }
     }
+
+    // The viewer shows the PDF with the browser's native renderer, but always from OUR origin
+    // (the storage route re-serves it after checking enrollment) so no third-party viewer is involved.
+    const inlineUrl = (() => {
+        if (!fileUrl) return fileUrl
+        const hash = `#toolbar=0&navpanes=0&statusbar=0&zoom=${zoom}`
+        try {
+            const u = new URL(fileUrl, window.location.origin)
+            if (u.pathname === "/api/storage/sign") return u.pathname + u.search + hash
+            const m = u.pathname.match(/\/object\/(?:sign|authenticated|public)\/[^/]+\/(.+)$/)
+            if (m && courseId) {
+                const storagePath = decodeURIComponent(m[1])
+                return `/api/storage/sign?url=${encodeURIComponent(storagePath)}&courseId=${encodeURIComponent(courseId)}${hash}`
+            }
+        } catch {}
+        return fileUrl + hash
+    })()
 
     // Downloads always go through our server (/api/storage/sign), which stamps the PDF with the student's code + email.
     const downloadUrl = (() => {
@@ -385,7 +317,18 @@ export function SecurePdfViewer({
                     className="w-full h-full min-h-[550px] transition-transform duration-200 origin-top"
                 >
                     {isPdf && !renderFailed ? (
-                        <PdfPages fileUrl={fileUrl} zoom={zoom} hidden={isBlocked} onFail={() => setRenderFailed(true)} />
+                        <iframe
+                            key={zoom}
+                            src={inlineUrl}
+                            title={title}
+                            className="w-full h-[80vh] border-0 bg-white"
+                            style={{
+                                opacity: isBlocked ? 0 : 1,
+                                filter: isBlocked ? "blur(40px)" : "none",
+                                transition: "opacity 60ms linear",
+                            }}
+                            onError={() => setRenderFailed(true)}
+                        />
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full min-h-[550px] text-white p-8 text-center space-y-4">
                             <div className="h-16 w-16 bg-white/10 rounded-2xl flex items-center justify-center text-primary">

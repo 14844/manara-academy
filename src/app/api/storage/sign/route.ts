@@ -12,13 +12,15 @@ function buildAssetHeaders(rawType: string, cleanPath: string): Record<string, s
     const base = String(rawType || "").split(";")[0].trim().toLowerCase()
     const isInline = INLINE_TYPES.includes(base)
     const fileName = (cleanPath.split("/").pop() || "file").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 100)
-    return {
+    const headers: Record<string, string> = {
         'Content-Type': isInline ? base : 'application/octet-stream',
         'Cache-Control': 'private, no-cache, no-store, must-revalidate',
         'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'none'; sandbox",
         'Content-Disposition': `${isInline ? 'inline' : 'attachment'}; filename="${fileName}"`,
     }
+    // A sandbox CSP stops Chrome's built-in PDF viewer; PDFs are validated server-side and served as application/pdf + nosniff.
+    if (base !== 'application/pdf') headers['Content-Security-Policy'] = "default-src 'none'; sandbox"
+    return headers
 }
 
 

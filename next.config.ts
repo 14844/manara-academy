@@ -34,15 +34,16 @@ const nextConfig: NextConfig = {
   },
   headers: async () => [
     {
+      // Everything except the storage route (which streams PDFs into the built-in viewer) gets the strict CSP.
+      source: '/((?!api/storage/sign).*)',
+      headers: [{ key: 'Content-Security-Policy', value: cspHeader }],
+    },
+    {
       source: '/(.*)',
       headers: [
         {
           key: 'Strict-Transport-Security',
           value: 'max-age=31536000; includeSubDomains',
-        },
-        {
-          key: 'Content-Security-Policy',
-          value: cspHeader,
         },
         {
           key: 'X-Frame-Options',
