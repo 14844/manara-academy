@@ -44,6 +44,11 @@ export async function POST(request: Request) {
             }
         }
 
+        // Anonymous visitors may only report auth-related events; anything else is accepted but dropped.
+        if (!user && !/^(login|signup|auth)/i.test(safeAction)) {
+            return NextResponse.json({ success: true });
+        }
+
         // Enforce safe server attributes and strictly category="client"
         const logId = await logServerActivity({
             action: safeAction,

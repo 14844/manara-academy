@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { BUNNY_CONFIG } from "@/lib/bunny/config"
 import { getServerAuth } from "@/lib/server-auth"
 import { adminDb } from "@/lib/firebase/admin"
+import { checkRateLimitAsync } from "@/lib/rate-limiter"
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib"
 
 export const runtime = 'nodejs'
@@ -27,6 +28,7 @@ function buildAssetHeaders(rawType: string, cleanPath: string): Record<string, s
 /** Stamp every page with the student's code + email (Latin only: pdf-lib standard fonts). */
 async function stampPdf(bytes: ArrayBuffer, user: { uid: string; email?: string; profile?: any }): Promise<Uint8Array> {
     const doc = await PDFDocument.load(bytes, { ignoreEncryption: true })
+    if (doc.getPageCount() > PDF_MAX_PAGES) throw new Error("PDF_TOO_LONG")
     const font = await doc.embedFont(StandardFonts.HelveticaBold)
     const code = String(user.profile?.student_id || user.profile?.studentId || user.uid)
     const email = user.email || user.profile?.email || ""
@@ -50,28 +52,55 @@ async function stampPdf(bytes: ArrayBuffer, user: { uid: string; email?: string;
     return await doc.save()
 }
 
+const PDF_MAX_BYTES = 30 * 1024 * 1024
+const PDF_MAX_PAGES = 500
+
+function looksLikePdf(buf: ArrayBuffer): boolean {
+    const head = new Uint8Array(buf.slice(0, 5))
+    return String.fromCharCode(...head) === "%PDF-"
+}
+
 async function respondAsset(
     body: ArrayBuffer,
     rawType: string,
     cleanPath: string,
     download: boolean,
     downloadName: string,
-    user: { uid: string; email?: string; profile?: any },
+    user: { uid: string; email?: string; role?: string; profile?: any },
 ): Promise<NextResponse> {
-    const headers = buildAssetHeaders(rawType, cleanPath)
-    if (!download) return new NextResponse(body, { headers })
+    // A file labelled application/pdf must really be a PDF, otherwise it is served as a sandboxed attachment.
+    const declared = String(rawType || "").split(";")[0].trim().toLowerCase()
+    const effectiveType = declared === "application/pdf" && !looksLikePdf(body) ? "application/octet-stream" : rawType
+    const headers = buildAssetHeaders(effectiveType, cleanPath)
+    const isPdf = headers['Content-Type'] === 'application/pdf'
+
+    // Students always receive a stamped copy (inline view and download), so a leaked file points to its owner.
+    const stampInline = isPdf && user.role !== "admin" && user.role !== "instructor"
+    if (!download && !stampInline) return new NextResponse(body, { headers })
 
     let out: BodyInit = body
-    if (headers['Content-Type'] === 'application/pdf') {
+    if (isPdf) {
+        if (body.byteLength > PDF_MAX_BYTES) {
+            return new NextResponse("الملف كبير جداً للعرض المحمي", { status: 413 })
+        }
+        if (!(await checkRateLimitAsync(`pdf_stamp_${user.uid}`, 40, 60)).success) {
+            return new NextResponse("Too many requests", { status: 429 })
+        }
         try {
             out = (await stampPdf(body, user)) as unknown as BodyInit
-        } catch {
-            return new NextResponse("تعذر تجهيز الملف للتحميل", { status: 500 })
+        } catch (err) {
+            if (err instanceof Error && err.message === "PDF_TOO_LONG") {
+                return new NextResponse("الملف كبير جداً للعرض المحمي", { status: 413 })
+            }
+            return new NextResponse("تعذر تجهيز الملف", { status: 500 })
         }
     }
-    const safeName = (downloadName || cleanPath.split("/").pop() || "file").replace(/[^A-Za-z0-9._\- \u0600-\u06FF]/g, "_").slice(0, 120)
-    const ascii = safeName.replace(/[^A-Za-z0-9._-]/g, "_") || "file"
-    headers['Content-Disposition'] = `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
+
+    if (download) {
+        const safeName = (downloadName || cleanPath.split("/").pop() || "file").replace(/[\\/:*?"<>|\r\n]/g, "_").slice(0, 120)
+        const ascii = safeName.replace(/[^A-Za-z0-9._-]/g, "_") || "file"
+        headers['Content-Disposition'] = `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
+    }
     return new NextResponse(out, { headers })
 }
 
