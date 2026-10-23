@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin, SUPABASE_BUCKET } from "@/lib/supabase/admin"
+import { detectImageMime, safeImageHeaders } from "@/lib/media-security"
 
 export const runtime = 'nodejs'
 
@@ -54,15 +55,21 @@ export async function GET(request: NextRequest) {
         }
 
         const buffer = await blob.arrayBuffer()
+        const uint8 = new Uint8Array(buffer)
+
+        // Verify magic bytes: strictly allow image/png, image/jpeg, image/webp
+        const detectedMime = detectImageMime(uint8)
+        if (!detectedMime) {
+            return new NextResponse("Invalid image format", { status: 415 })
+        }
+
         return new NextResponse(buffer, {
             status: 200,
-            headers: {
-                "Content-Type": blob.type || "image/webp",
-                "Cache-Control": "public, max-age=31536000, immutable",
-            }
+            headers: safeImageHeaders(detectedMime, cleanPath.split("/").pop() || "avatar", "public, max-age=31536000, immutable")
         })
     } catch (err: any) {
         console.error("Avatar serving error:", err)
         return new NextResponse("Error fetching avatar", { status: 500 })
     }
 }
+

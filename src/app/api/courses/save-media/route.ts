@@ -1,6 +1,8 @@
-import { adminAuth, adminDb } from "@/lib/firebase/admin";
+import { adminDb } from "@/lib/firebase/admin";
 import { NextResponse } from "next/server";
-import { getServerAuth } from "@/lib/server-auth";
+import { getServerAuth, getActiveServerAuth } from "@/lib/server-auth";
+import { BUNNY_GUID_RE, extractStoragePath, isCourseScopedPath } from "@/lib/media-security";
+import { SUPABASE_BUCKET } from "@/lib/supabase/admin";
 
 /**
  * POST /api/courses/save-media
@@ -11,32 +13,10 @@ import { getServerAuth } from "@/lib/server-auth";
  */
 export async function POST(request: Request) {
     try {
-        let user = await getServerAuth(request);
+        const user = await getActiveServerAuth(request);
 
         const body = await request.json().catch(() => ({}));
-        const { courseId, modules, courseDetails, idToken } = body;
-
-        // Fallback to idToken if session cookie is absent or expired
-        if (!user && idToken && typeof idToken === "string") {
-            try {
-                const decoded = await adminAuth.verifyIdToken(idToken);
-                const [profileDoc, privateDoc] = await Promise.all([
-                    adminDb.collection("profiles").doc(decoded.uid).get(),
-                    adminDb.collection("profiles_private").doc(decoded.uid).get(),
-                ]);
-                const profileData = profileDoc.data() || {};
-                const privateData = privateDoc.data() || {};
-                user = {
-                    uid: decoded.uid,
-                    email: decoded.email || privateData.email || "",
-                    role: (profileData.role as any) || "instructor",
-                    status: privateData.status || profileData.status || "active",
-                    profile: { ...profileData, ...privateData },
-                };
-            } catch (tokenErr) {
-                console.error("Token verification error in save-media:", tokenErr);
-            }
-        }
+        const { courseId, modules, courseDetails } = body;
 
         if (!user || user.status === "blocked" || user.status === "suspended") {
             return NextResponse.json({ error: "غير مصرح لك بتعديل هذا الكورس" }, { status: 401 });
@@ -65,6 +45,16 @@ export async function POST(request: Request) {
         const existingMedia = existingMediaSnap.exists ? (existingMediaSnap.data() || {}) : {};
 
         const mediaMap: Record<string, { video_path?: string; url?: string }> = { ...existingMedia };
+        // Bunny Stream GUIDs already attached to this course (legacy) may be kept/moved between lessons
+        const knownBunny = new Set<string>();
+        for (const v of Object.values(existingMedia)) {
+            const vals = typeof v === "string" ? [v] : [(v as any)?.video_path, (v as any)?.url];
+            for (const val of vals) {
+                if (typeof val === "string" && val.startsWith("bunny_stream://")) {
+                    knownBunny.add(val.slice("bunny_stream://".length).toLowerCase());
+                }
+            }
+        }
         const examAnswersMap: Record<string, Record<string, any>> = {};
 
         const cleanModules = modules.map((mod: any) => ({
@@ -74,12 +64,24 @@ export async function POST(request: Request) {
                 if (lessonId) {
                     const media: any = { ...(mediaMap[lessonId] || {}) };
                     if (lesson.video_path !== undefined) {
-                        if (lesson.video_path) media.video_path = lesson.video_path;
-                        else delete media.video_path;
+                        if (lesson.video_path) {
+                            if (!isValidCourseMedia(lesson.video_path, courseId, knownBunny, user.role === "admin")) {
+                                throw new Error(`مسار الفيديو للدرس (${lesson.title || lessonId}) غير صالح أو لا يخص هذا الكورس`);
+                            }
+                            media.video_path = lesson.video_path;
+                        } else {
+                            delete media.video_path;
+                        }
                     }
                     if (lesson.url !== undefined) {
-                        if (lesson.url) media.url = lesson.url;
-                        else delete media.url;
+                        if (lesson.url) {
+                            if (!isValidCourseMedia(lesson.url, courseId, knownBunny, user.role === "admin")) {
+                                throw new Error(`رابط الملف للدرس (${lesson.title || lessonId}) غير صالح أو لا يخص هذا الكورس`);
+                            }
+                            media.url = lesson.url;
+                        } else {
+                            delete media.url;
+                        }
                     }
                     if (Object.keys(media).length > 0) {
                         mediaMap[lessonId] = media;
@@ -140,9 +142,10 @@ export async function POST(request: Request) {
             }
             if (courseDetails.price !== undefined && !isNaN(Number(courseDetails.price))) {
                 const newPrice = Math.max(0, Number(courseDetails.price));
-                const enrolledCount = Number(courseData?.students_count || 0);
-                // Allow price changes if admin or 0 enrolled students
-                if (user.role === "admin" || enrolledCount === 0) {
+                // Item 7: Use total_sales (real cumulative count, never decremented) for price guard
+                const totalSales = Math.max(Number(courseData?.total_sales || 0), Number(courseData?.students_count || 0));
+                // Allow price changes if admin or no real sales ever occurred
+                if (user.role === "admin" || totalSales === 0) {
                     courseUpdates.price = newPrice;
                 }
             }
@@ -244,4 +247,38 @@ export async function GET(request: Request) {
         console.error("GET course media error:", error);
         return NextResponse.json({ error: error.message || "حدث خطأ أثناء تحميل بيانات الكورس" }, { status: 500 });
     }
+}
+
+/**
+ * A lesson media reference is accepted only if it points to:
+ *  - YouTube / Google Drive (public embeds), or
+ *  - a storage path inside THIS course's folders (our own Supabase project only), or
+ *  - a Bunny Stream GUID already attached to this course (no mapping exists to prove ownership of new GUIDs;
+ *    admins may attach new ones).
+ * Everything else (payment_proofs, avatars, other courses, foreign hosts, arbitrary *.b-cdn.net) is rejected.
+ */
+function isValidCourseMedia(mediaPath: string, courseId: string, knownBunny: Set<string>, isAdmin: boolean): boolean {
+    if (!mediaPath || typeof mediaPath !== "string") return false;
+    const str = mediaPath.trim();
+    if (str.includes("\0") || str.includes("..")) return false;
+
+    if (str.startsWith("bunny_stream://")) {
+        const guid = str.slice("bunny_stream://".length);
+        if (!BUNNY_GUID_RE.test(guid)) return false;
+        return isAdmin || knownBunny.has(guid.toLowerCase());
+    }
+
+    if (/^https?:\/\//i.test(str)) {
+        let host = "";
+        try { host = new URL(str).hostname.toLowerCase(); } catch { return false; }
+        if (host === "youtu.be" || host === "youtube.com" || host.endsWith(".youtube.com")) {
+            return /(youtu\.be\/|v\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?]{11})/.test(str);
+        }
+        if (host === "drive.google.com") {
+            return str.includes("/file/d/") || str.includes("id=");
+        }
+    }
+
+    const storagePath = extractStoragePath(str, SUPABASE_BUCKET);
+    return !!storagePath && isCourseScopedPath(storagePath, courseId);
 }

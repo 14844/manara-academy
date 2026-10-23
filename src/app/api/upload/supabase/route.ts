@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin, SUPABASE_BUCKET, SUPABASE_PUBLIC_BUCKET } from "@/lib/supabase/admin"
-import { getServerAuth } from "@/lib/server-auth"
-import { adminDb } from "@/lib/firebase/admin"
+import { getActiveServerAuth } from "@/lib/server-auth"
+import { checkCourseOwnership, detectImageMime, normalizeImageMime, withImageExtension } from "@/lib/media-security"
 
 export const runtime = 'nodejs'
 export const maxDuration = 300 // 5 minutes for uploads
@@ -34,7 +34,7 @@ const ALLOWED_TYPES: Record<string, string[]> = {
 }
 
 export async function POST(request: NextRequest) {
-    const user = await getServerAuth(request)
+    const user = await getActiveServerAuth(request)
     if (!user) {
         return NextResponse.json({ error: "يجب تسجيل الدخول أولاً" }, { status: 401 })
     }
@@ -78,7 +78,8 @@ export async function POST(request: NextRequest) {
 
     // Validate MIME type
     const allowedMimes = ALLOWED_TYPES[rawFolder] || []
-    const isAllowedMime = allowedMimes.some(mime => contentType.startsWith(mime) || contentType === mime)
+    const baseContentType = String(contentType || "").split(";")[0].trim().toLowerCase()
+    const isAllowedMime = allowedMimes.includes(baseContentType)
     if (!isAllowedMime) {
         return NextResponse.json({ 
             error: `نوع الملف (${contentType}) غير مدعوم في مجلد ${rawFolder}` 
@@ -95,30 +96,47 @@ export async function POST(request: NextRequest) {
         }, { status: 400 })
     }
 
+    const courseId = searchParams.get('courseId')
+    // Course-bound folders: courseId is required for videos/files and must belong to the uploader
+    const needsCourse = rawFolder === "videos" || rawFolder === "files"
+    if (needsCourse || courseId) {
+        const ownErr = await checkCourseOwnership(courseId, user)
+        if (ownErr) {
+            return NextResponse.json({ error: ownErr }, { status: 403 })
+        }
+    }
+
+    // Image folders: whitelisted image types only, extension forced to match
+    const isImageFolder = ["avatars", "payment_proofs", "thumbnails", "questions"].includes(rawFolder)
+    const declaredImageMime = isImageFolder ? normalizeImageMime(contentType) : null
+    if (isImageFolder && !declaredImageMime) {
+        return NextResponse.json({ error: "يسمح فقط بصور PNG أو JPEG أو WEBP" }, { status: 400 })
+    }
+    const finalFileName = declaredImageMime ? withImageExtension(cleanFileName, declaredImageMime) : cleanFileName
+
     // Build isolated storage path
     const timestamp = Date.now()
-    const courseId = searchParams.get('courseId')
     let storagePath = ""
 
     if (rawFolder === "avatars") {
-        storagePath = `avatars/avatar_${user.uid}_${timestamp}_${cleanFileName}`
+        storagePath = `avatars/avatar_${user.uid}_${timestamp}_${finalFileName}`
     } else if (rawFolder === "payment_proofs") {
-        storagePath = `payment_proofs/proof_${user.uid}_${timestamp}_${cleanFileName}`
+        storagePath = `payment_proofs/proof_${user.uid}_${timestamp}_${finalFileName}`
     } else if (rawFolder === "thumbnails") {
         storagePath = courseId 
-            ? `thumbnails/course_${courseId}_${timestamp}_${cleanFileName}`
-            : `thumbnails/thumb_${user.uid}_${timestamp}_${cleanFileName}`
+            ? `thumbnails/course_${courseId}_${timestamp}_${finalFileName}`
+            : `thumbnails/thumb_${user.uid}_${timestamp}_${finalFileName}`
     } else if (rawFolder === "questions") {
-        storagePath = `questions/q_${user.uid}_${timestamp}_${cleanFileName}`
+        storagePath = `questions/q_${user.uid}_${timestamp}_${finalFileName}`
     } else if (rawFolder === "videos") {
         storagePath = courseId
-            ? `videos/courses/${courseId}/${timestamp}_${cleanFileName}`
-            : `videos/instructor_${user.uid}/${timestamp}_${cleanFileName}`
+            ? `videos/courses/${courseId}/${timestamp}_${finalFileName}`
+            : `videos/instructor_${user.uid}/${timestamp}_${finalFileName}`
     } else {
         // files (PDFs, docs)
         storagePath = courseId
-            ? `files/courses/${courseId}/${timestamp}_${cleanFileName}`
-            : `files/instructor_${user.uid}/${timestamp}_${cleanFileName}`
+            ? `files/courses/${courseId}/${timestamp}_${finalFileName}`
+            : `files/instructor_${user.uid}/${timestamp}_${finalFileName}`
     }
 
     try {
@@ -131,6 +149,19 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: `حجم الملف يتجاوز ${mb} ميجابايت` }, { status: 400 })
         }
 
+        let verifiedContentType = contentType || 'application/octet-stream'
+        if (isImageFolder) {
+            const uint8 = new Uint8Array(fileBuffer)
+            const detected = detectImageMime(uint8)
+            if (!detected) {
+                return NextResponse.json({ error: "تنسيق الصورة غير صالح أو لا يتطابق مع ملفات الصور المسموح بها (PNG, JPEG, WEBP)" }, { status: 415 })
+            }
+            if (detected !== declaredImageMime) {
+                return NextResponse.json({ error: "نوع الصورة لا يطابق محتوى الملف" }, { status: 415 })
+            }
+            verifiedContentType = detected
+        }
+
         // Always upload to the unified main bucket (manara-academy)
         const isAvatar = rawFolder === "avatars"
         const targetBucket = SUPABASE_BUCKET
@@ -139,7 +170,7 @@ export async function POST(request: NextRequest) {
         const { data, error: uploadError } = await supabaseAdmin.storage
             .from(targetBucket)
             .upload(storagePath, fileBuffer, {
-                contentType: contentType || 'application/octet-stream',
+                contentType: verifiedContentType,
                 upsert: true,
             })
 
@@ -178,3 +209,4 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "خطأ داخلي أثناء معالجة الرفع" }, { status: 500 })
     }
 }
+

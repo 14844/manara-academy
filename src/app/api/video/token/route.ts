@@ -1,9 +1,9 @@
 import { adminDb } from "@/lib/firebase/admin";
 import { NextResponse } from "next/server";
-import { signBunnyUrl } from "@/lib/bunny/utils";
 import { BUNNY_CONFIG } from "@/lib/bunny/config";
 import { getServerAuth } from "@/lib/server-auth";
 import crypto from "crypto";
+import { BUNNY_GUID_RE, extractStoragePath, isCourseScopedPath } from "@/lib/media-security";
 
 // استخراج YouTube Video ID من أي صيغة رابط (بما في ذلك Shorts)
 function extractYouTubeId(url: string): string | null {
@@ -123,6 +123,7 @@ export async function GET(request: Request) {
             rawPath.includes("supabase.co") ||
             rawPath.startsWith("videos/") ||
             rawPath.startsWith("files/") ||
+            rawPath.startsWith("courses/") ||
             rawPath.startsWith("/videos/") ||
             rawPath.startsWith("/files/");
 
@@ -143,19 +144,11 @@ export async function GET(request: Request) {
                 : rawPath.replace(/\/view(\?.*)?$/, "/preview").replace(/\/edit(\?.*)?$/, "/preview");
             return NextResponse.json({ type: "drive", url: driveEmbedUrl, embed: true });
         } else if (isSupabase) {
+            // Security: only our own Supabase project, and only paths inside THIS course's folders
             const { supabaseAdmin, SUPABASE_BUCKET } = await import("@/lib/supabase/admin");
-            let cleanStoragePath = rawPath
-                .replace(/^supabase:\/\//, "")
-                .replace(/^\//, "");
-
-            if (cleanStoragePath.includes("supabase.co/storage/v1/object/")) {
-                const parts = cleanStoragePath.split(/supabase\.co\/storage\/v1\/object\/(?:public|sign)\//);
-                if (parts[1]) {
-                    cleanStoragePath = parts[1].split("?")[0];
-                    if (cleanStoragePath.startsWith(`${SUPABASE_BUCKET}/`)) {
-                        cleanStoragePath = cleanStoragePath.slice(SUPABASE_BUCKET.length + 1);
-                    }
-                }
+            const cleanStoragePath = extractStoragePath(rawPath, SUPABASE_BUCKET);
+            if (!cleanStoragePath || !isCourseScopedPath(cleanStoragePath, courseId)) {
+                return NextResponse.json({ error: "الملف لا ينتمي لهذا الكورس" }, { status: 403 });
             }
 
             const { data: signedData, error: signErr } = await supabaseAdmin.storage
@@ -170,6 +163,10 @@ export async function GET(request: Request) {
             return NextResponse.json({ type: "direct", url: signedData.signedUrl });
         } else if (rawPath.startsWith("bunny_stream://")) {
             const guid = rawPath.split("://")[1];
+            if (!BUNNY_GUID_RE.test(guid)) {
+                return NextResponse.json({ error: "Invalid stream identifier" }, { status: 400 });
+            }
+
             const securityKey = BUNNY_CONFIG.SECURITY_KEY;
             const libraryId = BUNNY_CONFIG.VIDEO_LIBRARY_ID;
             
@@ -186,15 +183,6 @@ export async function GET(request: Request) {
                 url: embedUrl,
                 guid: guid
             });
-        } else if (rawPath.startsWith("http")) {
-            let finalUrl = rawPath;
-            if (rawPath.includes("b-cdn.net")) {
-                const securityKey = BUNNY_CONFIG.SECURITY_KEY;
-                if (securityKey) {
-                    finalUrl = signBunnyUrl(rawPath, securityKey, expirationSeconds); 
-                }
-            }
-            return NextResponse.json({ type: "direct", url: finalUrl });
         } else {
             return NextResponse.json({ error: "Unknown video type" }, { status: 422 });
         }

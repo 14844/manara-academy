@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin, SUPABASE_BUCKET } from "@/lib/supabase/admin"
+import { detectImageMime, safeImageHeaders } from "@/lib/media-security"
 
 export const runtime = 'nodejs'
 
@@ -53,17 +54,21 @@ export async function GET(request: NextRequest) {
         }
 
         const buffer = await blob.arrayBuffer()
-        const mimeType = blob.type || (cleanPath.endsWith(".png") ? "image/png" : cleanPath.endsWith(".webp") ? "image/webp" : "image/jpeg")
+        const uint8 = new Uint8Array(buffer)
+
+        // Verify magic bytes: strictly allow image/png, image/jpeg, image/webp
+        const detectedMime = detectImageMime(uint8)
+        if (!detectedMime) {
+            return new NextResponse("Invalid image format", { status: 415 })
+        }
 
         return new NextResponse(buffer, {
             status: 200,
-            headers: {
-                "Content-Type": mimeType,
-                "Cache-Control": "public, max-age=31536000, immutable",
-            }
+            headers: safeImageHeaders(detectedMime, cleanPath.split("/").pop() || "thumbnail", "public, max-age=31536000, immutable")
         })
     } catch (err: any) {
         console.error("Thumbnail proxy error:", err)
         return new NextResponse("Internal Server Error", { status: 500 })
     }
 }
+

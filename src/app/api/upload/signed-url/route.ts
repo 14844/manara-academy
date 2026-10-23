@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin, SUPABASE_BUCKET } from "@/lib/supabase/admin"
-import { getServerAuth } from "@/lib/server-auth"
+import { getActiveServerAuth } from "@/lib/server-auth"
+import { checkCourseOwnership, normalizeImageMime, withImageExtension } from "@/lib/media-security"
 
 export const runtime = 'nodejs'
 
@@ -38,7 +39,7 @@ const ALLOWED_TYPES: Record<string, string[]> = {
  * Flow: Client requests signed URL → Client uploads directly to Supabase Storage → No Vercel limit
  */
 export async function POST(request: NextRequest) {
-    const user = await getServerAuth(request)
+    const user = await getActiveServerAuth(request)
     if (!user) {
         return NextResponse.json({ error: "يجب تسجيل الدخول أولاً" }, { status: 401 })
     }
@@ -75,7 +76,8 @@ export async function POST(request: NextRequest) {
 
     // Validate MIME type
     const allowedMimes = ALLOWED_TYPES[rawFolder] || []
-    const isAllowedMime = allowedMimes.some(mime => contentType.startsWith(mime) || contentType === mime)
+    const baseContentType = String(contentType || "").split(";")[0].trim().toLowerCase()
+    const isAllowedMime = allowedMimes.includes(baseContentType)
     if (!isAllowedMime) {
         return NextResponse.json({ 
             error: `نوع الملف (${contentType}) غير مدعوم في مجلد ${rawFolder}` 
@@ -97,28 +99,45 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "اسم الملف غير صالح" }, { status: 400 })
     }
 
+    // Course-bound folders: courseId is required for videos/files and must belong to the uploader
+    const needsCourse = rawFolder === "videos" || rawFolder === "files"
+    if (needsCourse || courseId) {
+        const ownErr = await checkCourseOwnership(courseId, user)
+        if (ownErr) {
+            return NextResponse.json({ error: ownErr }, { status: 403 })
+        }
+    }
+
+    // Image folders: whitelisted image types only, extension forced to match
+    const isImageFolder = ["avatars", "payment_proofs", "thumbnails", "questions"].includes(rawFolder)
+    const declaredImageMime = isImageFolder ? normalizeImageMime(contentType) : null
+    if (isImageFolder && !declaredImageMime) {
+        return NextResponse.json({ error: "يسمح فقط بصور PNG أو JPEG أو WEBP" }, { status: 400 })
+    }
+    const finalFileName = declaredImageMime ? withImageExtension(cleanFileName, declaredImageMime) : cleanFileName
+
     // Build storage path
     const timestamp = Date.now()
     let storagePath = ""
 
     if (rawFolder === "avatars") {
-        storagePath = `avatars/avatar_${user.uid}_${timestamp}_${cleanFileName}`
+        storagePath = `avatars/avatar_${user.uid}_${timestamp}_${finalFileName}`
     } else if (rawFolder === "payment_proofs") {
-        storagePath = `payment_proofs/proof_${user.uid}_${timestamp}_${cleanFileName}`
+        storagePath = `payment_proofs/proof_${user.uid}_${timestamp}_${finalFileName}`
     } else if (rawFolder === "thumbnails") {
         storagePath = courseId 
-            ? `thumbnails/course_${courseId}_${timestamp}_${cleanFileName}`
-            : `thumbnails/thumb_${user.uid}_${timestamp}_${cleanFileName}`
+            ? `thumbnails/course_${courseId}_${timestamp}_${finalFileName}`
+            : `thumbnails/thumb_${user.uid}_${timestamp}_${finalFileName}`
     } else if (rawFolder === "questions") {
-        storagePath = `questions/q_${user.uid}_${timestamp}_${cleanFileName}`
+        storagePath = `questions/q_${user.uid}_${timestamp}_${finalFileName}`
     } else if (rawFolder === "videos") {
         storagePath = courseId
-            ? `videos/courses/${courseId}/${timestamp}_${cleanFileName}`
-            : `videos/instructor_${user.uid}/${timestamp}_${cleanFileName}`
+            ? `videos/courses/${courseId}/${timestamp}_${finalFileName}`
+            : `videos/instructor_${user.uid}/${timestamp}_${finalFileName}`
     } else {
         storagePath = courseId
-            ? `files/courses/${courseId}/${timestamp}_${cleanFileName}`
-            : `files/instructor_${user.uid}/${timestamp}_${cleanFileName}`
+            ? `files/courses/${courseId}/${timestamp}_${finalFileName}`
+            : `files/instructor_${user.uid}/${timestamp}_${finalFileName}`
     }
 
     try {

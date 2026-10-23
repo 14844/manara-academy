@@ -5,6 +5,21 @@ import { adminDb } from "@/lib/firebase/admin"
 
 export const runtime = 'nodejs'
 
+const INLINE_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp", "video/mp4", "video/webm", "video/quicktime"]
+
+function buildAssetHeaders(rawType: string, cleanPath: string): Record<string, string> {
+    const base = String(rawType || "").split(";")[0].trim().toLowerCase()
+    const isInline = INLINE_TYPES.includes(base)
+    const fileName = (cleanPath.split("/").pop() || "file").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 100)
+    return {
+        'Content-Type': isInline ? base : 'application/octet-stream',
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; sandbox",
+        'Content-Disposition': `${isInline ? 'inline' : 'attachment'}; filename="${fileName}"`,
+    }
+}
+
 export async function GET(request: NextRequest) {
     const user = await getServerAuth(request)
     if (!user || user.status === "blocked" || user.status === "suspended") {
@@ -113,6 +128,27 @@ export async function GET(request: NextRequest) {
                 if (!enrSnap.exists || enrSnap.data()?.status !== "active") {
                     return new NextResponse("Forbidden: ليس لديك اشتراك نشط في هذا الكورس", { status: 403 })
                 }
+
+                // Bind the asset to THIS course: it must be referenced by one of the course's lessons
+                const mediaSnap = await adminDb.doc(`courses/${reqCourseId}/private/media`).get()
+                const mediaValues: string[] = []
+                for (const v of Object.values(mediaSnap.data() || {})) {
+                    if (typeof v === "string") mediaValues.push(v)
+                    else if (v && typeof v === "object") {
+                        const m = v as { video_path?: unknown; url?: unknown }
+                        if (typeof m.video_path === "string") mediaValues.push(m.video_path)
+                        if (typeof m.url === "string") mediaValues.push(m.url)
+                    }
+                }
+                const isReferenced = mediaValues.some(val => {
+                    let decoded = val
+                    try { decoded = decodeURIComponent(val) } catch {}
+                    return decoded.split("?")[0].replace(/^supabase:\/\//, "").replace(/^\/+/, "") === cleanPath ||
+                        decoded.includes(`url=${cleanPath}`) || decoded.endsWith(`/${cleanPath}`)
+                })
+                if (!isReferenced) {
+                    return new NextResponse("Forbidden: الملف لا ينتمي إلى الكورس المحدد", { status: 403 })
+                }
             } else if (cleanPath.startsWith('avatars/') || cleanPath.startsWith('thumbnails/') || cleanPath.startsWith('questions/')) {
                 // Public/educational assets accessible to authenticated users
             } else if (cleanPath.startsWith('payment_proofs/')) {
@@ -135,23 +171,7 @@ export async function GET(request: NextRequest) {
                 .download(cleanPath)
 
             if (fileData && !downloadError) {
-                let contentType = fileData.type || 'application/octet-stream'
-                if (contentType.includes("image/svg+xml")) {
-                    contentType = 'application/octet-stream'
-                }
-
-                const isPdf = cleanPath.toLowerCase().endsWith(".pdf") || contentType.includes("pdf")
-                const headers: Record<string, string> = {
-                    'Content-Type': contentType,
-                    'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-                    'X-Content-Type-Options': 'nosniff',
-                    'Content-Security-Policy': 'sandbox',
-                }
-
-                if (isPdf) {
-                    headers['Content-Disposition'] = 'inline'
-                }
-
+                const headers = buildAssetHeaders(fileData.type || '', cleanPath)
                 return new NextResponse(fileData, { headers })
             }
         } catch (supabaseErr) {
@@ -188,23 +208,7 @@ export async function GET(request: NextRequest) {
             return new NextResponse("Asset not found", { status: response.status })
         }
 
-        let contentType = response.headers.get('Content-Type') || 'application/octet-stream'
-        if (contentType.includes("image/svg+xml")) {
-            contentType = 'application/octet-stream'
-        }
-
-        const isPdf = cleanPath.toLowerCase().endsWith(".pdf") || contentType.includes("pdf")
-
-        const headers: Record<string, string> = {
-            'Content-Type': contentType,
-            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-            'X-Content-Type-Options': 'nosniff',
-            'Content-Security-Policy': 'sandbox',
-        }
-
-        if (isPdf) {
-            headers['Content-Disposition'] = 'inline'
-        }
+        const headers = buildAssetHeaders(response.headers.get('Content-Type') || '', cleanPath)
 
         const blob = await response.blob()
         return new NextResponse(blob, { headers })
