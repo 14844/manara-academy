@@ -15,6 +15,7 @@ const cspHeader = `
 `.replace(/\s{2,}/g, ' ').trim();
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   images: {
     remotePatterns: [
       {
@@ -54,6 +55,19 @@ const nextConfig: NextConfig = {
         {
           key: 'Referrer-Policy',
           value: 'strict-origin-when-cross-origin',
+        },
+        {
+          key: 'Permissions-Policy',
+          value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+        },
+        {
+          // allow-popups keeps Firebase signInWithPopup working
+          key: 'Cross-Origin-Opener-Policy',
+          value: 'same-origin-allow-popups',
+        },
+        {
+          key: 'Cross-Origin-Resource-Policy',
+          value: 'same-site',
         },
       ],
     },
