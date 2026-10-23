@@ -69,23 +69,29 @@ export function LoginForm() {
                 deviceId = crypto.randomUUID()
                 localStorage.setItem('manara_device_id', deviceId)
             }
-            const sessionId = Date.now().toString()
-            localStorage.setItem('manara_active_session_id', sessionId)
-
-            // 2. Set server session and register device/session
+            // 2. Set server session and register device/session (server generates the sessionId).
+            // Flag the login as in-progress so StatusGuard doesn't treat the new server session as a conflict.
+            try { sessionStorage.setItem('manara_login_pending', '1') } catch {}
             const idToken = await userCredential.user.getIdToken()
             const sessionResponse = await fetch('/api/auth/session', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ idToken, deviceId, sessionId })
+                body: JSON.stringify({ idToken, deviceId })
             })
 
             if (!sessionResponse.ok) {
+                try { sessionStorage.removeItem('manara_login_pending') } catch {}
                 localStorage.removeItem('manara_active_session_id')
                 const errData = await sessionResponse.json().catch(() => ({}))
                 await auth.signOut()
                 throw new Error(errData.error || "فشل إنشاء جلسة الدخول")
             }
+
+            const sessionData = await sessionResponse.json().catch(() => ({}))
+            if (sessionData?.sessionId) {
+                localStorage.setItem('manara_active_session_id', sessionData.sessionId)
+            }
+            try { sessionStorage.removeItem('manara_login_pending') } catch {}
 
             // 3. Fetch user profile to determine role
             const profileRef = doc(db, "profiles", userCredential.user.uid)
@@ -161,6 +167,7 @@ export function LoginForm() {
 
             toast.error(message)
         } finally {
+            try { sessionStorage.removeItem('manara_login_pending') } catch {}
             setIsLoading(false)
         }
     }

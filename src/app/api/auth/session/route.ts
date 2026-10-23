@@ -5,7 +5,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import crypto from "crypto";
 
 export async function POST(request: Request) {
-    const { idToken, deviceId, sessionId } = await request.json();
+    const { idToken, deviceId } = await request.json();
 
     if (!idToken) {
         return NextResponse.json({ error: 'Missing token' }, { status: 400 });
@@ -19,17 +19,21 @@ export async function POST(request: Request) {
         const decoded = await adminAuth.verifyIdToken(idToken);
         const uid = decoded.uid;
 
-        // Compute effectiveSessionId ONCE to guarantee consistency between DB and cookie
-        const effectiveSessionId = (sessionId && typeof sessionId === "string" && sessionId.trim())
-            ? sessionId.trim()
-            : `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        // Item 4: Generate sessionId strictly on the server (never trust client)
+        const effectiveSessionId = `${Date.now()}_${crypto.randomBytes(16).toString("hex")}`;
 
-        // Generate device fingerprint for session binding
+        // Generate server-side device fingerprint and server-bound device identifier
         const userAgent = request.headers.get("user-agent") || "";
         const acceptLanguage = request.headers.get("accept-language") || "";
         const deviceFingerprint = crypto
             .createHash("sha256")
             .update(`${userAgent}||${acceptLanguage}`)
+            .digest("hex")
+            .slice(0, 32);
+
+        const boundDeviceId = crypto
+            .createHash("sha256")
+            .update(`${deviceId.trim()}::${deviceFingerprint}`)
             .digest("hex")
             .slice(0, 32);
 
@@ -62,13 +66,13 @@ export async function POST(request: Request) {
             // Server-side device limit check for students inside transaction
             if (profile.role !== "admin" && profile.role !== "instructor") {
                 const activeDevices: string[] = priv.active_devices || [];
-                const isKnown = activeDevices.includes(deviceId);
+                const isKnown = activeDevices.includes(boundDeviceId) || activeDevices.includes(deviceId.trim());
 
                 if (!isKnown) {
                     if (activeDevices.length >= 2) {
                         throw new Error("DEVICE_LIMIT_REACHED");
                     }
-                    updatePrivateData.active_devices = FieldValue.arrayUnion(deviceId);
+                    updatePrivateData.active_devices = FieldValue.arrayUnion(boundDeviceId);
                 }
             }
 
@@ -97,7 +101,7 @@ export async function POST(request: Request) {
             path: '/',
         });
 
-        return NextResponse.json({ status: 'success' });
+        return NextResponse.json({ status: 'success', sessionId: effectiveSessionId });
     } catch (error: any) {
         if (error.message === "STATUS_STOPPED") {
             return NextResponse.json({ error: "تم رفض أو إيقاف هذا الحساب. يرجى التواصل مع الإدارة" }, { status: 403 });

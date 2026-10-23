@@ -73,13 +73,16 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                     const activeSessionId = privateData?.active_session_id;
 
                     // Single Session Enforcement (Students only)
-                    if (role === 'student' && !docSnap.metadata.fromCache) {
+                    let loginPending = false;
+                    try { loginPending = sessionStorage.getItem('manara_login_pending') === '1'; } catch {}
+                    if (role === 'student' && !docSnap.metadata.fromCache && !loginPending) {
                         const localSessionId = localStorage.getItem('manara_active_session_id');
                         if (!localSessionId && activeSessionId) {
                             localStorage.setItem('manara_active_session_id', String(activeSessionId));
                         } else if (activeSessionId && localSessionId) {
-                            const profileSessionTime = Number(activeSessionId) || 0;
-                            const localSessionTime = Number(localSessionId) || 0;
+                            // Session ids are "<timestamp>_<random>" (server-generated); legacy ids are plain timestamps
+                            const profileSessionTime = parseInt(String(activeSessionId), 10) || 0;
+                            const localSessionTime = parseInt(String(localSessionId), 10) || 0;
 
                             // Only conflict if another login created a STRICTLY NEWER session on a different device
                             if (profileSessionTime > localSessionTime && String(activeSessionId) !== String(localSessionId)) {

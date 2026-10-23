@@ -1,6 +1,6 @@
-import { adminAuth, adminDb } from "@/lib/firebase/admin";
+import { adminDb } from "@/lib/firebase/admin";
 import { NextResponse } from "next/server";
-import { getServerAuth } from "@/lib/server-auth";
+import { getActiveServerAuth } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 /**
@@ -11,32 +11,10 @@ import { logServerActivity } from "@/lib/server-activity-logger";
  */
 export async function POST(request: Request) {
     try {
-        let user = await getServerAuth(request);
+        const user = await getActiveServerAuth(request);
 
         const body = await request.json().catch(() => ({}));
-        const { studentId, courseId, manualNote, idToken } = body;
-
-        // Fallback to idToken if session cookie is absent or expired
-        if (!user && idToken && typeof idToken === "string") {
-            try {
-                const decoded = await adminAuth.verifyIdToken(idToken);
-                const [profileDoc, privateDoc] = await Promise.all([
-                    adminDb.collection("profiles").doc(decoded.uid).get(),
-                    adminDb.collection("profiles_private").doc(decoded.uid).get(),
-                ]);
-                const profileData = profileDoc.data() || {};
-                const privateData = privateDoc.data() || {};
-                user = {
-                    uid: decoded.uid,
-                    email: decoded.email || privateData.email || "",
-                    role: (profileData.role as any) || "instructor",
-                    status: privateData.status || profileData.status || "active",
-                    profile: { ...profileData, ...privateData },
-                };
-            } catch (tokenErr) {
-                console.error("Token verification error in report generate:", tokenErr);
-            }
-        }
+        const { studentId, courseId, manualNote } = body;
 
         if (!user || (user.role !== "instructor" && user.role !== "admin")) {
             return NextResponse.json({ error: "غير مصرح لك بتوليد تقارير الطلاب" }, { status: 403 });
