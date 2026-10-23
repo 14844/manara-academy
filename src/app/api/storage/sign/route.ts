@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { BUNNY_CONFIG } from "@/lib/bunny/config"
 import { getServerAuth } from "@/lib/server-auth"
 import { adminDb } from "@/lib/firebase/admin"
+import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib"
 
 export const runtime = 'nodejs'
 
@@ -20,6 +21,58 @@ function buildAssetHeaders(rawType: string, cleanPath: string): Record<string, s
     }
 }
 
+
+/** Stamp every page with the student's code + email (Latin only: pdf-lib standard fonts). */
+async function stampPdf(bytes: ArrayBuffer, user: { uid: string; email?: string; profile?: any }): Promise<Uint8Array> {
+    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true })
+    const font = await doc.embedFont(StandardFonts.HelveticaBold)
+    const code = String(user.profile?.student_id || user.profile?.studentId || user.uid)
+    const email = user.email || user.profile?.email || ""
+    const label = ["MANARA ACADEMY", code, email].filter(Boolean).join("  |  ").replace(/[^ -~]/g, "")
+    for (const page of doc.getPages()) {
+        const { width, height } = page.getSize()
+        const size = Math.max(12, Math.min(width, height) / 28)
+        for (let i = 0; i < 5; i++) {
+            page.drawText(label, {
+                x: width * 0.05,
+                y: height * (0.08 + i * 0.2),
+                size,
+                font,
+                color: rgb(0.45, 0.45, 0.45),
+                opacity: 0.22,
+                rotate: degrees(28),
+            })
+        }
+        page.drawText(`Licensed to: ${label}`, { x: 14, y: 10, size: 8, font, color: rgb(0.3, 0.3, 0.3), opacity: 0.7 })
+    }
+    return await doc.save()
+}
+
+async function respondAsset(
+    body: ArrayBuffer,
+    rawType: string,
+    cleanPath: string,
+    download: boolean,
+    downloadName: string,
+    user: { uid: string; email?: string; profile?: any },
+): Promise<NextResponse> {
+    const headers = buildAssetHeaders(rawType, cleanPath)
+    if (!download) return new NextResponse(body, { headers })
+
+    let out: BodyInit = body
+    if (headers['Content-Type'] === 'application/pdf') {
+        try {
+            out = (await stampPdf(body, user)) as unknown as BodyInit
+        } catch {
+            return new NextResponse("تعذر تجهيز الملف للتحميل", { status: 500 })
+        }
+    }
+    const safeName = (downloadName || cleanPath.split("/").pop() || "file").replace(/[^A-Za-z0-9._\- \u0600-\u06FF]/g, "_").slice(0, 120)
+    const ascii = safeName.replace(/[^A-Za-z0-9._-]/g, "_") || "file"
+    headers['Content-Disposition'] = `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
+    return new NextResponse(out, { headers })
+}
+
 export async function GET(request: NextRequest) {
     const user = await getServerAuth(request)
     if (!user || user.status === "blocked" || user.status === "suspended") {
@@ -28,6 +81,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const rawUrl = searchParams.get('url')
+    const wantsDownload = searchParams.get('download') === '1'
+    const downloadName = searchParams.get('name') || ""
     
     if (!rawUrl) return new NextResponse("Missing URL", { status: 400 })
 
@@ -171,8 +226,7 @@ export async function GET(request: NextRequest) {
                 .download(cleanPath)
 
             if (fileData && !downloadError) {
-                const headers = buildAssetHeaders(fileData.type || '', cleanPath)
-                return new NextResponse(fileData, { headers })
+                return await respondAsset(await fileData.arrayBuffer(), fileData.type || '', cleanPath, wantsDownload, downloadName, user)
             }
         } catch (supabaseErr) {
             console.warn("Supabase download skipped, falling back to legacy storage:", supabaseErr)
@@ -208,10 +262,7 @@ export async function GET(request: NextRequest) {
             return new NextResponse("Asset not found", { status: response.status })
         }
 
-        const headers = buildAssetHeaders(response.headers.get('Content-Type') || '', cleanPath)
-
-        const blob = await response.blob()
-        return new NextResponse(blob, { headers })
+        return await respondAsset(await response.arrayBuffer(), response.headers.get('Content-Type') || '', cleanPath, wantsDownload, downloadName, user)
 
     } catch {
         return new NextResponse("Error fetching asset", { status: 500 })

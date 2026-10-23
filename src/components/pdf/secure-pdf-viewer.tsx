@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import {
     FileText,
     Shield,
@@ -30,6 +30,78 @@ interface SecurePdfViewerProps {
     studentId?: string
 }
 
+
+/** Renders the PDF pages onto canvases (no iframe / no external viewer), so the watermark overlay stays on top. */
+function PdfPages({ fileUrl, zoom, onFail }: { fileUrl: string; zoom: number; onFail: () => void }) {
+    const hostRef = useRef<HTMLDivElement>(null)
+    const [loading, setLoading] = useState(true)
+
+    useEffect(() => {
+        let cancelled = false
+        let doc: any = null
+        const host = hostRef.current
+        if (!host) return
+        host.innerHTML = ""
+        setLoading(true)
+
+        ;(async () => {
+            try {
+                const pdfjs = await import("pdfjs-dist")
+                pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs"
+                const res = await fetch(fileUrl, { credentials: "same-origin" })
+                if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                const data = new Uint8Array(await res.arrayBuffer())
+                doc = await pdfjs.getDocument({ data }).promise
+                const dpr = Math.min(window.devicePixelRatio || 1, 2)
+                for (let i = 1; i <= doc.numPages; i++) {
+                    if (cancelled) return
+                    const page = await doc.getPage(i)
+                    const base = page.getViewport({ scale: 1 })
+                    const cssWidth = Math.max(host.clientWidth || 800, 300)
+                    const scale = (cssWidth / base.width) * dpr
+                    const viewport = page.getViewport({ scale })
+                    const canvas = document.createElement("canvas")
+                    canvas.width = Math.floor(viewport.width)
+                    canvas.height = Math.floor(viewport.height)
+                    canvas.style.width = "100%"
+                    canvas.style.display = "block"
+                    canvas.style.background = "#fff"
+                    canvas.style.marginBottom = "8px"
+                    const ctx = canvas.getContext("2d")
+                    if (!ctx) continue
+                    host.appendChild(canvas)
+                    await page.render({ canvasContext: ctx, viewport }).promise
+                    if (i === 1) setLoading(false)
+                }
+                setLoading(false)
+            } catch (err) {
+                console.error("PDF render failed", err)
+                if (!cancelled) onFail()
+            }
+        })()
+
+        return () => {
+            cancelled = true
+            try { doc?.destroy() } catch {}
+        }
+    }, [fileUrl, onFail])
+
+    return (
+        <div
+            className="relative w-full h-[80vh] overflow-y-auto bg-zinc-800 p-2"
+            onContextMenu={(e) => e.preventDefault()}
+        >
+            {loading && (
+                <div className="absolute inset-0 flex items-center justify-center text-white/80 text-sm gap-2 pointer-events-none">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    جاري تحميل الملف...
+                </div>
+            )}
+            <div ref={hostRef} style={{ width: `${zoom}%`, margin: "0 auto" }} />
+        </div>
+    )
+}
+
 export function SecurePdfViewer({
     fileUrl,
     title,
@@ -41,7 +113,7 @@ export function SecurePdfViewer({
 }: SecurePdfViewerProps) {
     const [isFullscreen, setIsFullscreen] = useState(false)
     const [zoom, setZoom] = useState(100)
-    const [viewMode, setViewMode] = useState<"embedded" | "direct">("embedded")
+    const [renderFailed, setRenderFailed] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
 
     const isPdf = fileUrl?.toLowerCase().includes(".pdf") || fileUrl?.includes("pdf")
@@ -57,9 +129,10 @@ export function SecurePdfViewer({
         }
     }
 
-    // Google Docs Viewer fallback url for cross-origin or storage PDFs
-    const embeddedViewerUrl = isPdf
-        ? `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`
+    // Downloads from our own storage route are stamped server-side with the student's code + email.
+    const isOwnAsset = fileUrl?.startsWith("/api/storage/sign")
+    const downloadUrl = isOwnAsset
+        ? `${fileUrl}${fileUrl.includes("?") ? "&" : "?"}download=1&name=${encodeURIComponent(`${title || "file"}.pdf`)}`
         : fileUrl
 
     const studentCodeText = studentId ? `كود: ${studentId}` : ""
@@ -135,7 +208,7 @@ export function SecurePdfViewer({
                         className="h-8 px-3 text-xs gap-1.5 shadow-sm font-bold"
                         asChild
                     >
-                        <a href={fileUrl} target="_blank" rel="noopener noreferrer" download>
+                        <a href={downloadUrl} download>
                             <Download className="h-3.5 w-3.5" />
                             <span>تحميل</span>
                         </a>
@@ -187,15 +260,9 @@ export function SecurePdfViewer({
                 {/* Embedded Viewer Iframe / Object */}
                 <div
                     className="w-full h-full min-h-[550px] transition-transform duration-200 origin-top"
-                    style={{ transform: `scale(${zoom / 100})` }}
                 >
-                    {isPdf ? (
-                        <iframe
-                            src={embeddedViewerUrl}
-                            className="w-full h-full min-h-[600px] border-0 bg-white"
-                            title={title}
-                            allowFullScreen
-                        />
+                    {isPdf && !renderFailed ? (
+                        <PdfPages fileUrl={fileUrl} zoom={zoom} onFail={() => setRenderFailed(true)} />
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full min-h-[550px] text-white p-8 text-center space-y-4">
                             <div className="h-16 w-16 bg-white/10 rounded-2xl flex items-center justify-center text-primary">
@@ -203,10 +270,12 @@ export function SecurePdfViewer({
                             </div>
                             <div>
                                 <h4 className="text-lg font-bold">{title}</h4>
-                                <p className="text-xs text-zinc-400 mt-1">الملف متاح للتحميل والاطلاع عبر الزر أدناه</p>
+                                <p className="text-xs text-zinc-400 mt-1">
+                                    {renderFailed ? "تعذر عرض الملف داخل الصفحة، يمكنك تحميله من الزر أدناه" : "الملف متاح للتحميل والاطلاع عبر الزر أدناه"}
+                                </p>
                             </div>
                             <Button size="lg" className="gap-2 font-bold" asChild>
-                                <a href={fileUrl} target="_blank" rel="noopener noreferrer">
+                                <a href={downloadUrl} download>
                                     <Download className="h-4 w-4" />
                                     تحميل أو فتح الملف
                                 </a>
