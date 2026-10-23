@@ -13,7 +13,8 @@ import {
     GraduationCap,
     Lock,
     ExternalLink,
-    RefreshCw
+    RefreshCw,
+    ShieldAlert
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -28,11 +29,12 @@ interface SecurePdfViewerProps {
     studentName?: string
     studentEmail?: string
     studentId?: string
+    courseId?: string
 }
 
 
 /** Renders the PDF pages onto canvases (no iframe / no external viewer), so the watermark overlay stays on top. */
-function PdfPages({ fileUrl, zoom, onFail }: { fileUrl: string; zoom: number; onFail: () => void }) {
+function PdfPages({ fileUrl, zoom, hidden, onFail }: { fileUrl: string; zoom: number; hidden: boolean; onFail: () => void }) {
     const hostRef = useRef<HTMLDivElement>(null)
     const [loading, setLoading] = useState(true)
 
@@ -51,7 +53,14 @@ function PdfPages({ fileUrl, zoom, onFail }: { fileUrl: string; zoom: number; on
                 const res = await fetch(fileUrl, { credentials: "same-origin" })
                 if (!res.ok) throw new Error(`HTTP ${res.status}`)
                 const data = new Uint8Array(await res.arrayBuffer())
-                doc = await pdfjs.getDocument({ data }).promise
+                doc = await pdfjs.getDocument({
+                    data,
+                    standardFontDataUrl: "/pdfjs/standard_fonts/",
+                    cMapUrl: "/pdfjs/cmaps/",
+                    cMapPacked: true,
+                    useSystemFonts: false,
+                    isEvalSupported: false,
+                }).promise
                 const dpr = Math.min(window.devicePixelRatio || 1, 2)
                 for (let i = 1; i <= doc.numPages; i++) {
                     if (cancelled) return
@@ -97,7 +106,17 @@ function PdfPages({ fileUrl, zoom, onFail }: { fileUrl: string; zoom: number; on
                     جاري تحميل الملف...
                 </div>
             )}
-            <div ref={hostRef} style={{ width: `${zoom}%`, margin: "0 auto" }} />
+            <div
+                ref={hostRef}
+                style={{
+                    width: `${zoom}%`,
+                    margin: "0 auto",
+                    opacity: hidden ? 0 : 1,
+                    filter: hidden ? "blur(40px)" : "none",
+                    transition: "opacity 60ms linear",
+                    userSelect: "none",
+                }}
+            />
         </div>
     )
 }
@@ -110,11 +129,79 @@ export function SecurePdfViewer({
     studentName,
     studentEmail,
     studentId,
+    courseId,
 }: SecurePdfViewerProps) {
     const [isFullscreen, setIsFullscreen] = useState(false)
     const [zoom, setZoom] = useState(100)
     const [renderFailed, setRenderFailed] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
+
+    // Anti-capture: hide the document when the window loses focus or capture tools are used
+    const [isBlocked, setIsBlocked] = useState(false)
+    const [blockReason, setBlockReason] = useState("")
+
+    useEffect(() => {
+        const block = (reason: string) => {
+            setIsBlocked(true)
+            setBlockReason(reason)
+        }
+        const onVisibility = () => {
+            if (document.hidden) block("تم حجب المحتوى مؤقتاً لخروجك من نافذة الدرس.")
+            else setIsBlocked(false)
+        }
+        const onBlur = () => block("تم حجب المحتوى مؤقتاً لخروجك من نافذة الدرس. سيعود بمجرد عودتك.")
+        const onFocus = () => setIsBlocked(false)
+        const onKey = (e: KeyboardEvent) => {
+            const key = e.key
+            const ctrl = e.ctrlKey || e.metaKey
+            const isSnip = ctrl && e.shiftKey && (key === "S" || key === "s" || key === "4" || key === "5")
+            const isPrintScreen = key === "PrintScreen" || e.code === "PrintScreen"
+            const isWinKey = key === "Meta" || key === "OS"
+            const isSavePrint = ctrl && (key === "p" || key === "P" || key === "s" || key === "S")
+            if (isSnip || isPrintScreen || isWinKey || isSavePrint) {
+                e.preventDefault()
+                if (isPrintScreen) {
+                    try { navigator.clipboard?.writeText("") } catch {}
+                }
+                block("تم حجب المحتوى وقائياً. أدوات لقطة الشاشة أو الطباعة غير مسموحة.")
+            }
+        }
+        const md = navigator.mediaDevices as unknown as Record<string, unknown> | undefined
+        const originalDisplayMedia = md?.getDisplayMedia
+        if (md && originalDisplayMedia) {
+            md.getDisplayMedia = async () => {
+                block("مشاركة أو تسجيل الشاشة غير مسموح أثناء عرض الملفات.")
+                throw new Error("Screen sharing blocked")
+            }
+        }
+        let devOpen = false
+        const interval = setInterval(() => {
+            if (document.fullscreenElement) return
+            const opened = window.outerWidth - window.innerWidth > 250 || window.outerHeight - window.innerHeight > 250
+            if (opened && !devOpen) {
+                devOpen = true
+                block("تم حجب المحتوى لأن أدوات المطور مفتوحة. أغلقها للمتابعة.")
+            } else if (!opened && devOpen) {
+                devOpen = false
+                setIsBlocked(false)
+            }
+        }, 1000)
+
+        document.addEventListener("visibilitychange", onVisibility)
+        window.addEventListener("blur", onBlur)
+        window.addEventListener("focus", onFocus)
+        window.addEventListener("keydown", onKey, { capture: true })
+        window.addEventListener("keyup", onKey, { capture: true })
+        return () => {
+            document.removeEventListener("visibilitychange", onVisibility)
+            window.removeEventListener("blur", onBlur)
+            window.removeEventListener("focus", onFocus)
+            window.removeEventListener("keydown", onKey, { capture: true })
+            window.removeEventListener("keyup", onKey, { capture: true })
+            clearInterval(interval)
+            if (md && originalDisplayMedia) md.getDisplayMedia = originalDisplayMedia
+        }
+    }, [])
 
     const isPdf = fileUrl?.toLowerCase().includes(".pdf") || fileUrl?.includes("pdf")
 
@@ -129,11 +216,25 @@ export function SecurePdfViewer({
         }
     }
 
-    // Downloads from our own storage route are stamped server-side with the student's code + email.
-    const isOwnAsset = fileUrl?.startsWith("/api/storage/sign")
-    const downloadUrl = isOwnAsset
-        ? `${fileUrl}${fileUrl.includes("?") ? "&" : "?"}download=1&name=${encodeURIComponent(`${title || "file"}.pdf`)}`
-        : fileUrl
+    // Downloads always go through our server (/api/storage/sign), which stamps the PDF with the student's code + email.
+    const downloadUrl = (() => {
+        if (!fileUrl) return fileUrl
+        const fileName = encodeURIComponent(`${title || "file"}.pdf`)
+        try {
+            const u = new URL(fileUrl, window.location.origin)
+            if (u.pathname === "/api/storage/sign") {
+                u.searchParams.set("download", "1")
+                u.searchParams.set("name", `${title || "file"}.pdf`)
+                return u.pathname + u.search
+            }
+            const m = u.pathname.match(/\/object\/(?:sign|authenticated|public)\/[^/]+\/(.+)$/)
+            if (m && courseId) {
+                const storagePath = decodeURIComponent(m[1])
+                return `/api/storage/sign?url=${encodeURIComponent(storagePath)}&courseId=${encodeURIComponent(courseId)}&download=1&name=${fileName}`
+            }
+        } catch {}
+        return fileUrl
+    })()
 
     const studentCodeText = studentId ? `كود: ${studentId}` : ""
     const studentEmailText = studentEmail || ""
@@ -142,7 +243,8 @@ export function SecurePdfViewer({
     return (
         <div
             ref={containerRef}
-            className={`flex flex-col bg-background border rounded-2xl shadow-xl overflow-hidden font-arabic transition-all duration-300 ${
+            onContextMenu={(e) => e.preventDefault()}
+            className={`secure-pdf-root flex flex-col bg-background border rounded-2xl shadow-xl overflow-hidden font-arabic transition-all duration-300 ${
                 isFullscreen ? "fixed inset-0 z-50 rounded-none h-screen w-screen" : "w-full"
             }`}
         >
@@ -257,12 +359,33 @@ export function SecurePdfViewer({
                     </div>
                 </motion.div>
 
+                <style>{`@media print { .secure-pdf-root { display: none !important; } }`}</style>
+                {isBlocked && (
+                    <div
+                        className="absolute inset-0 z-[60] bg-black/90 backdrop-blur-2xl flex flex-col items-center justify-center p-6 text-center"
+                        style={{ pointerEvents: "all" }}
+                    >
+                        <div className="bg-destructive/10 text-destructive h-20 w-20 rounded-full flex items-center justify-center mb-4 border border-destructive/20 animate-pulse">
+                            <ShieldAlert className="h-10 w-10" />
+                        </div>
+                        <h3 className="text-xl font-bold text-white mb-2">محتوى محمي آمن</h3>
+                        <p className="max-w-md text-sm text-zinc-300 leading-relaxed">{blockReason}</p>
+                        <Button
+                            variant="outline"
+                            className="mt-6 border-white/20 text-white hover:bg-white/10"
+                            onClick={() => setIsBlocked(false)}
+                        >
+                            فهمت ذلك، العودة للملف
+                        </Button>
+                    </div>
+                )}
+
                 {/* Embedded Viewer Iframe / Object */}
                 <div
                     className="w-full h-full min-h-[550px] transition-transform duration-200 origin-top"
                 >
                     {isPdf && !renderFailed ? (
-                        <PdfPages fileUrl={fileUrl} zoom={zoom} onFail={() => setRenderFailed(true)} />
+                        <PdfPages fileUrl={fileUrl} zoom={zoom} hidden={isBlocked} onFail={() => setRenderFailed(true)} />
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full min-h-[550px] text-white p-8 text-center space-y-4">
                             <div className="h-16 w-16 bg-white/10 rounded-2xl flex items-center justify-center text-primary">

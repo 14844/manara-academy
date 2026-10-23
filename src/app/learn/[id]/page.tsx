@@ -431,6 +431,7 @@ export default function LearnPage() {
 
                         {currentLesson?.type === 'file' && (
                             <SecurePdfViewer
+                                courseId={String(id)}
                                 fileUrl={fileMediaUrl || currentLesson.url || ""}
                                 title={currentLesson.title}
                                 description={currentLesson.description}

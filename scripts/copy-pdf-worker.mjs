@@ -1,8 +1,10 @@
-import { copyFileSync, existsSync, mkdirSync } from "node:fs"
+import { copyFileSync, cpSync, existsSync, mkdirSync } from "node:fs"
 
-const src = "node_modules/pdfjs-dist/build/pdf.worker.min.mjs"
-if (existsSync(src)) {
-    mkdirSync("public", { recursive: true })
-    copyFileSync(src, "public/pdf.worker.min.mjs")
-    console.log("pdf.js worker copied to public/")
+const base = "node_modules/pdfjs-dist"
+if (existsSync(`${base}/build/pdf.worker.min.mjs`)) {
+    mkdirSync("public/pdfjs", { recursive: true })
+    copyFileSync(`${base}/build/pdf.worker.min.mjs`, "public/pdf.worker.min.mjs")
+    cpSync(`${base}/standard_fonts`, "public/pdfjs/standard_fonts", { recursive: true })
+    cpSync(`${base}/cmaps`, "public/pdfjs/cmaps", { recursive: true })
+    console.log("pdf.js worker, standard fonts and cmaps copied to public/")
 }
