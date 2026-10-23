@@ -1,31 +1,27 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getServerAuth } from "@/lib/server-auth";
+import { getActiveServerAuth } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
-import { checkRateLimit } from "@/lib/rate-limiter";
-import { BUNNY_CONFIG } from "@/lib/bunny/config";
+import { checkRateLimitAsync } from "@/lib/rate-limiter";
+import { extractStoragePath } from "@/lib/media-security";
+import { SUPABASE_BUCKET } from "@/lib/supabase/admin";
 
-function isValidStorageUrl(urlStr: string): boolean {
-    if (!urlStr || typeof urlStr !== "string") return false;
-    if (urlStr.startsWith("/api/storage/") || urlStr.startsWith("/api/upload/")) {
-        return true;
+/**
+ * Accept only a receipt uploaded by THIS user into this project's own storage
+ * (payment_proofs/proof_<uid>_...). Returns a normalized platform URL or null.
+ */
+function normalizeReceiptUrl(urlStr: unknown, uid: string): string | null {
+    if (!urlStr || typeof urlStr !== "string" || urlStr.length > 2048) return null;
+    const path = extractStoragePath(urlStr, SUPABASE_BUCKET);
+    if (!path || !path.startsWith(`payment_proofs/proof_${uid}_`) || path.includes("/", "payment_proofs/".length)) {
+        return null;
     }
-    try {
-        const parsed = new URL(urlStr);
-        const host = parsed.hostname.toLowerCase();
-        if (host.endsWith("supabase.co") || host.endsWith("supabase.in")) {
-            return true;
-        }
-        const pullHost = BUNNY_CONFIG.PULL_ZONE_URL ? new URL(BUNNY_CONFIG.PULL_ZONE_URL).hostname.toLowerCase() : "";
-        return host.endsWith("b-cdn.net") || host === "storage.bunnycdn.com" || (pullHost !== "" && host === pullHost);
-    } catch {
-        return false;
-    }
+    return `/api/storage/sign?url=${encodeURIComponent(path)}`;
 }
 
 export async function POST(request: Request) {
     try {
-        const user = await getServerAuth(request);
+        const user = await getActiveServerAuth(request);
         if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
@@ -33,7 +29,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "الحساب موقوف" }, { status: 403 });
         }
 
-        if (!checkRateLimit(`wallet_req_${user.uid}`, 5, 60000)) {
+        if (!(await checkRateLimitAsync(`wallet_req_${user.uid}`, 5, 60)).success) {
             return NextResponse.json({ error: "تم إرسال عدة طلبات مؤخراً، يرجى الانتظار دقيقة والمحاولة مجدداً" }, { status: 429 });
         }
 
@@ -45,11 +41,12 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "المبلغ المدخل غير صالح (الحد الأقصى 50,000 ج.م)" }, { status: 400 });
         }
 
-        if (!senderNumber || !screenshotUrl) {
+        if (!senderNumber || typeof senderNumber !== "string" || senderNumber.length > 30 || !screenshotUrl) {
             return NextResponse.json({ error: "بيانات التحويل وصورة الإيصال مطلوبة" }, { status: 400 });
         }
 
-        if (!isValidStorageUrl(screenshotUrl)) {
+        const receiptUrl = normalizeReceiptUrl(screenshotUrl, user.uid);
+        if (!receiptUrl) {
             return NextResponse.json({ error: "رابط صورة الإيصال غير صالح (يجب أن يكون مرفوعاً عبر المنصة)" }, { status: 400 });
         }
 
@@ -63,7 +60,7 @@ export async function POST(request: Request) {
             student_unique_id: profile?.student_id || "N/A",
             amount: numAmount,
             sender_number: senderNumber,
-            screenshot_url: screenshotUrl,
+            screenshot_url: receiptUrl,
             payment_gateway: "manual",
             status: "pending",
             created_at: new Date().toISOString(),

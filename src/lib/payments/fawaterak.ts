@@ -261,3 +261,17 @@ export async function getFawaterakTransactionData(intentKey: string) {
         return null;
     }
 }
+
+/**
+ * Best-effort extraction of the paid amount from a getTransactionData `data` object.
+ * Returns 0 when no numeric amount is present (callers must fail closed).
+ */
+export function extractFawaterakPaidAmount(data: Record<string, unknown> | null | undefined): number {
+    if (!data) return 0;
+    const keys = ["paid_amount", "paidAmount", "total_paid", "cartTotal", "cart_total", "total", "invoice_total", "total_amount", "amount"];
+    for (const k of keys) {
+        const n = Number(data[k]);
+        if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 0;
+}

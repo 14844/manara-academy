@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { getServerAuth } from "@/lib/server-auth";
+import { getActiveServerAuth } from "@/lib/server-auth";
 import { adminDb } from "@/lib/firebase/admin";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
-    const user = await getServerAuth(request);
+    const user = await getActiveServerAuth(request);
     if (!user || (user.role !== "instructor" && user.role !== "admin")) {
         return NextResponse.json({ error: "غير مصرح لك بإجراء هذه العملية" }, { status: 403 });
     }
@@ -25,54 +25,39 @@ export async function POST(request: Request) {
         const grossAmount = Math.round((netAmount / 0.95) * 100) / 100;
         const commission = Math.round((grossAmount - netAmount) * 100) / 100;
 
-        // 1. Strict Weekly Interval & Pending Request Validation
-        const recentReqSnap = await adminDb
-            .collection("withdrawal_requests")
-            .where("instructor_id", "==", user.uid)
-            .get();
-
-        if (!recentReqSnap.empty) {
-            const sorted = recentReqSnap.docs
-                .map(d => d.data())
-                .sort((a, b) => new Date(b.created_at || b.requested_at).getTime() - new Date(a.created_at || a.requested_at).getTime());
-
-            // Check if there's already a pending request
-            const pendingReq = sorted.find(r => r.status === "pending");
-            if (pendingReq) {
-                return NextResponse.json({ 
-                    error: "يوجد لديك طلب سحب قيد المعالجة حالياً. يرجى الانتظار حتى يتم إتمام تحويله قبل إرسال طلب جديد." 
-                }, { status: 400 });
-            }
-
-            // Check 7-day minimum interval between withdrawal requests
-            const latestReq = sorted[0];
-            const lastReqTime = new Date(latestReq.created_at || latestReq.requested_at).getTime();
-            const now = Date.now();
-            const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-            const diffMs = now - lastReqTime;
-
-            if (diffMs < sevenDaysMs) {
-                const remainingHours = Math.ceil((sevenDaysMs - diffMs) / (1000 * 60 * 60));
-                const remainingDays = Math.ceil(remainingHours / 24);
-                return NextResponse.json({
-                    error: `يُسمح بطلب سحب الأرباح مرة واحدة أسبوعياً (كل 7 أيام) لضمان استقرار العمليات البنكية وتفادي نزاعات الاسترداد. يمكنك تقديم طلبك القادم بعد ${remainingDays > 1 ? `${remainingDays} أيام` : `${remainingHours} ساعة`}.`,
-                    remaining_hours: remainingHours,
-                    next_eligible_at: new Date(lastReqTime + sevenDaysMs).toISOString(),
-                }, { status: 400 });
-            }
-        }
-
         const profileRef = adminDb.collection("profiles").doc(user.uid);
         const profilePrivateRef = adminDb.collection("profiles_private").doc(user.uid);
         const withdrawalRef = adminDb.collection("withdrawal_requests").doc();
 
+        const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
         await adminDb.runTransaction(async (t) => {
-            const [pSnap, privSnap] = await Promise.all([
+            // All reads inside the transaction (serializable): pending + weekly checks can't be raced
+            const [pSnap, privSnap, reqSnap] = await Promise.all([
                 t.get(profileRef),
                 t.get(profilePrivateRef),
+                t.get(adminDb.collection("withdrawal_requests").where("instructor_id", "==", user.uid)),
             ]);
             if (!pSnap.exists) {
                 throw new Error("PROFILE_NOT_FOUND");
+            }
+
+            const reqs = reqSnap.docs.map(d => d.data());
+            if (reqs.some(r => r.status === "pending")) {
+                throw new Error("PENDING_EXISTS");
+            }
+            const times = reqs
+                .map(r => new Date(r.created_at || r.requested_at).getTime())
+                .filter(n => Number.isFinite(n));
+            const lastAt = privSnap.data()?.last_withdrawal_request_at;
+            if (lastAt) {
+                const n = new Date(lastAt).getTime();
+                if (Number.isFinite(n)) times.push(n);
+            }
+            const lastReqTime = times.length ? Math.max(...times) : 0;
+            const diffMs = Date.now() - lastReqTime;
+            if (lastReqTime && diffMs < sevenDaysMs) {
+                throw new Error(`WEEKLY_LIMIT:${lastReqTime}`);
             }
 
             const currentBalance = Number(privSnap.data()?.wallet_balance ?? 0);
@@ -88,6 +73,7 @@ export async function POST(request: Request) {
             // Deduct immediately from wallet inside transaction
             t.set(profilePrivateRef, {
                 wallet_balance: currentBalance - netAmount,
+                last_withdrawal_request_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             }, { merge: true });
 
@@ -130,6 +116,22 @@ export async function POST(request: Request) {
             const bal = err.message.split(":")[1] || "0";
             return NextResponse.json({ 
                 error: `لا يمكن تقديم طلب سحب لأن رصيد محفظتك الحالي بالسالب (${bal} ج.م) نتيجة استرداد كورس سابق (Refund/Chargeback). يتم تسوية هذا الرصيد تلقائياً من مبيعات الكورسات القادمة.` 
+            }, { status: 400 });
+        }
+        if (err.message === "PENDING_EXISTS") {
+            return NextResponse.json({
+                error: "يوجد لديك طلب سحب قيد المعالجة حالياً. يرجى الانتظار حتى يتم إتمام تحويله قبل إرسال طلب جديد."
+            }, { status: 400 });
+        }
+        if (err.message?.startsWith("WEEKLY_LIMIT:")) {
+            const lastReqTime = Number(err.message.split(":")[1]) || Date.now();
+            const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+            const remainingHours = Math.max(1, Math.ceil((sevenDaysMs - (Date.now() - lastReqTime)) / (1000 * 60 * 60)));
+            const remainingDays = Math.ceil(remainingHours / 24);
+            return NextResponse.json({
+                error: `يُسمح بطلب سحب الأرباح مرة واحدة أسبوعياً (كل 7 أيام) لضمان استقرار العمليات البنكية وتفادي نزاعات الاسترداد. يمكنك تقديم طلبك القادم بعد ${remainingDays > 1 ? `${remainingDays} أيام` : `${remainingHours} ساعة`}.`,
+                remaining_hours: remainingHours,
+                next_eligible_at: new Date(lastReqTime + sevenDaysMs).toISOString(),
             }, { status: 400 });
         }
         if (err.message === "INSUFFICIENT_BALANCE") {

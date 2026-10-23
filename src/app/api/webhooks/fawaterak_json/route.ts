@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
-import { verifyFawaterakWebhookHash } from "@/lib/payments/fawaterak";
+import { verifyFawaterakWebhookHash, getFawaterakTransactionData, extractFawaterakPaidAmount } from "@/lib/payments/fawaterak";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
@@ -19,10 +19,9 @@ export async function POST(request: Request) {
             });
         }
 
-        console.log("Received Fawaterak Webhook:", JSON.stringify(payload, null, 2));
-
         const transactionId = payload.transaction_id || payload.transactionId || payload.invoice_id || "";
         const transactionKey = payload.transaction_key || payload.transactionKey || payload.intent_key || "";
+        console.log("Received Fawaterak Webhook for transactionKey:", transactionKey);
         const paymentMethod = payload.payment_method || payload.paymentMethod || "Online";
         const status = (payload.status || "").toString().toLowerCase();
         const receivedHash = payload.transactionHashKey || payload.hashKey || "";
@@ -48,21 +47,55 @@ export async function POST(request: Request) {
 
         const intentKey = transactionKey;
 
-        if (status !== "paid") {
-            const isRefundEvent = ["refunded", "refund", "chargeback", "reversed", "canceled", "cancelled"].includes(status);
-            if (isRefundEvent) {
+        if (!intentKey) {
+            return NextResponse.json({ error: "Missing intent_key" }, { status: 400 });
+        }
+
+        // Re-query Fawaterak server-to-server; the gateway's answer (not the payload) decides. Fail closed.
+        let verifiedStatus = "";
+        let verifiedAmount = 0;
+        try {
+            const gatewayRes = await getFawaterakTransactionData(intentKey);
+            const gData = gatewayRes?.data;
+            if (gData) {
+                verifiedStatus = (gData.status || gData.payment_status || "").toString().toLowerCase();
+                verifiedAmount = extractFawaterakPaidAmount(gData);
+            }
+        } catch {
+            verifiedStatus = "";
+        }
+
+        if (!verifiedStatus) {
+            // Could not verify with the gateway: ask Fawaterak to retry later
+            return NextResponse.json({ error: "Unable to verify transaction with gateway" }, { status: 503 });
+        }
+
+        const PAID_STATUSES = ["paid", "success"];
+        const REFUND_STATUSES = ["refunded", "refund", "chargeback", "reversed", "canceled", "cancelled"];
+        const payloadIsPaid = PAID_STATUSES.includes(status);
+        const payloadIsRefund = REFUND_STATUSES.includes(status);
+        const isPaid = PAID_STATUSES.includes(verifiedStatus);
+        const isRefund = REFUND_STATUSES.includes(verifiedStatus);
+
+        // Payload claim must agree with the gateway's status
+        if ((payloadIsPaid && !isPaid) || (payloadIsRefund && !isRefund)) {
+            return NextResponse.json({ error: "Status mismatch with gateway" }, { status: 409 });
+        }
+
+        if (!isPaid) {
+            if (isRefund) {
                 return await processRefundEvent({
                     intentKey,
                     transactionId,
                     payload,
-                    status,
+                    status: verifiedStatus,
                 });
             }
-            return NextResponse.json({ status: "acknowledged", payment_status: status });
+            return NextResponse.json({ status: "acknowledged", payment_status: verifiedStatus });
         }
 
-        if (!intentKey) {
-            return NextResponse.json({ error: "Missing intent_key" }, { status: 400 });
+        if (!(verifiedAmount > 0)) {
+            return NextResponse.json({ error: "Unable to verify paid amount" }, { status: 503 });
         }
 
         // -------------------------------------------------------------
@@ -85,9 +118,7 @@ export async function POST(request: Request) {
             const studentId = orderData.student_id;
             const courseId = orderData.course_id;
             const requestedAmount = Number(orderData.amount || 0);
-            const webhookPaidAmount = Number(payload.paidAmount || payload.amount || 0);
-
-            if (webhookPaidAmount > 0 && webhookPaidAmount < requestedAmount) {
+            if (verifiedAmount + 0.01 < requestedAmount) {
                 return NextResponse.json({ error: "Paid amount less than requested" }, { status: 400 });
             }
 
@@ -102,6 +133,16 @@ export async function POST(request: Request) {
                 ? adminDb.collection("profiles_private").doc(orderData.instructor_id)
                 : null;
 
+            // Fetch coupon doc if a coupon code was used
+            let couponDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+            if (orderData.coupon_code && typeof orderData.coupon_code === "string") {
+                const cSnap = await adminDb.collection("coupons")
+                    .where("code", "==", orderData.coupon_code.trim().toUpperCase())
+                    .limit(1)
+                    .get();
+                if (!cSnap.empty) couponDoc = cSnap.docs[0];
+            }
+
             let alreadyProcessed = false;
 
             await adminDb.runTransaction(async (t) => {
@@ -109,6 +150,21 @@ export async function POST(request: Request) {
                 if (txDoc.exists) {
                     alreadyProcessed = true;
                     return;
+                }
+
+                // If coupon was used, verify and increment usage_count inside the transaction
+                if (couponDoc) {
+                    const freshCoupon = await t.get(couponDoc.ref);
+                    if (freshCoupon.exists) {
+                        const cData = freshCoupon.data() || {};
+                        const maxUses = cData.max_uses ?? cData.usage_limit ?? null;
+                        if (maxUses === null || (cData.usage_count || 0) < maxUses) {
+                            t.update(couponDoc.ref, {
+                                usage_count: FieldValue.increment(1),
+                                updated_at: new Date().toISOString(),
+                            });
+                        }
+                    }
                 }
 
                 // 1. Enroll student
@@ -130,13 +186,18 @@ export async function POST(request: Request) {
                     payment_method: "fawaterak_online",
                 }, { merge: true });
 
-                // 2. Increment students count on course
-                t.update(courseRef, { students_count: FieldValue.increment(1) });
+                // 2. Increment students count & total_sales on course
+                t.update(courseRef, {
+                    students_count: FieldValue.increment(1),
+                    total_sales: FieldValue.increment(1),
+                    updated_at: new Date().toISOString(),
+                });
 
-                // 3. Deposit 95% into instructor wallet
+                // 3. Deposit 95% into instructor wallet (profiles_private ONLY)
                 if (instructorPrivateRef) {
                     t.set(instructorPrivateRef, {
                         wallet_balance: FieldValue.increment(instructorEarnings),
+                        total_earned: FieldValue.increment(instructorEarnings),
                         updated_at: new Date().toISOString(),
                     }, { merge: true });
                 }
@@ -228,9 +289,7 @@ export async function POST(request: Request) {
 
         const studentId = walletData.student_id;
         const requestedAmount = Number(walletData.amount || 0);
-        const webhookPaidAmount = Number(payload.paidAmount || payload.amount || 0);
-
-        if (webhookPaidAmount > 0 && webhookPaidAmount < requestedAmount) {
+        if (verifiedAmount + 0.01 < requestedAmount) {
             return NextResponse.json({ error: "Paid amount less than requested" }, { status: 400 });
         }
 
@@ -389,7 +448,6 @@ async function processRefundEvent({
 
             const enrollmentRef = adminDb.collection("enrollments").doc(`${studentId}_${courseId}`);
             const courseRef = adminDb.collection("courses").doc(courseId);
-            const instructorProfileRef = instructorId ? adminDb.collection("profiles").doc(instructorId) : null;
             const instructorPrivateRef = instructorId ? adminDb.collection("profiles_private").doc(instructorId) : null;
             const studentProfileRef = adminDb.collection("profiles").doc(studentId);
             const refundLockId = `refund_${intentKey || transactionId}`;
@@ -403,6 +461,13 @@ async function processRefundEvent({
                 // Idempotency guard: check if refund lock already exists
                 const lockDoc = await t.get(refundLockRef);
                 if (lockDoc.exists) {
+                    alreadyRefunded = true;
+                    return;
+                }
+
+                // Only a completed (paid) order can be refunded; pending/failed orders are ignored
+                const freshOrder = await t.get(orderDoc!.ref);
+                if (!freshOrder.exists || freshOrder.data()?.status !== "completed") {
                     alreadyRefunded = true;
                     return;
                 }
@@ -442,15 +507,9 @@ async function processRefundEvent({
                     students_count: FieldValue.increment(-1),
                 });
 
-                // E. Deduct instructor share (can go negative to protect platform)
+                // E. Deduct instructor share (in profiles_private ONLY)
                 if (instructorPrivateRef) {
                     t.set(instructorPrivateRef, {
-                        wallet_balance: FieldValue.increment(-instructorShare),
-                        updated_at: new Date().toISOString(),
-                    }, { merge: true });
-                }
-                if (instructorProfileRef) {
-                    t.set(instructorProfileRef, {
                         wallet_balance: FieldValue.increment(-instructorShare),
                         total_earned: FieldValue.increment(-instructorShare),
                         updated_at: new Date().toISOString(),
@@ -547,7 +606,6 @@ async function processRefundEvent({
             const amount = Number(reqData.amount || 0);
 
             const studentPrivateRef = adminDb.collection("profiles_private").doc(studentId);
-            const studentProfileRef = adminDb.collection("profiles").doc(studentId);
             const rechargeLockId = `refund_recharge_${intentKey || transactionId}`;
             const rechargeLockRef = adminDb.collection("refund_locks").doc(rechargeLockId);
             const refundTxRef = adminDb.collection("transactions").doc(rechargeLockId);
@@ -559,6 +617,13 @@ async function processRefundEvent({
                 // Idempotency guard for wallet recharge refunds
                 const lockDoc = await t.get(rechargeLockRef);
                 if (lockDoc.exists) {
+                    alreadyRefunded = true;
+                    return;
+                }
+
+                // Only a credited (approved) recharge can be reversed
+                const freshReq = await t.get(reqDoc!.ref);
+                if (!freshReq.exists || freshReq.data()?.status !== "approved") {
                     alreadyRefunded = true;
                     return;
                 }
@@ -576,12 +641,8 @@ async function processRefundEvent({
                     refund_reason: payload.reason || status,
                 });
 
+                // wallet_balance lives in profiles_private only
                 t.set(studentPrivateRef, {
-                    wallet_balance: FieldValue.increment(-amount),
-                    updated_at: new Date().toISOString(),
-                }, { merge: true });
-
-                t.set(studentProfileRef, {
                     wallet_balance: FieldValue.increment(-amount),
                     updated_at: new Date().toISOString(),
                 }, { merge: true });

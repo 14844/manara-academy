@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebase/admin";
+import { adminDb } from "@/lib/firebase/admin";
+import { getActiveServerAuth } from "@/lib/server-auth";
 import { createFawaterakTransaction } from "@/lib/payments/fawaterak";
-import { cookies } from "next/headers";
-import { checkRateLimit } from "@/lib/rate-limiter";
+import { checkRateLimitAsync } from "@/lib/rate-limiter";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { amount, idToken } = body;
+        const { amount } = body;
 
         const chargeAmount = Number(amount);
         if (!chargeAmount || isNaN(chargeAmount) || chargeAmount < 10) {
@@ -25,36 +25,11 @@ export async function POST(request: Request) {
             );
         }
 
-        // 1. Authenticate user via idToken or session cookie
-        let uid = "";
-        let userEmail = "";
-        let displayName = "";
-
-        if (idToken) {
-            try {
-                const decoded = await adminAuth.verifyIdToken(idToken);
-                uid = decoded.uid;
-                userEmail = decoded.email || "";
-                displayName = decoded.name || "";
-            } catch (tokenErr) {
-                console.error("Token verification failed:", tokenErr);
-            }
-        }
-
-        if (!uid) {
-            const cookieStore = await cookies();
-            const session = cookieStore.get("session")?.value;
-            if (session) {
-                try {
-                    const decoded = await adminAuth.verifySessionCookie(session);
-                    uid = decoded.uid;
-                    userEmail = decoded.email || "";
-                    displayName = decoded.name || "";
-                } catch (sessErr) {
-                    console.error("Session verification failed:", sessErr);
-                }
-            }
-        }
+        // 1. Authenticate via session cookie only (checkRevoked + account status enforced centrally)
+        const authUser = await getActiveServerAuth(request);
+        const uid = authUser?.uid || "";
+        const userEmail = authUser?.email || "";
+        const displayName = authUser?.profile?.full_name || "";
 
         if (!uid) {
             return NextResponse.json(
@@ -64,7 +39,7 @@ export async function POST(request: Request) {
         }
 
         // 2. Strict Rate Limiting: 5 initiate requests per 2 minutes per user
-        if (!checkRateLimit(`pay_init_${uid}`, 5, 120000)) {
+        if (!(await checkRateLimitAsync(`pay_init_${uid}`, 5, 120)).success) {
             return NextResponse.json(
                 { error: "تم تجاوز الحد الأقصى للمحاولات، يرجى الانتظار دقيقتين قبل المحاولة مرة أخرى" },
                 { status: 429 }

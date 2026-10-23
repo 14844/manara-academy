@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
-import { getServerAuth } from "@/lib/server-auth";
+import { getActiveServerAuth } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
     try {
-        const user = await getServerAuth(request);
+        const user = await getActiveServerAuth(request);
         if (!user) {
             return NextResponse.json({ error: "يرجى تسجيل الدخول أولاً" }, { status: 401 });
         }
@@ -181,7 +181,7 @@ export async function POST(request: Request) {
             }
 
             // Increment students_count
-            t.update(courseRef, { students_count: FieldValue.increment(1) });
+            t.update(courseRef, { students_count: FieldValue.increment(1), total_sales: FieldValue.increment(1) });
 
             return { finalPrice, appliedCoupon };
         });

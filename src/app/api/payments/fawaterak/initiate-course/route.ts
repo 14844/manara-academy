@@ -1,49 +1,24 @@
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebase/admin";
+import { adminDb } from "@/lib/firebase/admin";
+import { getActiveServerAuth } from "@/lib/server-auth";
 import { createFawaterakTransaction } from "@/lib/payments/fawaterak";
-import { cookies } from "next/headers";
-import { checkRateLimit } from "@/lib/rate-limiter";
+import { checkRateLimitAsync } from "@/lib/rate-limiter";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { courseId, couponCode, idToken } = body;
+        const { courseId, couponCode } = body;
 
         if (!courseId) {
             return NextResponse.json({ error: "معرّف الكورس مطلوب" }, { status: 400 });
         }
 
-        // 1. Authenticate user via idToken or session cookie
-        let uid = "";
-        let userEmail = "";
-        let displayName = "";
-
-        if (idToken) {
-            try {
-                const decoded = await adminAuth.verifyIdToken(idToken);
-                uid = decoded.uid;
-                userEmail = decoded.email || "";
-                displayName = decoded.name || "";
-            } catch (tokenErr) {
-                console.error("Token verification failed:", tokenErr);
-            }
-        }
-
-        if (!uid) {
-            const cookieStore = await cookies();
-            const session = cookieStore.get("session")?.value;
-            if (session) {
-                try {
-                    const decoded = await adminAuth.verifySessionCookie(session);
-                    uid = decoded.uid;
-                    userEmail = decoded.email || "";
-                    displayName = decoded.name || "";
-                } catch (sessErr) {
-                    console.error("Session verification failed:", sessErr);
-                }
-            }
-        }
+        // 1. Authenticate via session cookie only (checkRevoked + account status enforced centrally)
+        const authUser = await getActiveServerAuth(request);
+        const uid = authUser?.uid || "";
+        const userEmail = authUser?.email || "";
+        const displayName = authUser?.profile?.full_name || "";
 
         if (!uid) {
             return NextResponse.json(
@@ -53,7 +28,7 @@ export async function POST(request: Request) {
         }
 
         // 2. Strict Rate Limiting: 5 attempts per 2 minutes
-        if (!checkRateLimit(`pay_course_${uid}`, 5, 120000)) {
+        if (!(await checkRateLimitAsync(`pay_course_${uid}`, 5, 120)).success) {
             return NextResponse.json(
                 { error: "تم تجاوز الحد الأقصى للمحاولات، يرجى الانتظار دقيقتين قبل المحاولة مرة أخرى" },
                 { status: 429 }
@@ -93,24 +68,31 @@ export async function POST(request: Request) {
                 .limit(1)
                 .get();
 
-            if (!couponSnap.empty) {
-                const cData = couponSnap.docs[0].data();
-                const now = new Date();
-                const validUntil = cData.valid_until ? new Date(cData.valid_until) : null;
-                const isExpired = validUntil && validUntil < now;
-                const maxUses = cData.max_uses ?? cData.usage_limit ?? null;
-                const isExhausted = maxUses !== null && (cData.usage_count || 0) >= maxUses;
-                const isCourseMatch = cData.course_id === "all" || !cData.course_id || cData.course_id === courseId;
-                const isAdminCoupon = cData.is_admin === true || cData.instructor_id === "admin" || (cData.course_id === "all" && !cData.instructor_id);
-                const isInstructorMatch = isAdminCoupon || (cData.instructor_id === course.instructor_id);
-                const discountPercent = Number(cData.discount_percent);
-                const isActive = cData.active !== false && cData.is_active !== false;
-
-                if (!isExpired && !isExhausted && isCourseMatch && isInstructorMatch && isActive && !isNaN(discountPercent)) {
-                    const discount = (coursePrice * discountPercent) / 100;
-                    finalPrice = Math.max(0, coursePrice - discount);
-                }
+            if (couponSnap.empty) {
+                return NextResponse.json({ error: "كود الكوبون غير صحيح" }, { status: 400 });
             }
+
+            const cData = couponSnap.docs[0].data();
+            const now = new Date();
+            const validUntil = cData.valid_until ? new Date(cData.valid_until) : null;
+            const isExpired = validUntil && validUntil < now;
+            const maxUses = cData.max_uses ?? cData.usage_limit ?? null;
+            const isExhausted = maxUses !== null && (cData.usage_count || 0) >= maxUses;
+            const isCourseMatch = cData.course_id === "all" || !cData.course_id || cData.course_id === courseId;
+            const isAdminCoupon = cData.is_admin === true || cData.instructor_id === "admin" || (cData.course_id === "all" && !cData.instructor_id);
+            const isInstructorMatch = isAdminCoupon || (cData.instructor_id === course.instructor_id);
+            const discountPercent = Number(cData.discount_percent);
+            const isActive = cData.active !== false && cData.is_active !== false;
+
+            if (isExpired || isExhausted || !isCourseMatch || !isInstructorMatch || !isActive || isNaN(discountPercent)) {
+                return NextResponse.json(
+                    { error: "الكوبون غير صالح أو منتهي الصلاحية أو تم استنفاد الحد الأقصى لاستخدامه" },
+                    { status: 400 }
+                );
+            }
+
+            const discount = (coursePrice * discountPercent) / 100;
+            finalPrice = Math.max(0, coursePrice - discount);
         }
 
         if (finalPrice < 5) {

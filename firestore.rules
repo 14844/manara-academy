@@ -167,6 +167,7 @@ service cloud.firestore {
           request.resource.data.instructor_id == request.auth.uid &&
           request.resource.data.status == "pending" &&
           (!('students_count' in request.resource.data) || request.resource.data.students_count == 0) &&
+          !('total_sales' in request.resource.data) &&
           !('is_published' in request.resource.data) &&
           !('instructor_verified' in request.resource.data) &&
           !('rating' in request.resource.data) &&
@@ -181,7 +182,7 @@ service cloud.firestore {
           resource.data.instructor_id == request.auth.uid &&
           request.resource.data.instructor_id == resource.data.instructor_id &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'students_count', 'status', 'is_published', 'instructor_verified',
+            'students_count', 'total_sales', 'status', 'is_published', 'instructor_verified',
             'rating', 'price', 'modules', 'video_path', 'url', 'correctAnswer', 'answers'
           ])
         )
@@ -189,7 +190,8 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && (
         isAdmin() || (
           resource.data.instructor_id == request.auth.uid &&
-          (!('students_count' in resource.data) || resource.data.students_count == 0)
+          (!('students_count' in resource.data) || resource.data.students_count == 0) &&
+          (!('total_sales' in resource.data) || resource.data.total_sales == 0)
         )
       );
 

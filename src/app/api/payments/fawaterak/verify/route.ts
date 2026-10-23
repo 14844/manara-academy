@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
-import { getFawaterakTransactionData } from "@/lib/payments/fawaterak";
+import { getFawaterakTransactionData, extractFawaterakPaidAmount } from "@/lib/payments/fawaterak";
 import { logServerActivity } from "@/lib/server-activity-logger";
-import { getServerAuth } from "@/lib/server-auth";
+import { getActiveServerAuth } from "@/lib/server-auth";
 
 export async function POST(request: Request) {
     try {
-        const user = await getServerAuth(request);
+        const user = await getActiveServerAuth(request);
         if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
@@ -61,6 +61,10 @@ export async function POST(request: Request) {
 
             if (txStatus === "paid" || txStatus === "success") {
                 const requestedAmount = Number(orderData.amount || 0);
+                const gatewayAmount = extractFawaterakPaidAmount(data);
+                if (!(gatewayAmount > 0) || gatewayAmount + 0.01 < requestedAmount) {
+                    return NextResponse.json({ status: "pending", message: "جاري تأكيد المعاملة من البنك..." });
+                }
                 const finalPaid = requestedAmount;
                 const instructorEarnings = Number(orderData.instructor_share ?? (finalPaid * 0.95));
                 const platformCommission = Number(orderData.platform_commission ?? (finalPaid * 0.05));
@@ -73,6 +77,19 @@ export async function POST(request: Request) {
                     ? adminDb.collection("profiles_private").doc(orderData.instructor_id)
                     : null;
 
+                // Item 5: Resolve coupon doc ref ahead of time to inspect and increment inside transaction
+                let couponDocRef: FirebaseFirestore.DocumentReference | null = null;
+                if (orderData.coupon_code && typeof orderData.coupon_code === "string") {
+                    const couponQuery = await adminDb
+                        .collection("coupons")
+                        .where("code", "==", orderData.coupon_code.trim().toUpperCase())
+                        .limit(1)
+                        .get();
+                    if (!couponQuery.empty) {
+                        couponDocRef = couponQuery.docs[0].ref;
+                    }
+                }
+
                 let alreadyProcessed = false;
 
                 await adminDb.runTransaction(async (t) => {
@@ -80,6 +97,21 @@ export async function POST(request: Request) {
                     if (txDoc.exists) {
                         alreadyProcessed = true;
                         return;
+                    }
+
+                    // Atomic coupon usage check & increment inside payment transaction
+                    if (couponDocRef) {
+                        const couponSnap = await t.get(couponDocRef);
+                        if (couponSnap.exists) {
+                            const cData = couponSnap.data() || {};
+                            const maxUses = cData.max_uses ?? cData.usage_limit ?? null;
+                            if (maxUses === null || (cData.usage_count || 0) < maxUses) {
+                                t.update(couponDocRef, {
+                                    usage_count: FieldValue.increment(1),
+                                    updated_at: new Date().toISOString(),
+                                });
+                            }
+                        }
                     }
 
                     t.set(enrollmentRef, {
@@ -100,11 +132,17 @@ export async function POST(request: Request) {
                         payment_method: "fawaterak_online",
                     }, { merge: true });
 
-                    t.update(courseRef, { students_count: FieldValue.increment(1) });
+                    // Increment both active students and total sales counter
+                    t.update(courseRef, {
+                        students_count: FieldValue.increment(1),
+                        total_sales: FieldValue.increment(1),
+                    });
 
+                    // Item 12: Update wallet_balance and total_earned in profiles_private ONLY
                     if (instructorPrivateRef) {
                         t.set(instructorPrivateRef, {
                             wallet_balance: FieldValue.increment(instructorEarnings),
+                            total_earned: FieldValue.increment(instructorEarnings),
                             updated_at: new Date().toISOString(),
                         }, { merge: true });
                     }
@@ -224,6 +262,10 @@ export async function POST(request: Request) {
 
         if (txStatus === "paid" || txStatus === "success") {
             const requestedAmount = Number(walletData.amount || 0);
+            const gatewayAmount = extractFawaterakPaidAmount(data);
+            if (!(gatewayAmount > 0) || gatewayAmount + 0.01 < requestedAmount) {
+                return NextResponse.json({ status: "pending", message: "جاري تأكيد المعاملة من البنك..." });
+            }
             const paidAmount = requestedAmount;
             const transactionId = data.id || data.transaction_id || intentKey;
             const paymentMethod = data.payment_method || "Online";
