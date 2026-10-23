@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ONLINE_PAYMENTS_ENABLED, ONLINE_PAYMENTS_DISABLED_MESSAGE } from "@/lib/payments/gateway-flag";
 import { adminDb } from "@/lib/firebase/admin";
 import { getActiveServerAuth } from "@/lib/server-auth";
 import { createFawaterakTransaction } from "@/lib/payments/fawaterak";
@@ -6,6 +7,9 @@ import { checkRateLimitAsync } from "@/lib/rate-limiter";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
+    if (!ONLINE_PAYMENTS_ENABLED) {
+        return NextResponse.json({ error: ONLINE_PAYMENTS_DISABLED_MESSAGE, code: "ONLINE_PAYMENTS_DISABLED" }, { status: 503 });
+    }
     try {
         const body = await request.json();
         const { courseId, couponCode } = body;

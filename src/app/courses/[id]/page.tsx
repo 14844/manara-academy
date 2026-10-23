@@ -48,6 +48,8 @@ import {
     DialogDescription,
 } from "@/components/ui/dialog"
 
+const ONLINE_PAYMENTS_UI_ENABLED = process.env.NEXT_PUBLIC_ONLINE_PAYMENTS_ENABLED === "true"
+
 export default function CourseDetailsPage() {
     const { id } = useParams()
     const router = useRouter()
@@ -650,6 +652,8 @@ export default function CourseDetailsPage() {
                                         )}
                                     </div>
 
+                                    {ONLINE_PAYMENTS_UI_ENABLED ? (
+                                        <>
                                     {/* Divider */}
                                     <div className="relative flex py-1 items-center">
                                         <div className="flex-grow border-t border-muted"></div>
@@ -701,6 +705,27 @@ export default function CourseDetailsPage() {
                                             )}
                                         </Button>
                                     </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                    {/* Online payment is not open yet */}
+                                    <div className="relative flex py-1 items-center">
+                                        <div className="flex-grow border-t border-muted"></div>
+                                        <span className="flex-shrink mx-3 text-muted-foreground text-[10px] font-bold">الدفع الإلكتروني</span>
+                                        <div className="flex-grow border-t border-muted"></div>
+                                    </div>
+                                    <div className="p-4 rounded-xl border-2 border-dashed border-muted bg-muted/20 space-y-2 text-center">
+                                        <div className="flex items-center justify-center gap-2 font-bold text-sm text-foreground">
+                                            <CreditCard className="h-4 w-4 text-muted-foreground" />
+                                            <span>الدفع بالبطاقات والمحافظ الإلكترونية</span>
+                                        </div>
+                                        <Badge variant="secondary" className="text-[10px] font-bold">قريباً</Badge>
+                                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                            سيتم فتحه قريباً. حالياً يمكنك شحن المحفظة عبر فودافون كاش أو إنستاباي ثم الاشتراك في الكورس.
+                                        </p>
+                                    </div>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         )
