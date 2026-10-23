@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { checkRateLimit, getClientIp } from "@/lib/rate-limiter"
+import { checkRateLimitAsync, getClientIp } from "@/lib/rate-limiter"
 
 interface ChatMessage {
     role: "user" | "assistant"
@@ -55,13 +55,26 @@ const KNOWLEDGE_BASE = [
 
 export async function POST(request: Request) {
     const ip = getClientIp(request);
-    if (!checkRateLimit(`ai_${ip}`, 20, 60000)) {
+    if (!(await checkRateLimitAsync(`ai_${ip}`, 20, 60)).success) {
         return NextResponse.json({ reply: "لقد أرسلت عدة رسائل بسرعة. يرجى الانتظار دقيقة والمحاولة مجدداً." }, { status: 429 });
     }
 
     try {
-        const body = await request.json()
-        const message: string = (body?.message || "").trim()
+        // Size caps: reject oversized bodies, keep only a bounded plain-text message
+        const contentLength = Number(request.headers.get("content-length") || 0)
+        if (contentLength > 8 * 1024) {
+            return NextResponse.json({ reply: "الرسالة طويلة جداً." }, { status: 413 })
+        }
+        const raw = await request.text()
+        if (raw.length > 8 * 1024) {
+            return NextResponse.json({ reply: "الرسالة طويلة جداً." }, { status: 413 })
+        }
+        let body: any = {}
+        try { body = JSON.parse(raw) } catch { body = {} }
+        const message: string = (typeof body?.message === "string" ? body.message : "")
+            .replace(/[<>]/g, "")
+            .trim()
+            .slice(0, 500)
 
         if (!message) {
             return NextResponse.json({ reply: "مرحباً بك! كيف يمكنني مساعدتك في أكاديمية المنارة اليوم؟ 😊" })

@@ -3,23 +3,36 @@ import { Redis } from "@upstash/redis";
 
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
-let upstashRatelimit: Ratelimit | null = null;
+let upstashRedis: Redis | null = null;
+const upstashLimiters = new Map<string, Ratelimit>();
 
 if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
     try {
-        const redis = new Redis({
+        upstashRedis = new Redis({
             url: process.env.UPSTASH_REDIS_REST_URL,
             token: process.env.UPSTASH_REDIS_REST_TOKEN,
         });
-        upstashRatelimit = new Ratelimit({
-            redis,
-            limiter: Ratelimit.slidingWindow(30, "60 s"),
-            analytics: true,
-            prefix: "manara:ratelimit",
-        });
-    } catch (e) {
-        console.warn("Failed to initialize Upstash Redis ratelimiter, falling back to in-memory:", e);
+    } catch {
+        console.warn("Failed to initialize Upstash Redis ratelimiter, falling back to in-memory");
+        upstashRedis = null;
     }
+}
+
+/** One Upstash limiter per (limit, window) pair so each call site gets its own limit. */
+function getUpstashLimiter(limit: number, windowSeconds: number): Ratelimit | null {
+    if (!upstashRedis) return null;
+    const id = `${limit}:${windowSeconds}`;
+    let rl = upstashLimiters.get(id);
+    if (!rl) {
+        rl = new Ratelimit({
+            redis: upstashRedis,
+            limiter: Ratelimit.slidingWindow(limit, `${windowSeconds} s`),
+            analytics: false,
+            prefix: `manara:rl:${id}`,
+        });
+        upstashLimiters.set(id, rl);
+    }
+    return rl;
 }
 
 /**
@@ -30,6 +43,9 @@ export function checkRateLimit(key: string, limit: number = 30, windowMs: number
     const entry = rateLimitMap.get(key);
 
     if (!entry || now > entry.resetTime) {
+        if (rateLimitMap.size > 10000) {
+            for (const [k, v] of rateLimitMap) if (now > v.resetTime) rateLimitMap.delete(k);
+        }
         rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
         return true;
     }
@@ -50,16 +66,17 @@ export async function checkRateLimitAsync(
     limit: number = 30,
     windowSeconds: number = 60
 ): Promise<{ success: boolean; remaining?: number; reset?: number }> {
-    if (upstashRatelimit) {
+    const limiter = getUpstashLimiter(Math.max(1, Math.floor(limit)), Math.max(1, Math.floor(windowSeconds)));
+    if (limiter) {
         try {
-            const res = await upstashRatelimit.limit(key);
+            const res = await limiter.limit(key);
             return {
                 success: res.success,
                 remaining: res.remaining,
                 reset: res.reset,
             };
-        } catch (err) {
-            console.warn("Upstash rate limit error, using memory fallback:", err);
+        } catch {
+            console.warn("Upstash rate limit error, using memory fallback");
         }
     }
 

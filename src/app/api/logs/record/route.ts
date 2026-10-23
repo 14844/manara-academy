@@ -14,34 +14,35 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Too many requests" }, { status: 429 });
         }
 
-        const body = await request.json();
-
-        // Reject any financial fields from client
-        if (
-            body.amount !== undefined ||
-            body.balance !== undefined ||
-            body.wallet_balance !== undefined ||
-            body.price !== undefined ||
-            body.instructor_share !== undefined ||
-            body.platform_commission !== undefined
-        ) {
-            return NextResponse.json({ error: "غير مصرح بتسجيل بيانات مالية من العميل" }, { status: 400 });
+        const raw = await request.text();
+        if (raw.length > 4 * 1024) {
+            return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+        }
+        let body: any;
+        try {
+            body = JSON.parse(raw);
+        } catch {
+            return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+        }
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
         }
 
-        // Allowlist and sanitize safe client logging fields
-        const safeAction = typeof body.action === "string" ? body.action.slice(0, 100) : "client_action";
+        // Allowlist: only simple, bounded fields are accepted from the client
+        const safeAction = typeof body.action === "string" && /^[a-z0-9_.:-]{1,64}$/i.test(body.action)
+            ? body.action
+            : "client_action";
         const safeDetails = typeof body.details === "string" ? body.details.slice(0, 500) : "";
-        const safeMetadata = typeof body.metadata === "object" && body.metadata !== null && !Array.isArray(body.metadata)
-            ? { ...body.metadata }
-            : {};
-
-        // Strip any potential financial keys from metadata
-        delete safeMetadata.amount;
-        delete safeMetadata.balance;
-        delete safeMetadata.wallet_balance;
-        delete safeMetadata.price;
-        delete safeMetadata.instructor_share;
-        delete safeMetadata.platform_commission;
+        const ALLOWED_META_KEYS = ["page", "path", "course_id", "course_title", "lesson_id", "student_id", "request_id", "withdrawal_id", "role", "new_status", "rejection_reason", "error_code", "attempted_email", "category", "component", "error", "message"];
+        const safeMetadata: Record<string, string | number | boolean> = {};
+        if (typeof body.metadata === "object" && body.metadata !== null && !Array.isArray(body.metadata)) {
+            for (const k of ALLOWED_META_KEYS) {
+                const v = body.metadata[k];
+                if (typeof v === "string") safeMetadata[k] = v.slice(0, 200);
+                else if (typeof v === "number" && Number.isFinite(v)) safeMetadata[k] = v;
+                else if (typeof v === "boolean") safeMetadata[k] = v;
+            }
+        }
 
         // Enforce safe server attributes and strictly category="client"
         const logId = await logServerActivity({
