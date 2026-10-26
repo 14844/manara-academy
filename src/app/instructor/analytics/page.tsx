@@ -15,7 +15,6 @@ import {
     Activity,
     Calendar,
     ArrowUpRight,
-    Loader2,
     Ticket,
     CheckCircle
 } from "lucide-react"
@@ -25,6 +24,7 @@ import { useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Printer, Download } from "lucide-react"
 import { toast } from "sonner"
+import { AnalyticsSkeleton } from "@/components/skeletons"
 
 export default function InstructorAnalyticsPage() {
     const [isLoading, setIsLoading] = useState(true)
@@ -220,11 +220,7 @@ export default function InstructorAnalyticsPage() {
     };
 
     if (isLoading) {
-        return (
-            <div className="flex min-h-[400px] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <AnalyticsSkeleton />
     }
 
     return (

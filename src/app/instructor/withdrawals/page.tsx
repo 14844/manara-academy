@@ -45,6 +45,7 @@ import {
     DialogTrigger,
     DialogFooter
 } from "@/components/ui/dialog"
+import { WalletSkeleton } from "@/components/skeletons"
 
 export default function InstructorWithdrawalsPage() {
     const [user, setUser] = useState<any>(null)
@@ -242,11 +243,7 @@ export default function InstructorWithdrawalsPage() {
     const nextEligibleDate = latestReq ? new Date(lastReqTime + sevenDaysMs).toLocaleDateString('ar-EG', { dateStyle: 'medium' }) : ""
 
     if (isLoading) {
-        return (
-            <div className="flex min-h-screen items-center justify-center bg-zinc-50/50">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <WalletSkeleton />
     }
 
     return (

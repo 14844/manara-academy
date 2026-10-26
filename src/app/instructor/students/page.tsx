@@ -14,7 +14,6 @@ import {
     Phone,
     GraduationCap,
     Search,
-    Loader2,
     TrendingUp,
     ExternalLink,
     CheckCircle2,
@@ -23,6 +22,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { TablePageSkeleton } from "@/components/skeletons"
 
 export default function InstructorStudentsPage() {
     const router = useRouter()
@@ -188,11 +188,7 @@ export default function InstructorStudentsPage() {
     }
 
     if (isLoading) {
-        return (
-            <div className="flex h-[60vh] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <TablePageSkeleton rowCount={8} />
     }
 
     return (

@@ -15,12 +15,12 @@ import {
     Phone,
     BookOpen,
     ShieldCheck,
-    Loader2,
     Lock,
     Camera,
     Sparkles
 } from "lucide-react"
 import { AvatarCropUploader } from "@/components/avatar-crop-uploader"
+import { SettingsSkeleton } from "@/components/skeletons"
 
 export default function InstructorSettingsPage() {
     const [isLoading, setIsLoading] = useState(true)
@@ -79,14 +79,7 @@ export default function InstructorSettingsPage() {
     }, [])
 
     if (isLoading) {
-        return (
-            <div className="flex min-h-[400px] items-center justify-center font-arabic">
-                <div className="flex flex-col items-center gap-3">
-                    <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                    <span className="text-sm font-bold text-muted-foreground">جاري تحميل بيانات المدرب...</span>
-                </div>
-            </div>
-        )
+        return <SettingsSkeleton />
     }
 
     return (

@@ -32,6 +32,7 @@ import { toast } from "sonner"
 import { logActivity } from "@/lib/activity-logger"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { WalletSkeleton } from "@/components/skeletons"
 
 function WalletContent() {
     const searchParams = useSearchParams()
@@ -195,11 +196,7 @@ function WalletContent() {
     }
 
     if (loading) {
-        return (
-            <div className="flex min-h-[400px] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <WalletSkeleton />
     }
 
     return (
@@ -496,11 +493,7 @@ function WalletContent() {
 
 export default function WalletPage() {
     return (
-        <Suspense fallback={
-            <div className="flex min-h-[400px] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        }>
+        <Suspense fallback={<WalletSkeleton />}>
             <WalletContent />
         </Suspense>
     )

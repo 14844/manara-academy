@@ -57,6 +57,7 @@ import {
 import { toast } from "sonner"
 import Link from "next/link"
 import { useSupportSettings } from "@/hooks/use-support-settings"
+import { AnalyticsSkeleton } from "@/components/skeletons"
 
 const DAYS_OF_WEEK = [
     { value: "saturday", label: "السبت" },
@@ -371,11 +372,7 @@ export default function InstructorReportsPage() {
     )
 
     if (isLoading) {
-        return (
-            <div className="flex h-[60vh] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <AnalyticsSkeleton />
     }
 
     return (

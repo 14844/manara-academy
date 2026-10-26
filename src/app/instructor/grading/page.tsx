@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/sheet"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
+import { TablePageSkeleton } from "@/components/skeletons"
 
 export default function InstructorGradingPage() {
     const router = useRouter()
@@ -188,11 +189,7 @@ export default function InstructorGradingPage() {
     }
 
     if (isLoading) {
-        return (
-            <div className="flex min-h-screen items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <TablePageSkeleton />
     }
 
     return (

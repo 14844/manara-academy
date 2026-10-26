@@ -36,6 +36,7 @@ import {
     SheetTrigger,
 } from "@/components/ui/sheet"
 import { motion, AnimatePresence } from "framer-motion"
+import { LessonPlayerSkeleton } from "@/components/skeletons"
 
 export default function LearnPage() {
     const { id } = useParams()
@@ -241,11 +242,7 @@ export default function LearnPage() {
     }
 
     if (isLoading) {
-        return (
-            <div className="flex min-h-screen flex-col items-center justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            </div>
-        )
+        return <LessonPlayerSkeleton />
     }
 
 

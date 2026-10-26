@@ -38,6 +38,7 @@ import { Label } from "@/components/ui/label"
 import { increment, runTransaction } from "firebase/firestore"
 import { auth } from "@/lib/firebase/config"
 import { logActivity } from "@/lib/activity-logger"
+import { TablePageSkeleton } from "@/components/skeletons"
 
 export default function AdminUsersPage() {
     const [users, setUsers] = useState<any[]>([])
@@ -305,11 +306,7 @@ export default function AdminUsersPage() {
     const Instructors = filteredUsers.filter(u => u.role === 'instructor')
 
     if (loading) {
-        return (
-            <div className="flex h-[400px] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <TablePageSkeleton rowCount={10} />
     }
 
     return (

@@ -31,6 +31,7 @@ import {
     DialogTitle,
     DialogFooter,
 } from "@/components/ui/dialog"
+import { TablePageSkeleton } from "@/components/skeletons"
 
 export default function AdminPaymentsPage() {
     const [requests, setRequests] = useState<any[]>([])
@@ -184,11 +185,7 @@ export default function AdminPaymentsPage() {
     }
 
     if (isLoading) {
-        return (
-            <div className="flex min-h-[400px] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <TablePageSkeleton rowCount={10} />
     }
 
     const pendingRequests = requests.filter(r => r.status === 'pending')

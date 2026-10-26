@@ -12,7 +12,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
     Users,
     BookOpen,
-    Loader2,
     Calendar,
     Award,
     CheckCircle2,
@@ -25,6 +24,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import Link from "next/link"
+import { AnalyticsSkeleton } from "@/components/skeletons"
 
 export default function ClassReportPage() {
     const { courseId } = useParams()
@@ -101,11 +101,7 @@ export default function ClassReportPage() {
     }
 
     if (isLoading) {
-        return (
-            <div className="flex min-h-screen items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <AnalyticsSkeleton />
     }
 
     // Calculations

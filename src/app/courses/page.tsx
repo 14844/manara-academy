@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Search, BookOpen, Clock, User, Filter, Loader2, X, ArrowUpDown, CheckCircle2 } from "lucide-react"
+import { Search, BookOpen, Clock, User, Filter, X, ArrowUpDown, CheckCircle2 } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
 
 import { auth, db } from "@/lib/firebase/config"
@@ -221,9 +222,24 @@ export default function CoursesPage() {
                     </div>
 
                     {isLoading ? (
-                        <div className="col-span-full text-center py-32 flex flex-col items-center gap-4">
-                            <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                            <p className="text-muted-foreground font-black italic tracking-wide">جاري البحث عن أفضل الكورسات لك...</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                            {[1, 2, 3, 4, 5, 6].map((i) => (
+                                <Card key={i} className="overflow-hidden border-muted/60 flex flex-col">
+                                    <Skeleton className="w-full aspect-video" />
+                                    <div className="p-4 space-y-3">
+                                        <div className="flex justify-between items-center">
+                                            <Skeleton className="h-5 w-20 rounded-full" />
+                                            <Skeleton className="h-4 w-12" />
+                                        </div>
+                                        <Skeleton className="h-6 w-full rounded-md" />
+                                        <Skeleton className="h-4 w-3/4 rounded-md" />
+                                        <div className="pt-4 border-t flex justify-between items-center">
+                                            <Skeleton className="h-6 w-24 rounded-md" />
+                                            <Skeleton className="h-9 w-24 rounded-lg" />
+                                        </div>
+                                    </div>
+                                </Card>
+                            ))}
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">

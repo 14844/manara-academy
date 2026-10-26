@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { auth, db } from "@/lib/firebase/config"
 import { onAuthStateChanged } from "firebase/auth"
 import { doc, getDoc } from "firebase/firestore"
-import { Loader2 } from "lucide-react"
+import { DashboardSkeleton } from "@/components/skeletons"
 import { toast } from "sonner"
 
 export default function DashboardLayout({
@@ -50,9 +50,8 @@ export default function DashboardLayout({
 
     if (isLoading) {
         return (
-            <div className="flex min-h-screen flex-col items-center justify-center bg-background">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="mt-4 text-muted-foreground italic font-arabic">جاري التحقق من الصلاحيات...</p>
+            <div className="flex min-h-screen bg-background font-arabic">
+                <DashboardSkeleton />
             </div>
         )
     }

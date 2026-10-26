@@ -44,6 +44,7 @@ import {
     DialogTrigger,
     DialogFooter
 } from "@/components/ui/dialog"
+import { SettingsSkeleton } from "@/components/skeletons"
 
 export default function ManageCoursePage() {
     const { id } = useParams()
@@ -162,11 +163,7 @@ export default function ManageCoursePage() {
     }
 
     if (isLoading) {
-        return (
-            <div className="flex min-h-screen items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <SettingsSkeleton />
     }
 
     return (

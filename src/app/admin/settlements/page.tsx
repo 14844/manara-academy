@@ -37,6 +37,7 @@ import {
     TableRow,
 } from "@/components/ui/table"
 import { toast } from "sonner"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export default function AdminSettlementsPage() {
     const [isLoading, setIsLoading] = useState(true)
@@ -529,9 +530,19 @@ export default function AdminSettlementsPage() {
                 </CardHeader>
                 <CardContent className="p-0">
                     {isLoading ? (
-                        <div className="py-20 flex flex-col items-center gap-4 text-muted-foreground">
-                            <Loader2 className="h-8 w-8 animate-spin" />
-                            <p className="font-bold italic">جاري تجميع البيانات المالية...</p>
+                        <div className="py-6 px-4 space-y-4">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                                <div key={i} className="flex items-center gap-4">
+                                    <Skeleton className="h-9 w-9 rounded-full" />
+                                    <div className="flex-1 space-y-1.5">
+                                        <Skeleton className="h-4 w-40" />
+                                        <Skeleton className="h-3 w-24" />
+                                    </div>
+                                    <Skeleton className="h-4 w-20" />
+                                    <Skeleton className="h-4 w-16" />
+                                    <Skeleton className="h-4 w-20" />
+                                </div>
+                            ))}
                         </div>
                     ) : settlements.length === 0 ? (
                         <div className="py-20 text-center text-muted-foreground italic">

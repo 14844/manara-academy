@@ -41,6 +41,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export default function AdminCouponsPage() {
     const [coupons, setCoupons] = useState<any[]>([])
@@ -282,9 +283,22 @@ export default function AdminCouponsPage() {
                             </CardHeader>
                             <CardContent>
                                 {loading ? (
-                                    <div className="flex flex-col items-center justify-center py-20 gap-4">
-                                        <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                                        <p className="font-bold text-muted-foreground">جاري تحميل الكوبونات...</p>
+                                    <div className="space-y-4">
+                                        {[1, 2, 3].map((i) => (
+                                            <div key={i} className="flex items-center justify-between p-5 rounded-2xl border bg-muted/10 gap-4">
+                                                <div className="flex items-center gap-4">
+                                                    <Skeleton className="h-12 w-12 rounded-xl" />
+                                                    <div className="space-y-2">
+                                                        <Skeleton className="h-5 w-32" />
+                                                        <Skeleton className="h-4 w-48" />
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <Skeleton className="h-8 w-16 rounded-full" />
+                                                    <Skeleton className="h-9 w-9 rounded-lg" />
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 ) : filteredCoupons.length > 0 ? (
                                     <div className="grid gap-4">

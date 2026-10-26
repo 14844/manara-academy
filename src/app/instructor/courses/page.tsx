@@ -18,8 +18,8 @@ import {
     Trash2,
     Eye,
     Settings,
-    Loader2
 } from "lucide-react"
+import { CoursesGridSkeleton } from "@/components/skeletons"
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -102,11 +102,7 @@ export default function InstructorCoursesPage() {
     )
 
     if (isLoading) {
-        return (
-            <div className="flex min-h-[400px] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <CoursesGridSkeleton count={6} />
     }
 
     return (

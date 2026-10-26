@@ -43,6 +43,7 @@ import {
     DialogFooter,
     DialogDescription
 } from "@/components/ui/dialog"
+import { TablePageSkeleton } from "@/components/skeletons"
 
 export default function AdminWithdrawalsPage() {
     const [requests, setRequests] = useState<any[]>([])
@@ -207,11 +208,7 @@ export default function AdminWithdrawalsPage() {
     const totalPaid = requests.filter(r => r.status === 'paid').reduce((acc, r) => acc + (r.net_amount || 0), 0)
 
     if (isLoading) {
-        return (
-            <div className="flex min-h-screen items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <TablePageSkeleton rowCount={8} />
     }
 
     return (

@@ -15,9 +15,9 @@ import {
     Wallet,
     ClipboardList,
     Ticket,
-    TrendingUp,
-    Loader2
+    TrendingUp
 } from "lucide-react"
+import { DashboardSkeleton } from "@/components/skeletons"
 import { auth, db } from "@/lib/firebase/config"
 import { onAuthStateChanged } from "firebase/auth"
 import { doc, getDoc } from "firebase/firestore"
@@ -89,9 +89,8 @@ export default function InstructorLayout({
 
     if (isLoading) {
         return (
-            <div className="flex min-h-screen flex-col items-center justify-center bg-background">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="mt-4 text-muted-foreground italic font-arabic">جاري التحقق من الصلاحيات...</p>
+            <div className="flex min-h-screen bg-muted/30 font-arabic">
+                <DashboardSkeleton />
             </div>
         )
     }

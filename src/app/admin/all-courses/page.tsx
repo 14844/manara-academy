@@ -11,7 +11,6 @@ import {
     Trash2,
     ExternalLink,
     Search,
-    Loader2,
     GraduationCap,
     Clock,
     DollarSign
@@ -19,6 +18,7 @@ import {
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import Link from "next/link"
+import { CoursesGridSkeleton } from "@/components/skeletons"
 
 export default function AdminAllCoursesPage() {
     const [courses, setCourses] = useState<any[]>([])
@@ -62,11 +62,7 @@ export default function AdminAllCoursesPage() {
     )
 
     if (loading) {
-        return (
-            <div className="flex h-[400px] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <CoursesGridSkeleton count={9} />
     }
 
     return (

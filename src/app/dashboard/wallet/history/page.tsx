@@ -25,11 +25,11 @@ import {
     ExternalLink,
     ShieldCheck,
     TrendingUp,
-    TrendingDown,
-    Loader2
+    TrendingDown
 } from "lucide-react"
 import Link from "next/link"
 import { Navbar } from "@/components/navbar"
+import { TablePageSkeleton } from "@/components/skeletons"
 
 export default function WalletHistoryPage() {
     const [user, setUser] = useState<any>(null)
@@ -158,11 +158,9 @@ export default function WalletHistoryPage() {
 
     if (isLoading) {
         return (
-            <div className="flex min-h-screen flex-col font-arabic">
+            <div className="flex min-h-screen flex-col font-arabic bg-muted/10">
                 <Navbar />
-                <div className="flex-1 flex items-center justify-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                </div>
+                <TablePageSkeleton />
             </div>
         )
     }

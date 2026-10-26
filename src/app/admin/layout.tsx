@@ -14,7 +14,6 @@ import {
     CheckSquare,
     Settings,
     ShieldAlert,
-    Loader2,
     Menu,
     Wallet,
     DollarSign,
@@ -23,6 +22,7 @@ import {
     Activity,
     BarChart3
 } from "lucide-react"
+import { DashboardSkeleton } from "@/components/skeletons"
 import {
     Sheet,
     SheetContent,
@@ -84,9 +84,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
     if (isLoading) {
         return (
-            <div className="flex min-h-screen flex-col items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="mt-4 text-muted-foreground italic font-arabic">جاري التحقق من الصلاحيات...</p>
+            <div className="flex min-h-screen flex-col font-arabic">
+                <Navbar />
+                <DashboardSkeleton />
             </div>
         )
     }

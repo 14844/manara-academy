@@ -47,6 +47,7 @@ import {
     DialogTitle,
     DialogDescription,
 } from "@/components/ui/dialog"
+import { CourseDetailsSkeleton } from "@/components/skeletons"
 
 const ONLINE_PAYMENTS_UI_ENABLED = process.env.NEXT_PUBLIC_ONLINE_PAYMENTS_ENABLED === "true"
 
@@ -302,9 +303,7 @@ export default function CourseDetailsPage() {
         return (
             <div className="flex min-h-screen flex-col">
                 <Navbar />
-                <div className="flex flex-1 items-center justify-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                </div>
+                <CourseDetailsSkeleton />
             </div>
         )
     }

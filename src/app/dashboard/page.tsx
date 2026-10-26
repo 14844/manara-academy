@@ -11,7 +11,7 @@ import { useState, useEffect } from "react"
 import { auth, db } from "@/lib/firebase/config"
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
-import { Loader2 } from "lucide-react"
+import { DashboardSkeleton } from "@/components/skeletons"
 import { useSupportSettings } from "@/hooks/use-support-settings"
 import { getCourseThumbnailUrl } from "@/lib/utils"
 
@@ -114,6 +114,17 @@ export default function StudentDashboard() {
         other: "كورسات عامة"
     }
 
+    if (isLoading) {
+        return (
+            <div className="flex min-h-screen flex-col font-arabic">
+                <Navbar />
+                <main className="flex-1">
+                    <DashboardSkeleton />
+                </main>
+            </div>
+        )
+    }
+
     return (
         <div className="flex min-h-screen flex-col">
             <Navbar />
@@ -200,12 +211,7 @@ export default function StudentDashboard() {
                                 {enrolledCourses.length > 0 && <span className="text-xs font-bold text-muted-foreground bg-muted px-2 py-1 rounded-md">{enrolledCourses.length} كورس</span>}
                             </div>
 
-                            {isLoading ? (
-                                <div className="flex flex-col items-center justify-center py-20 gap-4">
-                                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                                    <p className="text-muted-foreground font-bold italic">جاري تحميل كورساتك...</p>
-                                </div>
-                            ) : enrolledCourses.length === 0 ? (
+                            {enrolledCourses.length === 0 ? (
                                 <div className="text-center py-16 border-2 border-dashed rounded-3xl bg-muted/20 flex flex-col items-center gap-4">
                                     <div className="h-16 w-16 bg-muted rounded-full flex items-center justify-center">
                                         <BookOpen className="h-8 w-8 text-muted-foreground/50" />

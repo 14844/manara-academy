@@ -12,13 +12,13 @@ import {
     Shield,
     MessageSquare,
     Database,
-    Bell,
-    Loader2
+    Bell
 } from "lucide-react"
 import { toast } from "sonner"
 import { useState, useEffect } from "react"
 import { getSupportSettings, SupportSettings } from "@/lib/support-settings"
 import { updateSupportAction } from "@/app/actions/support"
+import { SettingsSkeleton } from "@/components/skeletons"
 
 export default function AdminSettingsPage() {
     const [isLoading, setIsLoading] = useState(true)
@@ -56,11 +56,7 @@ export default function AdminSettingsPage() {
     }
 
     if (isLoading) {
-        return (
-            <div className="flex items-center justify-center min-h-[400px]">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <SettingsSkeleton />
     }
 
     return (
