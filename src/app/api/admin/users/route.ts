@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getServerAuth } from "@/lib/server-auth";
+import { logServerActivity } from "@/lib/server-activity-logger";
 
 /**
  * GET /api/admin/users
@@ -65,6 +66,20 @@ export async function POST(request: Request) {
                 updated_at: now,
             }, { merge: true });
 
+            await logServerActivity({
+                action: "admin_user_status_updated",
+                category: "admin_action",
+                title: `تحديث حالة مستخدم إلى (${status})`,
+                description: `قام المسؤول بتعديل حالة حساب المستخدم (${userId}) إلى "${status}"`,
+                status: "success",
+                user_id: user.uid,
+                user_name: user.profile?.full_name || user.email || "مسؤول المنصة",
+                user_email: user.email || "",
+                user_role: "admin",
+                target_user_id: userId,
+                metadata: { target_user_id: userId, new_status: status }
+            }).catch(() => {});
+
             return NextResponse.json({ success: true });
         }
 
@@ -74,6 +89,20 @@ export async function POST(request: Request) {
                 active_session_id: null,
                 updated_at: now,
             }, { merge: true });
+
+            await logServerActivity({
+                action: "admin_reset_user_devices",
+                category: "admin_action",
+                title: "تصفير أجهزة المستخدم النشطة",
+                description: `قام المسؤول بتصفير جلسات وأجهزة المستخدم النشطة (${userId})`,
+                status: "success",
+                user_id: user.uid,
+                user_name: user.profile?.full_name || user.email || "مسؤول المنصة",
+                user_email: user.email || "",
+                user_role: "admin",
+                target_user_id: userId,
+                metadata: { target_user_id: userId }
+            }).catch(() => {});
 
             return NextResponse.json({ success: true });
         }

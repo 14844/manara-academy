@@ -4,6 +4,7 @@ import { getServerAuth } from "@/lib/server-auth"
 import { adminDb } from "@/lib/firebase/admin"
 import { checkRateLimitAsync } from "@/lib/rate-limiter"
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib"
+import { logServerActivity } from "@/lib/server-activity-logger"
 
 export const runtime = 'nodejs'
 
@@ -101,6 +102,20 @@ async function respondAsset(
         const ascii = safeName.replace(/[^A-Za-z0-9._-]/g, "_") || "file"
         headers['Content-Disposition'] = `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
     }
+
+    logServerActivity({
+        action: download ? "file_downloaded" : "file_viewed",
+        category: "course",
+        title: download ? "تحميل ملف تعليمي" : "استعراض ملف تعليمي",
+        description: `قام المستخدم "${user.profile?.full_name || user.email}" بـ (${download ? "تحميل" : "عرض"}) الملف "${cleanPath.split("/").pop() || cleanPath}"`,
+        status: "info",
+        user_id: user.uid,
+        user_name: user.profile?.full_name || user.email || "مستخدم",
+        user_email: user.email || "",
+        user_role: (user.role as any) || "student",
+        metadata: { path: cleanPath, is_download: download, is_pdf: isPdf }
+    }).catch(() => {});
+
     return new NextResponse(out, { headers })
 }
 

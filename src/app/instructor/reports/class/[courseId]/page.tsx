@@ -118,6 +118,260 @@ export default function ClassReportPage() {
         : 0
     const totalLessons = course?.modules?.reduce((acc: number, mod: any) => acc + (mod.lessons?.length || 0), 0) || 0
 
+    const handlePrintPDF = () => {
+        const windowUrl = 'about:blank';
+        const uniqueName = new Date().getTime();
+        const windowName = 'ClassReport_' + uniqueName;
+        const printWindow = window.open(windowUrl, windowName, 'left=50000,top=50000,width=0,height=0');
+
+        if (!printWindow) {
+            alert("يرجى تفعيل السماح بالنوافذ المنبثقة (Popups) لتصدير تقرير الفصل كـ PDF");
+            return;
+        }
+
+        const dateStr = new Date().toLocaleDateString("ar-EG", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+        });
+
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html lang="ar" dir="rtl">
+                <head>
+                    <meta charset="utf-8">
+                    <title>تقرير الفصل الدراسي - ${course?.title || "كورس"}</title>
+                    <style>
+                        @page { size: A4 portrait; margin: 12mm 15mm; }
+                        * { box-sizing: border-box; }
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                            direction: rtl;
+                            background: #ffffff;
+                            color: #18181b;
+                            margin: 0;
+                            padding: 20px;
+                            font-size: 13px;
+                            line-height: 1.5;
+                        }
+                        .report-card {
+                            border: 2px solid #e4e4e7;
+                            border-radius: 16px;
+                            padding: 24px;
+                            max-width: 900px;
+                            margin: 0 auto;
+                        }
+                        .header {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            border-bottom: 2px solid #f4f4f5;
+                            padding-bottom: 18px;
+                            margin-bottom: 20px;
+                        }
+                        .header h1 {
+                            margin: 0;
+                            font-size: 22px;
+                            color: #0f172a;
+                            font-weight: 900;
+                        }
+                        .header p {
+                            margin: 4px 0 0;
+                            color: #64748b;
+                            font-size: 12px;
+                            font-weight: 600;
+                        }
+                        .meta-box {
+                            background: #f8fafc;
+                            border: 1px solid #e2e8f0;
+                            border-radius: 12px;
+                            padding: 14px 18px;
+                            margin-bottom: 22px;
+                            display: grid;
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: 12px;
+                        }
+                        .meta-item {
+                            font-size: 12px;
+                        }
+                        .meta-item strong {
+                            color: #0f172a;
+                        }
+                        .kpi-grid {
+                            display: grid;
+                            grid-template-columns: repeat(3, 1fr);
+                            gap: 12px;
+                            margin-bottom: 24px;
+                        }
+                        .kpi-box {
+                            border: 1px solid #e2e8f0;
+                            background: #ffffff;
+                            border-radius: 12px;
+                            padding: 14px;
+                            text-align: center;
+                        }
+                        .kpi-box .val {
+                            font-size: 22px;
+                            font-weight: 900;
+                            color: #0f172a;
+                            margin-bottom: 2px;
+                        }
+                        .kpi-box .lbl {
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: #64748b;
+                            text-transform: uppercase;
+                        }
+                        table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            margin-top: 10px;
+                            font-size: 12px;
+                        }
+                        th {
+                            background: #f1f5f9;
+                            color: #334155;
+                            font-weight: 800;
+                            text-align: right;
+                            padding: 10px 12px;
+                            border-bottom: 2px solid #cbd5e1;
+                        }
+                        td {
+                            padding: 9px 12px;
+                            border-bottom: 1px solid #e2e8f0;
+                            color: #1e293b;
+                        }
+                        tr:nth-child(even) td {
+                            background: #fafafa;
+                        }
+                        .badge {
+                            display: inline-block;
+                            padding: 3px 8px;
+                            border-radius: 6px;
+                            font-size: 10px;
+                            font-weight: 700;
+                        }
+                        .badge-high { background: #dcfce7; color: #15803d; }
+                        .badge-med { background: #fef9c3; color: #854d0e; }
+                        .badge-low { background: #fee2e2; color: #991b1b; }
+                        .footer {
+                            margin-top: 35px;
+                            padding-top: 16px;
+                            border-top: 1px dashed #cbd5e1;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: flex-end;
+                            font-size: 12px;
+                        }
+                        .stamp-block {
+                            text-align: center;
+                            min-width: 160px;
+                        }
+                        .stamp-box {
+                            height: 60px;
+                            border-bottom: 1px solid #94a3b8;
+                            margin-bottom: 6px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="report-card">
+                        <div class="header">
+                            <div>
+                                <h1>أكاديمية المنارة التعليمية</h1>
+                                <p>تقرير أداء ومتابعة الصف الدراسي الشامل</p>
+                            </div>
+                            <div style="text-align: left; font-size: 11px; color: #64748b;">
+                                <div><strong>تاريخ التقرير:</strong> ${dateStr}</div>
+                                <div><strong>المحاضر:</strong> ${course?.instructor_name || "مدرس المادة"}</div>
+                            </div>
+                        </div>
+
+                        <div class="meta-box">
+                            <div class="meta-item"><strong>المقرر التعليمي:</strong> ${course?.title || "الكورس"}</div>
+                            <div class="meta-item"><strong>إجمالي عدد الدروس:</strong> ${totalLessons} درس</div>
+                            <div class="meta-item"><strong>إجمالي الطلاب المسجلين:</strong> ${totalStudents} طالب</div>
+                            <div class="meta-item"><strong>الصف الدراسي / الفئة:</strong> ${course?.grade_level || "عام"}</div>
+                        </div>
+
+                        <div class="kpi-grid">
+                            <div class="kpi-box">
+                                <div class="val">${totalStudents}</div>
+                                <div class="lbl">إجمالي طلاب الصف</div>
+                            </div>
+                            <div class="kpi-box">
+                                <div class="val" style="color: #ea580c;">${classAvgProgress}%</div>
+                                <div class="lbl">متوسط إنجاز الفصل</div>
+                            </div>
+                            <div class="kpi-box">
+                                <div class="val" style="color: #16a34a;">${classAvgScore}%</div>
+                                <div class="lbl">متوسط درجات الطلاب</div>
+                            </div>
+                        </div>
+
+                        <h3 style="margin: 18px 0 8px; font-size: 14px; font-weight: 800; color: #0f172a;">جدول تفصيلي بمستوى جميع الطلاب (${totalStudents} طالب)</h3>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>اسم الطالب</th>
+                                    <th>رقم الهاتف</th>
+                                    <th>الدروس المكتملة</th>
+                                    <th>نسبة التقدم</th>
+                                    <th>متوسط الدرجات</th>
+                                    <th>التقييم العام</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${students.length === 0 ? `
+                                    <tr>
+                                        <td colspan="7" style="text-align: center; padding: 25px; color: #64748b;">لا يوجد طلاب مسجلين في هذا المقرر حتى الآن.</td>
+                                    </tr>
+                                ` : students.map((s, idx) => {
+                                    const evalClass = s.averageScore >= 80 ? 'badge-high' : s.averageScore >= 50 ? 'badge-med' : 'badge-low';
+                                    const evalText = s.averageScore >= 85 ? 'ممتاز ⭐' : s.averageScore >= 70 ? 'جيد جداً' : s.averageScore >= 50 ? 'متوسط' : 'يحتاج متابعة ⚠️';
+                                    return `
+                                        <tr>
+                                            <td style="color: #64748b;">${idx + 1}</td>
+                                            <td style="font-weight: 800;">${s.name}</td>
+                                            <td style="direction: ltr; text-align: right; color: #475569;">${s.phone || 'غير مسجل'}</td>
+                                            <td>${s.completedLessons} من ${s.totalLessons}</td>
+                                            <td><strong>${s.progress}%</strong></td>
+                                            <td><span class="badge ${evalClass}">${s.averageScore}%</span></td>
+                                            <td><span class="badge ${evalClass}">${evalText}</span></td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+
+                        <div class="footer">
+                            <div>
+                                <p style="margin: 0; font-weight: 700; color: #0f172a;">أكاديمية المنارة للتعليم الإلكتروني الذكي © 2026</p>
+                                <p style="margin: 3px 0 0; color: #64748b; font-size: 11px;">مستند رسمي معتمد صادر من المنصة لمتابعة الصف الدراسي.</p>
+                            </div>
+                            <div class="stamp-block">
+                                <div class="stamp-box"></div>
+                                <div>توقيع واعتماد معلم المادة</div>
+                            </div>
+                            <div class="stamp-block">
+                                <div class="stamp-box"></div>
+                                <div>ختم إدارة الأكاديمية</div>
+                            </div>
+                        </div>
+                    </div>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 300);
+    };
+
     return (
         <div className="container py-8 space-y-8 font-arabic animate-in fade-in duration-500 pb-20 select-none">
             {/* Header / Top Nav */}
@@ -135,7 +389,7 @@ export default function ClassReportPage() {
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    <Button variant="outline" size="lg" className="rounded-xl font-bold gap-2 h-11 border-zinc-200" onClick={() => window.print()}>
+                    <Button variant="outline" size="lg" className="rounded-xl font-bold gap-2 h-11 border-zinc-200" onClick={handlePrintPDF}>
                         <Printer className="h-4 w-4" />
                         طباعة / تصدير PDF
                     </Button>

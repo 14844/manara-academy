@@ -32,7 +32,8 @@ import {
     ChevronLeft,
     ChevronRight,
     Bot,
-    Trash2
+    Trash2,
+    Printer
 } from "lucide-react"
 import {
     Select,
@@ -61,10 +62,10 @@ import { toast } from "sonner"
 export interface ActivityLog {
     id: string;
     action: string;
-    category: "financial" | "auth" | "admin_action" | "course" | "system" | "ai_support";
+    category: "financial" | "auth" | "admin_action" | "course" | "system" | "client" | "ai_support" | (string & {});
     title: string;
     description: string;
-    status: "success" | "failed" | "pending" | "info";
+    status: "success" | "failed" | "pending" | "info" | "approved" | "rejected" | "completed" | "paid" | (string & {});
     user_id?: string;
     user_name?: string;
     user_email?: string;
@@ -100,15 +101,15 @@ export default function AdminLogsPage() {
         setIsRefreshing(true)
         try {
             const logsRef = collection(db, "activity_logs")
-            // Fetch latest 500 logs ordered by created_at desc
-            let q = query(logsRef, orderBy("created_at", "desc"), limit(500))
+            // Fetch latest 2000 logs ordered by created_at desc
+            let q = query(logsRef, orderBy("created_at", "desc"), limit(2000))
             
             let snap;
             try {
                 snap = await getDocs(q)
             } catch (queryErr) {
                 // If orderBy index is building or not yet available, fallback to simple fetch and sort in memory
-                snap = await getDocs(query(logsRef, limit(500)))
+                snap = await getDocs(query(logsRef, limit(2000)))
             }
 
             const rawLogs: ActivityLog[] = snap.docs.map(doc => ({
@@ -118,8 +119,8 @@ export default function AdminLogsPage() {
 
             // Sort safely in-memory desc
             rawLogs.sort((a, b) => {
-                const timeA = new Date(a.created_at || 0).getTime()
-                const timeB = new Date(b.created_at || 0).getTime()
+                const timeA = new Date(a.created_at || a.timestamp || 0).getTime()
+                const timeB = new Date(b.created_at || b.timestamp || 0).getTime()
                 return timeB - timeA
             })
 
@@ -131,6 +132,34 @@ export default function AdminLogsPage() {
             setIsLoading(false)
             setIsRefreshing(false)
         }
+    }
+
+    // Helper functions for classification
+    const isLogFinancial = (log: ActivityLog): boolean => {
+        return log.category === "financial" ||
+            Boolean(log.action && /^(recharge|withdraw|payment|refund|wallet|payout|enroll|course_purchase)/i.test(log.action)) ||
+            (typeof log.amount === "number" && log.amount > 0) ||
+            Boolean(log.metadata?.paid_amount || log.metadata?.amount_added || log.metadata?.final_paid);
+    }
+
+    const isLogAuth = (log: ActivityLog): boolean => {
+        return log.category === "auth" ||
+            Boolean(log.action && /^(user_)?(login|signup|auth|session|password|device)/i.test(log.action));
+    }
+
+    const isLogFailed = (log: ActivityLog): boolean => {
+        return log.status === "failed" ||
+            log.status === "rejected" ||
+            Boolean(log.error_message) ||
+            Boolean(log.action && /failed|error|blocked|rejected/i.test(log.action));
+    }
+
+    const extractLogAmount = (log: ActivityLog): number => {
+        if (typeof log.amount === "number" && !isNaN(log.amount)) return log.amount;
+        if (typeof log.amount === "string" && !isNaN(Number(log.amount))) return Number(log.amount);
+        const metaAmt = log.metadata?.paid_amount || log.metadata?.amount || log.metadata?.final_paid || log.metadata?.amount_added;
+        if (metaAmt !== undefined && !isNaN(Number(metaAmt))) return Number(metaAmt);
+        return 0;
     }
 
     // Filtered logs
@@ -155,19 +184,31 @@ export default function AdminLogsPage() {
                 return false
             }
 
-            // Category filter
-            if (selectedCategory !== "all" && log.category !== selectedCategory) {
-                return false
+            // Category filter with intelligent classification
+            if (selectedCategory !== "all") {
+                if (selectedCategory === "financial") {
+                    if (!isLogFinancial(log)) return false
+                } else if (selectedCategory === "auth") {
+                    if (!isLogAuth(log)) return false
+                } else if (log.category !== selectedCategory) {
+                    return false
+                }
             }
 
             // Status filter
-            if (selectedStatus !== "all" && log.status !== selectedStatus) {
-                return false
+            if (selectedStatus !== "all") {
+                if (selectedStatus === "failed") {
+                    if (!isLogFailed(log)) return false
+                } else if (selectedStatus === "success") {
+                    if (log.status !== "success" && log.status !== "approved" && log.status !== "completed") return false
+                } else if (log.status !== selectedStatus) {
+                    return false
+                }
             }
 
             // Time range filter
             if (selectedTimeRange !== "all") {
-                const logTime = new Date(log.created_at).getTime()
+                const logTime = new Date(log.created_at || log.timestamp || 0).getTime()
                 if (selectedTimeRange === "today") {
                     const startOfToday = new Date().setHours(0, 0, 0, 0)
                     if (logTime < startOfToday) return false
@@ -184,35 +225,39 @@ export default function AdminLogsPage() {
         })
     }, [logs, searchTerm, selectedRole, selectedCategory, selectedStatus, selectedTimeRange])
 
-    // Statistics
+    // Statistics - computed dynamically from filteredLogs so KPI cards are 100% accurate to the active view!
     const stats = useMemo(() => {
         let totalFinancialAmount = 0
         let financialCount = 0
         let authCount = 0
         let failedCount = 0
 
-        logs.forEach(log => {
-            if (log.category === "financial") {
+        filteredLogs.forEach(log => {
+            if (isLogFinancial(log)) {
                 financialCount++
-                if (log.amount && log.status === "success") {
-                    totalFinancialAmount += Number(log.amount)
+                const isSuccess = log.status === "success" || log.status === "approved" || log.status === "completed" || log.status === "paid" || !log.status;
+                const amt = extractLogAmount(log)
+                if (isSuccess && amt > 0) {
+                    totalFinancialAmount += amt
                 }
-            } else if (log.category === "auth") {
+            }
+            if (isLogAuth(log)) {
                 authCount++
             }
-            if (log.status === "failed") {
+            if (isLogFailed(log)) {
                 failedCount++
             }
         })
 
         return {
-            total: logs.length,
+            total: filteredLogs.length,
+            allTotal: logs.length,
             financialCount,
             totalFinancialAmount,
             authCount,
             failedCount,
         }
-    }, [logs])
+    }, [logs, filteredLogs])
 
     // Pagination
     const totalPages = Math.ceil(filteredLogs.length / itemsPerPage) || 1
@@ -252,6 +297,256 @@ export default function AdminLogsPage() {
         a.click()
         URL.revokeObjectURL(url)
         toast.success("تم تصدير سجلات المنصة بنجاح!")
+    }
+
+    // Export / Print formatted PDF
+    function handlePrintPDF() {
+        if (!filteredLogs.length) {
+            toast.error("لا توجد سجلات لطباعتها أو تصديرها كـ PDF")
+            return
+        }
+
+        const windowUrl = 'about:blank'
+        const uniqueName = new Date().getTime()
+        const windowName = 'AdminLogsReport_' + uniqueName
+        const printWindow = window.open(windowUrl, windowName, 'left=50000,top=50000,width=0,height=0')
+
+        if (!printWindow) {
+            alert("يرجى تفعيل السماح بالنوافذ المنبثقة (Popups) لتصدير التقرير كـ PDF")
+            return
+        }
+
+        const dateStr = new Date().toLocaleDateString("ar-EG", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        })
+
+        // Print up to 300 logs for smooth browser rendering
+        const printItems = filteredLogs.slice(0, 300)
+
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html lang="ar" dir="rtl">
+                <head>
+                    <meta charset="utf-8">
+                    <title>تقرير سجلات نشاط وحركات المنصة - أكاديمية المنارة</title>
+                    <style>
+                        @page { size: A4 landscape; margin: 10mm 12mm; }
+                        * { box-sizing: border-box; }
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                            direction: rtl;
+                            background: #ffffff;
+                            color: #0f172a;
+                            margin: 0;
+                            padding: 16px;
+                            font-size: 11px;
+                            line-height: 1.4;
+                        }
+                        .report-container {
+                            border: 2px solid #e2e8f0;
+                            border-radius: 14px;
+                            padding: 20px;
+                            max-width: 1100px;
+                            margin: 0 auto;
+                        }
+                        .header {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            border-bottom: 2px solid #e2e8f0;
+                            padding-bottom: 14px;
+                            margin-bottom: 16px;
+                        }
+                        .header h1 {
+                            margin: 0;
+                            font-size: 20px;
+                            font-weight: 900;
+                            color: #0f172a;
+                        }
+                        .header p {
+                            margin: 3px 0 0;
+                            color: #64748b;
+                            font-size: 11px;
+                            font-weight: 600;
+                        }
+                        .kpi-row {
+                            display: grid;
+                            grid-template-columns: repeat(4, 1fr);
+                            gap: 10px;
+                            margin-bottom: 18px;
+                        }
+                        .kpi-card {
+                            border: 1px solid #cbd5e1;
+                            background: #f8fafc;
+                            border-radius: 10px;
+                            padding: 10px;
+                            text-align: center;
+                        }
+                        .kpi-card .val {
+                            font-size: 18px;
+                            font-weight: 900;
+                            color: #0f172a;
+                        }
+                        .kpi-card .lbl {
+                            font-size: 10px;
+                            font-weight: 700;
+                            color: #64748b;
+                            margin-top: 1px;
+                        }
+                        table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            margin-top: 6px;
+                            font-size: 10.5px;
+                        }
+                        th {
+                            background: #f1f5f9;
+                            color: #334155;
+                            font-weight: 800;
+                            text-align: right;
+                            padding: 8px 10px;
+                            border: 1px solid #cbd5e1;
+                        }
+                        td {
+                            padding: 7px 10px;
+                            border: 1px solid #e2e8f0;
+                            color: #1e293b;
+                            vertical-align: top;
+                        }
+                        tr:nth-child(even) td { background: #fafafa; }
+                        .badge {
+                            display: inline-block;
+                            padding: 2px 6px;
+                            border-radius: 4px;
+                            font-size: 9.5px;
+                            font-weight: 700;
+                        }
+                        .badge-success { background: #dcfce7; color: #15803d; }
+                        .badge-failed { background: #fee2e2; color: #991b1b; }
+                        .badge-info { background: #f1f5f9; color: #475569; }
+                        .footer {
+                            margin-top: 30px;
+                            padding-top: 14px;
+                            border-top: 1px dashed #cbd5e1;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: flex-end;
+                            font-size: 11px;
+                        }
+                        .stamp-block {
+                            text-align: center;
+                            min-width: 160px;
+                        }
+                        .stamp-line {
+                            height: 50px;
+                            border-bottom: 1px solid #94a3b8;
+                            margin-bottom: 4px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="report-container">
+                        <div class="header">
+                            <div>
+                                <h1>أكاديمية المنارة التعليمية - سجلات الرقابة والنشاط</h1>
+                                <p>تقرير تدقيق العمليات وحركات النظام (Audit & Activity Logs Report)</p>
+                            </div>
+                            <div style="text-align: left; font-size: 10px; color: #64748b;">
+                                <div><strong>تاريخ الاستخراج:</strong> ${dateStr}</div>
+                                <div><strong>العدد المعروض:</strong> ${printItems.length} من إجمالي ${filteredLogs.length} حركة مطابقة</div>
+                            </div>
+                        </div>
+
+                        <div class="kpi-row">
+                            <div class="kpi-card">
+                                <div class="val">${stats.total.toLocaleString()}</div>
+                                <div class="lbl">إجمالي الحركات المفلترة</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val" style="color: #16a34a;">${stats.totalFinancialAmount.toLocaleString()} ج.م</div>
+                                <div class="lbl">المعاملات المالية الناجحة (${stats.financialCount})</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val" style="color: #4f46e5;">${stats.authCount.toLocaleString()}</div>
+                                <div class="lbl">عمليات الدخول والتسجيل</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val" style="color: ${stats.failedCount > 0 ? '#dc2626' : '#16a34a'};">${stats.failedCount}</div>
+                                <div class="lbl">العمليات الفاشلة / التنبيهات</div>
+                            </div>
+                        </div>
+
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width: 120px;">الوقت والتاريخ</th>
+                                    <th style="width: 140px;">المستخدم / المنفذ</th>
+                                    <th style="width: 80px;">الدور</th>
+                                    <th style="width: 90px;">الفئة</th>
+                                    <th style="width: 140px;">نوع الحركة</th>
+                                    <th>التفاصيل والبيان</th>
+                                    <th style="width: 85px;">المبلغ</th>
+                                    <th style="width: 70px;">الحالة</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${printItems.map((l) => {
+                                    const timeFormatted = new Date(l.created_at || l.timestamp || 0).toLocaleString("ar-EG", {
+                                        month: "numeric",
+                                        day: "numeric",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                    });
+                                    const statusClass = (l.status === "success" || l.status === "approved" || l.status === "completed") ? "badge-success" : (isLogFailed(l) ? "badge-failed" : "badge-info");
+                                    const statusText = getStatusLabel(l.status);
+                                    const amtNum = extractLogAmount(l);
+                                    const amountFormatted = amtNum > 0 ? `${amtNum.toLocaleString()} ج.م` : "-";
+
+                                    return `
+                                        <tr>
+                                            <td style="color: #64748b; font-size: 10px;">${timeFormatted}</td>
+                                            <td><strong>${l.user_name || "مستخدم"}</strong><div style="color:#64748b; font-size:9px;">${l.user_email || ""}</div></td>
+                                            <td>${getRoleLabel(l.user_role)}</td>
+                                            <td>${getCategoryLabel(l.category)}</td>
+                                            <td style="font-weight: 700;">${l.title || l.action}</td>
+                                            <td style="color: #334155;">${l.description || l.action}</td>
+                                            <td style="font-weight: 800; color: #0f172a; text-align: center;">${amountFormatted}</td>
+                                            <td style="text-align: center;"><span class="badge ${statusClass}">${statusText}</span></td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+
+                        <div class="footer">
+                            <div>
+                                <p style="margin: 0; font-weight: 700;">أكاديمية المنارة للتعليم الإلكتروني الذكي © 2026</p>
+                                <p style="margin: 2px 0 0; color: #64748b; font-size: 10px;">سجل رقابي رسمي للعمليات معتمد لأغراض الأمان والرقابة المالية والإدارية.</p>
+                            </div>
+                            <div class="stamp-block">
+                                <div class="stamp-line"></div>
+                                <div>توقيع مسؤول الرقابة والتدقيق</div>
+                            </div>
+                            <div class="stamp-block">
+                                <div class="stamp-line"></div>
+                                <div>اعتماد الإدارة العليا / الختم</div>
+                            </div>
+                        </div>
+                    </div>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 300);
     }
 
     // Clear all logs
@@ -348,6 +643,13 @@ export default function AdminLogsPage() {
                         <span>ذكاء اصطناعي AI</span>
                     </Badge>
                 )
+            case "client":
+                return (
+                    <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 flex items-center gap-1">
+                        <Activity className="w-3 h-3" />
+                        <span>نشاط مستخدم</span>
+                    </Badge>
+                )
             default:
                 return <Badge variant="outline">نظام</Badge>
         }
@@ -360,6 +662,7 @@ export default function AdminLogsPage() {
             case "admin_action": return "إجراء إداري"
             case "course": return "كورسات"
             case "ai_support": return "ذكاء اصطناعي AI"
+            case "client": return "نشاط مستخدم / واجهة"
             default: return "النظام"
         }
     }
@@ -456,6 +759,15 @@ export default function AdminLogsPage() {
                         <span>تصدير Excel / CSV</span>
                     </Button>
                     <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handlePrintPDF}
+                        className="gap-2 font-bold hover:bg-zinc-100"
+                    >
+                        <Printer className="w-4 h-4 text-primary" />
+                        <span>طباعة / تصدير PDF</span>
+                    </Button>
+                    <Button
                         variant="default"
                         size="sm"
                         onClick={fetchLogs}
@@ -479,7 +791,9 @@ export default function AdminLogsPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-black text-foreground">{stats.total.toLocaleString()}</div>
-                        <p className="text-xs text-muted-foreground mt-1">عملية موثقة في قاعدة البيانات</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                            {filteredLogs.length !== stats.allTotal ? `حركة مطابقة للفلتر (من أصل ${stats.allTotal.toLocaleString()})` : "عملية موثقة في قاعدة البيانات"}
+                        </p>
                     </CardContent>
                 </Card>
 
@@ -579,6 +893,7 @@ export default function AdminLogsPage() {
                                     <SelectItem value="auth">حسابات وأمان (دخول / تسجيل)</SelectItem>
                                     <SelectItem value="admin_action">إجراءات إدارية وموافقات</SelectItem>
                                     <SelectItem value="course">كورسات</SelectItem>
+                                    <SelectItem value="client">نشاط مستخدمين وتفاعل</SelectItem>
                                     <SelectItem value="ai_support">دعم ذكي AI ومحادثات</SelectItem>
                                 </SelectContent>
                             </Select>

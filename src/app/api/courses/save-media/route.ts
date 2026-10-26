@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerAuth, getActiveServerAuth } from "@/lib/server-auth";
 import { BUNNY_GUID_RE, extractStoragePath, isCourseScopedPath } from "@/lib/media-security";
 import { SUPABASE_BUCKET } from "@/lib/supabase/admin";
+import { logServerActivity } from "@/lib/server-activity-logger";
 
 /**
  * POST /api/courses/save-media
@@ -154,6 +155,23 @@ export async function POST(request: Request) {
         batch.update(courseRef, courseUpdates);
 
         await batch.commit();
+
+        await logServerActivity({
+            action: "course_media_updated",
+            category: "course",
+            title: `تحديث كورس (${courseData?.title || courseId})`,
+            description: `قام ${user.role === "admin" ? "المسؤول" : "المحاضر"} "${user.profile?.full_name || user.email}" بتحديث محتوى ووسائط كورس "${courseData?.title || courseId}"`,
+            status: "success",
+            user_id: user.uid,
+            user_name: user.profile?.full_name || user.email || "محاضر",
+            user_email: user.email || "",
+            user_role: (user.role as any) || "instructor",
+            metadata: {
+                course_id: courseId,
+                course_title: courseData?.title || courseId,
+                modules_count: modules?.length || 0,
+            }
+        }).catch(() => {});
 
         return NextResponse.json({
             success: true,

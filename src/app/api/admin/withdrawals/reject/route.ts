@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getServerAuth } from "@/lib/server-auth";
 import { FieldValue } from "firebase-admin/firestore";
+import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
     try {
@@ -18,6 +19,7 @@ export async function POST(request: Request) {
         }
 
         const reqRef = adminDb.collection("withdrawal_requests").doc(requestId);
+        let rejectedData: any = null;
 
         await adminDb.runTransaction(async (transaction) => {
             const reqSnap = await transaction.get(reqRef);
@@ -44,7 +46,34 @@ export async function POST(request: Request) {
                 wallet_balance: FieldValue.increment(netAmount),
                 updated_at: new Date().toISOString(),
             }, { merge: true });
+
+            rejectedData = {
+                instructor_id: reqData.instructor_id,
+                instructor_name: reqData.instructor_name || "المحاضر",
+                net_amount: netAmount,
+            };
         });
+
+        if (rejectedData) {
+            await logServerActivity({
+                action: "admin_withdrawal_rejected",
+                category: "financial",
+                title: "رفض طلب سحب أرباح",
+                description: `قام المسؤول برفض طلب سحب الأرباح (${requestId}) للمحاضر "${rejectedData.instructor_name}" وإعادة مبلغ ${rejectedData.net_amount} ج.م لمحفظته. سبب الرفض: ${reason || "تم الرفض بواسطة الإدارة"}`,
+                status: "failed",
+                user_id: adminUser.uid,
+                user_name: adminUser.profile?.full_name || adminUser.email || "مسؤول المنصة",
+                user_email: adminUser.email || "",
+                user_role: "admin",
+                target_user_id: rejectedData.instructor_id,
+                target_user_name: rejectedData.instructor_name,
+                amount: rejectedData.net_amount,
+                metadata: {
+                    request_id: requestId,
+                    rejection_reason: reason || "تم الرفض بواسطة الإدارة",
+                }
+            }).catch(() => {});
+        }
 
         return NextResponse.json({ success: true });
     } catch (err: any) {

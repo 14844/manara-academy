@@ -176,7 +176,234 @@ export default function AdminSettlementsPage() {
     }
 
     const handlePrint = () => {
-        window.print()
+        const windowUrl = 'about:blank';
+        const uniqueName = new Date().getTime();
+        const windowName = 'SettlementReport_' + uniqueName;
+        const printWindow = window.open(windowUrl, windowName, 'left=50000,top=50000,width=0,height=0');
+
+        if (!printWindow) {
+            alert("يرجى تفعيل السماح بالنوافذ المنبثقة (Popups) لتصدير تقرير التسويات كـ PDF");
+            return;
+        }
+
+        const monthName = months.find(m => m.value === selectedMonth)?.label || selectedMonth;
+        const printDate = new Date().toLocaleDateString("ar-EG", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+        });
+
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html lang="ar" dir="rtl">
+                <head>
+                    <meta charset="utf-8">
+                    <title>تقرير تسويات المحاضرين - ${monthName} ${selectedYear}</title>
+                    <style>
+                        @page { size: A4 landscape; margin: 12mm 15mm; }
+                        * { box-sizing: border-box; }
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                            direction: rtl;
+                            background: #ffffff;
+                            color: #0f172a;
+                            margin: 0;
+                            padding: 20px;
+                            font-size: 13px;
+                            line-height: 1.5;
+                        }
+                        .report-container {
+                            border: 2px solid #e2e8f0;
+                            border-radius: 16px;
+                            padding: 24px;
+                            max-width: 1100px;
+                            margin: 0 auto;
+                        }
+                        .header {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            border-bottom: 2px solid #e2e8f0;
+                            padding-bottom: 16px;
+                            margin-bottom: 20px;
+                        }
+                        .header h1 {
+                            margin: 0;
+                            font-size: 22px;
+                            font-weight: 900;
+                            color: #0f172a;
+                        }
+                        .header p {
+                            margin: 4px 0 0;
+                            color: #64748b;
+                            font-size: 12px;
+                            font-weight: 600;
+                        }
+                        .kpi-row {
+                            display: grid;
+                            grid-template-columns: repeat(4, 1fr);
+                            gap: 12px;
+                            margin-bottom: 24px;
+                        }
+                        .kpi-card {
+                            border: 1px solid #cbd5e1;
+                            background: #f8fafc;
+                            border-radius: 12px;
+                            padding: 14px;
+                            text-align: center;
+                        }
+                        .kpi-card .val {
+                            font-size: 20px;
+                            font-weight: 900;
+                            color: #0f172a;
+                        }
+                        .kpi-card .lbl {
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: #64748b;
+                            margin-top: 2px;
+                        }
+                        table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            margin-top: 8px;
+                            font-size: 12px;
+                        }
+                        th {
+                            background: #f1f5f9;
+                            color: #334155;
+                            font-weight: 800;
+                            text-align: center;
+                            padding: 10px 12px;
+                            border: 1px solid #cbd5e1;
+                        }
+                        th:first-child { text-align: right; }
+                        td {
+                            padding: 10px 12px;
+                            border: 1px solid #e2e8f0;
+                            text-align: center;
+                        }
+                        td:first-child { text-align: right; font-weight: 800; }
+                        tr:nth-child(even) td { background: #fafafa; }
+                        .total-row td {
+                            background: #f1f5f9 !important;
+                            font-weight: 900 !important;
+                            font-size: 13px;
+                            border-top: 2px solid #94a3b8;
+                        }
+                        .footer {
+                            margin-top: 40px;
+                            padding-top: 16px;
+                            border-top: 1px dashed #cbd5e1;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: flex-end;
+                            font-size: 12px;
+                        }
+                        .stamp-block {
+                            text-align: center;
+                            min-width: 180px;
+                        }
+                        .stamp-line {
+                            height: 60px;
+                            border-bottom: 1px solid #94a3b8;
+                            margin-bottom: 6px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="report-container">
+                        <div class="header">
+                            <div>
+                                <h1>أكاديمية المنارة التعليمية - الإدارة المالية</h1>
+                                <p>كشف التسويات والأرباح الشهرية للمحاضرين - دورة (${monthName} ${selectedYear})</p>
+                            </div>
+                            <div style="text-align: left; font-size: 11px; color: #64748b;">
+                                <div><strong>تاريخ الاستخراج:</strong> ${printDate}</div>
+                                <div><strong>حالة الدورة:</strong> معتمدة رسمياً</div>
+                            </div>
+                        </div>
+
+                        <div class="kpi-row">
+                            <div class="kpi-card">
+                                <div class="val">${totals.enrollments} طالب</div>
+                                <div class="lbl">إجمالي الاشتراكات</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val" style="color: #2563eb;">${totals.gross.toLocaleString()} ج.م</div>
+                                <div class="lbl">إجمالي مبيعات الكورسات</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val" style="color: #ea580c;">${totals.commission.toLocaleString()} ج.م</div>
+                                <div class="lbl">عمولة المنصة (5%)</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val" style="color: #16a34a;">${totals.net.toLocaleString()} ج.م</div>
+                                <div class="lbl">صافي مستحقات المدرسين (95%)</div>
+                            </div>
+                        </div>
+
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>اسم المحاضر</th>
+                                    <th>عدد الاشتراكات</th>
+                                    <th>إجمالي المبيعات</th>
+                                    <th>عمولة المنصة (5%)</th>
+                                    <th>صافي المستحق للمحاضر (95%)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${settlements.length === 0 ? `
+                                    <tr>
+                                        <td colspan="5" style="text-align: center; padding: 25px; color: #64748b;">لا توجد معاملات مالية مسجلة لهذه الفترة.</td>
+                                    </tr>
+                                ` : settlements.map((s) => `
+                                    <tr>
+                                        <td>${s.instructorName}</td>
+                                        <td>${s.enrollmentCount} طالب</td>
+                                        <td style="color: #2563eb; font-weight: 800;">${(s.grossRevenue || 0).toLocaleString()} ج.م</td>
+                                        <td style="color: #ea580c; font-weight: 700;">${(s.commission || s.platformFee || 0).toLocaleString()} ج.م</td>
+                                        <td style="color: #16a34a; font-weight: 900;">${(s.netPayout || s.netEarnings || 0).toLocaleString()} ج.م</td>
+                                    </tr>
+                                `).join('')}
+                                ${settlements.length > 0 ? `
+                                    <tr class="total-row">
+                                        <td>الإجمالي العام للفترة</td>
+                                        <td>${totals.enrollments} طالب</td>
+                                        <td style="color: #2563eb;">${totals.gross.toLocaleString()} ج.م</td>
+                                        <td style="color: #ea580c;">${totals.commission.toLocaleString()} ج.م</td>
+                                        <td style="color: #16a34a;">${totals.net.toLocaleString()} ج.م</td>
+                                    </tr>
+                                ` : ''}
+                            </tbody>
+                        </table>
+
+                        <div class="footer">
+                            <div>
+                                <p style="margin: 0; font-weight: 700;">أكاديمية المنارة للتعليم الإلكتروني © 2026</p>
+                                <p style="margin: 2px 0 0; color: #64748b; font-size: 11px;">مستند مالي إداري رسمي مخصص لأغراض التدقيق والمراجعة والتحويلات البنكية.</p>
+                            </div>
+                            <div class="stamp-block">
+                                <div class="stamp-line"></div>
+                                <div>توقيع المدير المالي</div>
+                            </div>
+                            <div class="stamp-block">
+                                <div class="stamp-line"></div>
+                                <div>اعتماد الإدارة العليا / الختم</div>
+                            </div>
+                        </div>
+                    </div>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 300);
     }
 
     return (

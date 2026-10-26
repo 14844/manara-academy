@@ -335,7 +335,253 @@ export default function AdminKpisPage() {
     const maxMonthlyGmv = Math.max(...metrics.monthlyData.map(m => m.gmv), 100)
 
     function handlePrint() {
-        window.print()
+        const windowUrl = 'about:blank';
+        const uniqueName = new Date().getTime();
+        const windowName = 'FinanceKpiReport_' + uniqueName;
+        const printWindow = window.open(windowUrl, windowName, 'left=50000,top=50000,width=0,height=0');
+
+        if (!printWindow) {
+            alert("يرجى تفعيل السماح بالنوافذ المنبثقة (Popups) لتصدير تقرير المؤشرات كـ PDF");
+            return;
+        }
+
+        const timeLabel = timeRange === "month" ? "آخر 30 يوم"
+            : timeRange === "quarter" ? "آخر 3 شهور"
+            : timeRange === "year" ? "العام الحالي"
+            : "كامل الفترة (تاريخي)";
+
+        const printDate = new Date().toLocaleDateString("ar-EG", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+        });
+
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html lang="ar" dir="rtl">
+                <head>
+                    <meta charset="utf-8">
+                    <title>التقرير المالي التنفيذي ومؤشرات الأداء - أكاديمية المنارة</title>
+                    <style>
+                        @page { size: A4 portrait; margin: 12mm 15mm; }
+                        * { box-sizing: border-box; }
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                            direction: rtl;
+                            background: #ffffff;
+                            color: #0f172a;
+                            margin: 0;
+                            padding: 20px;
+                            font-size: 13px;
+                            line-height: 1.5;
+                        }
+                        .report-container {
+                            border: 2px solid #e2e8f0;
+                            border-radius: 16px;
+                            padding: 24px;
+                            max-width: 900px;
+                            margin: 0 auto;
+                        }
+                        .header {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            border-bottom: 2px solid #e2e8f0;
+                            padding-bottom: 16px;
+                            margin-bottom: 20px;
+                        }
+                        .header h1 {
+                            margin: 0;
+                            font-size: 22px;
+                            font-weight: 900;
+                            color: #0f172a;
+                        }
+                        .header p {
+                            margin: 4px 0 0;
+                            color: #64748b;
+                            font-size: 12px;
+                            font-weight: 600;
+                        }
+                        .meta-strip {
+                            background: #f8fafc;
+                            border: 1px solid #cbd5e1;
+                            border-radius: 10px;
+                            padding: 10px 16px;
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 12px;
+                            margin-bottom: 20px;
+                        }
+                        .kpi-grid {
+                            display: grid;
+                            grid-template-columns: repeat(3, 1fr);
+                            gap: 12px;
+                            margin-bottom: 24px;
+                        }
+                        .kpi-card {
+                            border: 1px solid #cbd5e1;
+                            background: #ffffff;
+                            border-radius: 12px;
+                            padding: 14px;
+                            text-align: center;
+                        }
+                        .kpi-card .val {
+                            font-size: 20px;
+                            font-weight: 900;
+                            color: #0f172a;
+                            margin-bottom: 2px;
+                        }
+                        .kpi-card .lbl {
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: #64748b;
+                        }
+                        table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            margin-top: 10px;
+                            font-size: 12px;
+                        }
+                        th {
+                            background: #f1f5f9;
+                            color: #334155;
+                            font-weight: 800;
+                            text-align: right;
+                            padding: 9px 12px;
+                            border-bottom: 2px solid #cbd5e1;
+                        }
+                        td {
+                            padding: 9px 12px;
+                            border-bottom: 1px solid #e2e8f0;
+                            color: #1e293b;
+                        }
+                        tr:nth-child(even) td { background: #fafafa; }
+                        .section-title {
+                            font-size: 14px;
+                            font-weight: 800;
+                            color: #0f172a;
+                            margin: 22px 0 8px;
+                            border-bottom: 1px solid #e2e8f0;
+                            padding-bottom: 6px;
+                        }
+                        .footer {
+                            margin-top: 35px;
+                            padding-top: 16px;
+                            border-top: 1px dashed #cbd5e1;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: flex-end;
+                            font-size: 12px;
+                        }
+                        .stamp-block {
+                            text-align: center;
+                            min-width: 170px;
+                        }
+                        .stamp-box {
+                            height: 60px;
+                            border-bottom: 1px solid #94a3b8;
+                            margin-bottom: 6px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="report-container">
+                        <div class="header">
+                            <div>
+                                <h1>أكاديمية المنارة التعليمية</h1>
+                                <p>التقرير المالي التنفيذي وتحليل مؤشرات الأداء (Finance & KPIs)</p>
+                            </div>
+                            <div style="text-align: left; font-size: 11px; color: #64748b;">
+                                <div><strong>تاريخ الاستخراج:</strong> ${printDate}</div>
+                                <div><strong>إعداد:</strong> إدارة التحليل المالي والرقابة</div>
+                            </div>
+                        </div>
+
+                        <div class="meta-strip">
+                            <div><strong>الفترة المحددة بالتقرير:</strong> ${timeLabel}</div>
+                            <div><strong>إجمالي العمليات الموثقة:</strong> ${(metrics.enrollmentCount || 0)} عملية اشتراك</div>
+                        </div>
+
+                        <div class="kpi-grid">
+                            <div class="kpi-card">
+                                <div class="val" style="color: #2563eb;">${(metrics.totalGmv || 0).toLocaleString()} ج.م</div>
+                                <div class="lbl">إجمالي حجم التداول (GMV)</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val" style="color: #16a34a;">${(metrics.totalPlatformCommission || 0).toLocaleString()} ج.م</div>
+                                <div class="lbl">صافي أرباح إدارة المنصة (5%)</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val" style="color: #7c3aed;">${(metrics.totalInstructorEarnings || 0).toLocaleString()} ج.م</div>
+                                <div class="lbl">مستحقات المحاضرين (95%)</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val">${metrics.enrollmentCount || 0}</div>
+                                <div class="lbl">إجمالي اشتراكات الطلاب</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val" style="color: #ea580c;">${(metrics.totalWithdrawalsPaid || 0).toLocaleString()} ج.م</div>
+                                <div class="lbl">المبالغ المسحوبة للمدرسين</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val">${(metrics.aov || 0).toLocaleString()} ج.م</div>
+                                <div class="lbl">متوسط قيمة العملية (AOV)</div>
+                            </div>
+                        </div>
+
+                        <div class="section-title">الكورسات الأعلى مبيعاً وتدفقاً مالياً بالفترة</div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>الكورس</th>
+                                    <th>المحاضر</th>
+                                    <th>المبيعات</th>
+                                    <th>إجمالي الإيرادات</th>
+                                    <th>حصة المنصة (5%)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${(metrics.topCourses || []).length === 0 ? `
+                                    <tr>
+                                        <td colspan="5" style="text-align:center; padding: 20px; color: #64748b;">لا توجد مبيعات مسجلة في هذه الفترة</td>
+                                    </tr>
+                                ` : (metrics.topCourses || []).slice(0, 8).map((c: any) => `
+                                    <tr>
+                                        <td style="font-weight: 800;">${c.title}</td>
+                                        <td>${c.instructor || 'مدرس المادة'}</td>
+                                        <td>${c.enrollments} طالب</td>
+                                        <td style="color: #2563eb; font-weight: 800;">${(c.revenue || 0).toLocaleString()} ج.م</td>
+                                        <td style="color: #16a34a; font-weight: 800;">${Math.round((c.revenue || 0) * 0.05).toLocaleString()} ج.م</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+
+                        <div class="footer">
+                            <div>
+                                <p style="margin: 0; font-weight: 700;">أكاديمية المنارة للتعليم الإلكتروني © 2026</p>
+                                <p style="margin: 2px 0 0; color: #64748b; font-size: 11px;">مستند رقابي مالي معتمد موجّه للإدارة العامة ومجلس الإدارة.</p>
+                            </div>
+                            <div class="stamp-block">
+                                <div class="stamp-box"></div>
+                                <div>توقيع المدير المالي التنفيذي</div>
+                            </div>
+                            <div class="stamp-block">
+                                <div class="stamp-box"></div>
+                                <div>اعتماد الرئيس التنفيذي / الختم</div>
+                            </div>
+                        </div>
+                    </div>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 300);
     }
 
     return (

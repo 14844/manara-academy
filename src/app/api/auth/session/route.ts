@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import crypto from "crypto";
+import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
     const { idToken, deviceId } = await request.json();
@@ -101,12 +102,40 @@ export async function POST(request: Request) {
             path: '/',
         });
 
+        logServerActivity({
+            action: "user_session_created",
+            category: "auth",
+            title: "إنشاء جلسة دخول موثقة",
+            description: `تم إنشاء جلسة مصادقة بنجاح للمستخدم (${decoded.email || uid})`,
+            status: "success",
+            user_id: uid,
+            user_email: decoded.email || "",
+            user_name: decoded.name || decoded.email || "مستخدم",
+            metadata: { device_id: deviceId.slice(0, 32) }
+        }).catch(() => {});
+
         return NextResponse.json({ status: 'success', sessionId: effectiveSessionId });
     } catch (error: any) {
         if (error.message === "STATUS_STOPPED") {
+            logServerActivity({
+                action: "user_login_blocked",
+                category: "auth",
+                title: "محاولة دخول حساب موقوف",
+                description: `محاولة دخول فاشلة لحساب موقف أو معلق`,
+                status: "failed",
+                error_message: "الحساب موقوف أو معلق",
+            }).catch(() => {});
             return NextResponse.json({ error: "تم رفض أو إيقاف هذا الحساب. يرجى التواصل مع الإدارة" }, { status: 403 });
         }
         if (error.message === "DEVICE_LIMIT_REACHED") {
+            logServerActivity({
+                action: "user_device_limit_exceeded",
+                category: "auth",
+                title: "تجاوز الحد الأقصى للأجهزة",
+                description: `محاولة تسجيل دخول من جهاز ثالث (الحد المسموح جهازان)`,
+                status: "failed",
+                error_message: "تجاوز حد الأجهزة المصرح بها",
+            }).catch(() => {});
             return NextResponse.json({
                 error: "عذراً، لقد وصلت للحد الأقصى للأجهزة (جهازين فقط). يرجى التواصل مع إدارة الأكاديمية.",
             }, { status: 403 });
@@ -120,5 +149,14 @@ export async function DELETE() {
     const cookieStore = await cookies();
     cookieStore.delete('session');
     cookieStore.delete('session_id');
+
+    logServerActivity({
+        action: "user_logout",
+        category: "auth",
+        title: "تسجيل خروج مستخدم",
+        description: "قام المستخدم بتسجيل الخروج وإنهاء جلسته",
+        status: "info",
+    }).catch(() => {});
+
     return NextResponse.json({ status: 'success' });
 }

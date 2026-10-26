@@ -4,6 +4,7 @@ import { BUNNY_CONFIG } from "@/lib/bunny/config";
 import { getServerAuth } from "@/lib/server-auth";
 import crypto from "crypto";
 import { BUNNY_GUID_RE, extractStoragePath, isCourseScopedPath } from "@/lib/media-security";
+import { logServerActivity } from "@/lib/server-activity-logger";
 
 // استخراج YouTube Video ID من أي صيغة رابط (بما في ذلك Shorts)
 function extractYouTubeId(url: string): string | null {
@@ -160,6 +161,19 @@ export async function GET(request: Request) {
                 return NextResponse.json({ error: "فشل إنشاء رابط الفيديو الآمن" }, { status: 500 });
             }
 
+            logServerActivity({
+                action: "video_token_generated",
+                category: "course",
+                title: "مشاهدة فيديو (مباشر)",
+                description: `قام الطالب "${user.profile?.full_name || user.email}" بطلب رابط مشاهدة مباشر لكورس (${courseId})`,
+                status: "info",
+                user_id: user.uid,
+                user_name: user.profile?.full_name || user.email || "طالب",
+                user_email: user.email || "",
+                user_role: (user.role as any) || "student",
+                metadata: { course_id: courseId, storage_path: cleanStoragePath }
+            }).catch(() => {});
+
             return NextResponse.json({ type: "direct", url: signedData.signedUrl });
         } else if (rawPath.startsWith("bunny_stream://")) {
             const guid = rawPath.split("://")[1];
@@ -178,6 +192,19 @@ export async function GET(request: Request) {
             const token = crypto.createHash('sha256').update(tokenInput).digest('hex');
             const embedUrl = `https://iframe.mediadelivery.net/embed/${libraryId}/${guid}?token=${token}&expires=${expiration}&autoplay=true`;
             
+            logServerActivity({
+                action: "video_token_generated",
+                category: "course",
+                title: "مشاهدة درس فيديو (Bunny)",
+                description: `قام الطالب "${user.profile?.full_name || user.email}" ببدء تشغيل درس فيديو بكورس (${courseId})`,
+                status: "info",
+                user_id: user.uid,
+                user_name: user.profile?.full_name || user.email || "طالب",
+                user_email: user.email || "",
+                user_role: (user.role as any) || "student",
+                metadata: { course_id: courseId, stream_guid: guid }
+            }).catch(() => {});
+
             return NextResponse.json({ 
                 type: "stream", 
                 url: embedUrl,
