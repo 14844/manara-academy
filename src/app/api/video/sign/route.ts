@@ -1,6 +1,7 @@
 import { adminDb, adminStorage } from "@/lib/firebase/admin";
 import { NextResponse } from "next/server";
 import { getServerAuth } from "@/lib/server-auth";
+import { canReviewCourseContent } from "@/lib/media-security";
 
 export async function GET(request: Request) {
     const user = await getServerAuth(request);
@@ -29,6 +30,10 @@ export async function GET(request: Request) {
         if (!cleanPath.startsWith(`courses/${courseId}/`)) {
             return NextResponse.json({ error: 'Path must belong to the specified course' }, { status: 403 });
         }
+    }
+
+    // Content reviewers may view course media without enrollment (read-only), still scoped to the course path above.
+    if (user.role !== "admin" && !canReviewCourseContent(user)) {
         const enrollment = await adminDb.collection("enrollments").doc(`${user.uid}_${courseId}`).get();
         if (!enrollment.exists || enrollment.data()?.status !== "active") {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

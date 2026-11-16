@@ -44,8 +44,14 @@ import {
 } from "@/components/ui/select"
 import { toast } from "sonner"
 import Link from "next/link"
+import { useAdminRole } from "@/components/admin/admin-role-context"
 
 export default function AdminKpisPage() {
+    const { can } = useAdminRole()
+    // finance.view → full financial dashboard; analytics.view only (marketing) → non-financial numbers
+    const canViewFinance = can("finance.view")
+    // Enrollments are readable by admin / finance / marketing (= everyone with analytics.view)
+    const canReadEnrollments = canViewFinance || can("analytics.view")
     const [isLoading, setIsLoading] = useState(true)
     const [isRefreshing, setIsRefreshing] = useState(false)
     const [timeRange, setTimeRange] = useState("all") // "month", "quarter", "year", "all"
@@ -65,40 +71,48 @@ export default function AdminKpisPage() {
     async function fetchKpiData() {
         setIsRefreshing(true)
         try {
-            // Concurrent fetch of all financial and operational collections
-            const [
-                txSnap,
-                enrSnap,
-                withSnap,
-                walSnap,
-                profSnap,
-                coursesSnap
-            ] = await Promise.all([
-                getDocs(collection(db, "transactions")).catch(() => ({ docs: [] } as any)),
-                getDocs(collection(db, "enrollments")).catch(() => ({ docs: [] } as any)),
-                getDocs(collection(db, "withdrawal_requests")).catch(() => ({ docs: [] } as any)),
-                getDocs(collection(db, "wallet_requests")).catch(() => ({ docs: [] } as any)),
-                getDocs(collection(db, "profiles")).catch(() => ({ docs: [] } as any)),
-                getDocs(collection(db, "courses")).catch(() => ({ docs: [] } as any)),
+            // Each query is independent: a denied/failed one resolves to [] and never breaks the others.
+            const fetchList = async (name: string, enabled: boolean): Promise<any[]> => {
+                if (!enabled) return []
+                try {
+                    const snap = await getDocs(collection(db, name))
+                    return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+                } catch (err) {
+                    console.warn(`KPIs: could not load ${name}`, err)
+                    return []
+                }
+            }
+
+            // Money collections are only queried for roles that can see finance
+            const [txList, enrList, withList, walList, profList, coursesList] = await Promise.all([
+                fetchList("transactions", canViewFinance),
+                fetchList("enrollments", canReadEnrollments),
+                fetchList("withdrawal_requests", canViewFinance),
+                fetchList("wallet_requests", canViewFinance),
+                fetchList("profiles", true),
+                fetchList("courses", true),
             ])
 
-            setTransactions(txSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
-            setEnrollments(enrSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
-            setWithdrawalRequests(withSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
-            setWalletRequests(walSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
+            setTransactions(txList)
+            setEnrollments(enrList)
+            setWithdrawalRequests(withList)
+            setWalletRequests(walList)
             let usersList: any[] = []
-            try {
-                const uRes = await fetch("/api/admin/users")
-                if (uRes.ok) {
-                    const uData = await uRes.json()
-                    usersList = uData.users || []
-                }
-            } catch {}
+            // The users API (merged with wallet balances) is only needed for the financial view
+            if (canViewFinance) {
+                try {
+                    const uRes = await fetch("/api/admin/users")
+                    if (uRes.ok) {
+                        const uData = await uRes.json()
+                        usersList = uData.users || []
+                    }
+                } catch {}
+            }
             if (!usersList.length) {
-                usersList = profSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+                usersList = profList
             }
             setProfiles(usersList)
-            setCourses(coursesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
+            setCourses(coursesList)
         } catch (error: any) {
             console.error("Error fetching KPI data:", error)
             toast.error("حدث خطأ أثناء تحميل بيانات المؤشرات المالية")
@@ -217,6 +231,11 @@ export default function AdminKpisPage() {
             .sort((a, b) => b.revenue - a.revenue)
             .slice(0, 5)
 
+        // Non-financial ranking (by number of enrollments) for roles without finance.view
+        const topCoursesByCount = Object.values(courseSalesMap)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5)
+
         // Monthly Breakdown for Bar/Area Graph (last 6 months)
         const monthNames = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
         const monthlyData: { month: string; gmv: number; commission: number; enrollments: number }[] = []
@@ -268,6 +287,7 @@ export default function AdminKpisPage() {
             instructorCount,
             totalCourses: courses.length,
             topCourses,
+            topCoursesByCount,
             monthlyData,
         }
     }, [enrollments, transactions, walletRequests, withdrawalRequests, profiles, courses, timeRange])
@@ -333,6 +353,7 @@ export default function AdminKpisPage() {
 
     // Find max value in monthly graph for proper SVG scaling
     const maxMonthlyGmv = Math.max(...metrics.monthlyData.map(m => m.gmv), 100)
+    const maxMonthlyEnrollments = Math.max(...metrics.monthlyData.map(m => m.enrollments), 1)
 
     function handlePrint() {
         const windowUrl = 'about:blank';
@@ -593,10 +614,12 @@ export default function AdminKpisPage() {
                         <div className="p-2.5 bg-gradient-to-br from-emerald-500/20 to-teal-500/10 text-emerald-600 rounded-xl">
                             <BarChart3 className="h-7 w-7" />
                         </div>
-                        <span>المؤشرات المالية ولوحة الأداء (Finance & KPIs)</span>
+                        <span>{canViewFinance ? "المؤشرات المالية ولوحة الأداء (Finance & KPIs)" : "مؤشرات الأداء (KPIs)"}</span>
                     </h1>
                     <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
-                        تحليل بياني وتفصيلي متكامل لحجم التداول، صافي أرباح إدارة المنصة (5%)، التدفقات النقدية، وتقييم الربحية والخسارة.
+                        {canViewFinance
+                            ? "تحليل بياني وتفصيلي متكامل لحجم التداول، صافي أرباح إدارة المنصة (5%)، التدفقات النقدية، وتقييم الربحية والخسارة."
+                            : "متابعة أعداد الاشتراكات، نمو الطلاب والمعلمين، والكورسات الأكثر إقبالاً."}
                     </p>
                 </div>
 
@@ -615,15 +638,17 @@ export default function AdminKpisPage() {
                         </SelectContent>
                     </Select>
 
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handlePrint}
-                        className="gap-2 font-bold hover:bg-zinc-100"
-                    >
-                        <Printer className="w-4 h-4" />
-                        <span>طباعة التقرير</span>
-                    </Button>
+                    {canViewFinance && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handlePrint}
+                            className="gap-2 font-bold hover:bg-zinc-100"
+                        >
+                            <Printer className="w-4 h-4" />
+                            <span>طباعة التقرير</span>
+                        </Button>
+                    )}
 
                     <Button
                         variant="default"
@@ -639,6 +664,7 @@ export default function AdminKpisPage() {
             </div>
 
             {/* Profit & Loss Master Banner (هل احنا بنكسب ولا بنخسر؟) */}
+            {canViewFinance && (
             <Card className={`border-2 shadow-sm overflow-hidden ${
                 metrics.isProfitable 
                     ? "bg-gradient-to-l from-emerald-500/10 via-background to-background border-emerald-500/40" 
@@ -695,8 +721,44 @@ export default function AdminKpisPage() {
                     </div>
                 </CardContent>
             </Card>
+            )}
+
+            {/* Non-financial KPI cards (roles without finance.view) */}
+            {!canViewFinance && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <SimpleKpiCard
+                        title="إجمالي الاشتراكات"
+                        value={metrics.enrollmentCount}
+                        subtitle="عمليات التحاق خلال الفترة المحددة"
+                        icon={<Receipt className="h-4 w-4" />}
+                        color="bg-blue-500/10 text-blue-600"
+                    />
+                    <SimpleKpiCard
+                        title="الطلاب المسجلون"
+                        value={metrics.studentCount}
+                        subtitle="إجمالي حسابات الطلاب"
+                        icon={<Users className="h-4 w-4" />}
+                        color="bg-emerald-500/10 text-emerald-600"
+                    />
+                    <SimpleKpiCard
+                        title="المعلمون"
+                        value={metrics.instructorCount}
+                        subtitle="إجمالي حسابات المحاضرين"
+                        icon={<Layers className="h-4 w-4" />}
+                        color="bg-purple-500/10 text-purple-600"
+                    />
+                    <SimpleKpiCard
+                        title="الكورسات على المنصة"
+                        value={metrics.totalCourses}
+                        subtitle="جميع الكورسات المضافة"
+                        icon={<BookOpen className="h-4 w-4" />}
+                        color="bg-amber-500/10 text-amber-600"
+                    />
+                </div>
+            )}
 
             {/* Core KPI Stat Cards */}
+            {canViewFinance && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card className="border-border/60 shadow-sm hover:shadow-md transition-shadow">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -776,20 +838,23 @@ export default function AdminKpisPage() {
                     </CardContent>
                 </Card>
             </div>
+            )}
 
             {/* Graphs & Charts Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* 1. Monthly Performance Chart (Bar / Curve Graph) */}
-                <Card className="lg:col-span-2 border-border/60 shadow-sm">
+                <Card className={`${canViewFinance ? "lg:col-span-2" : "lg:col-span-3"} border-border/60 shadow-sm`}>
                     <CardHeader className="pb-3 border-b">
                         <div className="flex items-center justify-between">
                             <div>
                                 <CardTitle className="text-base font-bold flex items-center gap-2">
                                     <LineChart className="w-5 h-5 text-primary" />
-                                    <span>حركة المبيعات الشهرية وتطور العائد (Monthly Trend)</span>
+                                    <span>{canViewFinance ? "حركة المبيعات الشهرية وتطور العائد (Monthly Trend)" : "حركة الاشتراكات الشهرية (Monthly Trend)"}</span>
                                 </CardTitle>
                                 <CardDescription className="text-xs mt-1">
-                                    مقارنة حجم التداول الكلي (GMV) وعمولة المنصة خلال آخر 6 أشهر
+                                    {canViewFinance
+                                        ? "مقارنة حجم التداول الكلي (GMV) وعمولة المنصة خلال آخر 6 أشهر"
+                                        : "عدد عمليات الالتحاق بالكورسات خلال آخر 6 أشهر"}
                                 </CardDescription>
                             </div>
                             <Badge variant="outline" className="text-xs font-mono">آخر 6 أشهر</Badge>
@@ -799,8 +864,10 @@ export default function AdminKpisPage() {
                         {/* Interactive Responsive SVG Bar Graph */}
                         <div className="h-64 flex items-end gap-3 sm:gap-6 pt-6 px-2 border-b">
                             {metrics.monthlyData.map((item, idx) => {
-                                const heightPercent = maxMonthlyGmv > 0 
-                                    ? Math.max(8, Math.round((item.gmv / maxMonthlyGmv) * 80)) 
+                                const barValue = canViewFinance ? item.gmv : item.enrollments
+                                const barMax = canViewFinance ? maxMonthlyGmv : maxMonthlyEnrollments
+                                const heightPercent = barMax > 0
+                                    ? Math.max(8, Math.round((barValue / barMax) * 80))
                                     : 8
 
                                 return (
@@ -808,13 +875,19 @@ export default function AdminKpisPage() {
                                         {/* Tooltip on hover */}
                                         <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-12 bg-zinc-900 text-white text-[11px] py-1.5 px-2.5 rounded-lg shadow-lg whitespace-nowrap z-20 pointer-events-none">
                                             <div className="font-bold">{item.month}</div>
-                                            <div>مبيعات: {item.gmv} ج.م</div>
-                                            <div className="text-emerald-400">عمولة: {item.commission} ج.م</div>
+                                            {canViewFinance ? (
+                                                <>
+                                                    <div>مبيعات: {item.gmv} ج.م</div>
+                                                    <div className="text-emerald-400">عمولة: {item.commission} ج.م</div>
+                                                </>
+                                            ) : (
+                                                <div>اشتراكات: {item.enrollments}</div>
+                                            )}
                                         </div>
 
                                         {/* Amount label */}
                                         <span className="text-[10px] font-mono font-bold text-muted-foreground mb-1 group-hover:text-primary transition-colors">
-                                            {item.gmv > 0 ? `${item.gmv}` : "0"}
+                                            {barValue > 0 ? `${barValue}` : "0"}
                                         </span>
 
                                         {/* Visual Bar with Gradient */}
@@ -823,7 +896,7 @@ export default function AdminKpisPage() {
                                             className="w-full max-w-[48px] rounded-t-lg bg-gradient-to-t from-primary/80 to-primary group-hover:from-emerald-500 group-hover:to-teal-400 transition-all duration-300 shadow-sm relative overflow-hidden"
                                         >
                                             {/* Sub-bar for 5% commission indicator */}
-                                            <div className="absolute bottom-0 inset-x-0 h-[15%] bg-emerald-300/40" />
+                                            {canViewFinance && <div className="absolute bottom-0 inset-x-0 h-[15%] bg-emerald-300/40" />}
                                         </div>
 
                                         {/* Month label */}
@@ -837,19 +910,29 @@ export default function AdminKpisPage() {
 
                         {/* Chart Legend */}
                         <div className="flex items-center justify-center gap-6 mt-4 text-xs text-muted-foreground">
-                            <div className="flex items-center gap-2">
-                                <div className="w-3 h-3 rounded-sm bg-primary" />
-                                <span>حجم التداول الكلي (GMV)</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="w-3 h-3 rounded-sm bg-emerald-500" />
-                                <span>أرباح المنصة (5%)</span>
-                            </div>
+                            {canViewFinance ? (
+                                <>
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-3 h-3 rounded-sm bg-primary" />
+                                        <span>حجم التداول الكلي (GMV)</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-3 h-3 rounded-sm bg-emerald-500" />
+                                        <span>أرباح المنصة (5%)</span>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-sm bg-primary" />
+                                    <span>عدد الاشتراكات</span>
+                                </div>
+                            )}
                         </div>
                     </CardContent>
                 </Card>
 
                 {/* 2. Platform Revenue Breakdown (Pie/Donut Visual) */}
+                {canViewFinance && (
                 <Card className="border-border/60 shadow-sm flex flex-col justify-between">
                     <CardHeader className="pb-3 border-b">
                         <CardTitle className="text-base font-bold flex items-center gap-2">
@@ -932,9 +1015,11 @@ export default function AdminKpisPage() {
                         <Badge variant="outline" className="text-[10px]">نظام العمولات الموحد</Badge>
                     </CardFooter>
                 </Card>
+                )}
             </div>
 
             {/* Smart Financial Advisory & Insights (نصائح مالية ذكية للإدارة) */}
+            {canViewFinance && (
             <Card className="border-border/60 shadow-sm overflow-hidden">
                 <CardHeader className="bg-gradient-to-l from-amber-500/10 via-background to-background border-b pb-4">
                     <div className="flex items-center justify-between">
@@ -996,28 +1081,29 @@ export default function AdminKpisPage() {
                     </div>
                 </CardContent>
             </Card>
+            )}
 
             {/* Performance Ranking (Top Courses & Cash Flow Table) */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className={`grid grid-cols-1 gap-6 ${canViewFinance ? "lg:grid-cols-2" : ""}`}>
                 {/* Top Courses by Sales */}
                 <Card className="border-border/60 shadow-sm">
                     <CardHeader className="pb-3 border-b">
                         <CardTitle className="text-base font-bold flex items-center justify-between">
                             <span className="flex items-center gap-2">
                                 <BookOpen className="w-5 h-5 text-primary" />
-                                <span>الكورسات الأكثر تحقيقاً للإيرادات</span>
+                                <span>{canViewFinance ? "الكورسات الأكثر تحقيقاً للإيرادات" : "الكورسات الأكثر اشتراكاً"}</span>
                             </span>
-                            <span className="text-xs font-normal text-muted-foreground">أعلى المبيعات</span>
+                            <span className="text-xs font-normal text-muted-foreground">{canViewFinance ? "أعلى المبيعات" : "أعلى الاشتراكات"}</span>
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="pt-4">
-                        {metrics.topCourses.length === 0 ? (
+                        {(canViewFinance ? metrics.topCourses : metrics.topCoursesByCount).length === 0 ? (
                             <div className="py-8 text-center text-muted-foreground text-xs italic">
-                                لا توجد مبيعات كورسات مسجلة في هذه الفترة بعد.
+                                {canViewFinance ? "لا توجد مبيعات كورسات مسجلة في هذه الفترة بعد." : "لا توجد اشتراكات مسجلة في هذه الفترة بعد."}
                             </div>
                         ) : (
                             <div className="space-y-3">
-                                {metrics.topCourses.map((c, i) => (
+                                {(canViewFinance ? metrics.topCourses : metrics.topCoursesByCount).map((c, i) => (
                                     <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 hover:bg-muted/40 transition-colors">
                                         <div className="flex items-center gap-3">
                                             <span className="w-6 h-6 rounded-full bg-primary/10 text-primary font-black text-xs flex items-center justify-center">
@@ -1028,10 +1114,16 @@ export default function AdminKpisPage() {
                                                 <span className="text-xs text-muted-foreground">{c.instructor} • {c.count} طالب</span>
                                             </div>
                                         </div>
-                                        <div className="text-left font-mono">
-                                            <span className="font-bold text-sm text-emerald-600 block">{c.revenue.toLocaleString()} ج.م</span>
-                                            <span className="text-[10px] text-muted-foreground">عمولة المنصة: {(c.revenue * 0.05).toFixed(1)} ج.م</span>
-                                        </div>
+                                        {canViewFinance ? (
+                                            <div className="text-left font-mono">
+                                                <span className="font-bold text-sm text-emerald-600 block">{c.revenue.toLocaleString()} ج.م</span>
+                                                <span className="text-[10px] text-muted-foreground">عمولة المنصة: {(c.revenue * 0.05).toFixed(1)} ج.م</span>
+                                            </div>
+                                        ) : (
+                                            <div className="text-left font-mono">
+                                                <span className="font-bold text-sm text-primary block">{c.count} اشتراك</span>
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -1040,6 +1132,7 @@ export default function AdminKpisPage() {
                 </Card>
 
                 {/* Cash Flow & Liabilities Overview */}
+                {canViewFinance && (
                 <Card className="border-border/60 shadow-sm">
                     <CardHeader className="pb-3 border-b">
                         <CardTitle className="text-base font-bold flex items-center justify-between">
@@ -1085,7 +1178,27 @@ export default function AdminKpisPage() {
                         </div>
                     </CardContent>
                 </Card>
+                )}
             </div>
         </div>
+    )
+}
+
+function SimpleKpiCard({ title, value, subtitle, icon, color }: { title: string; value: number; subtitle: string; icon: React.ReactNode; color: string }) {
+    return (
+        <Card className="border-border/60 shadow-sm hover:shadow-md transition-shadow">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-xs font-bold text-muted-foreground uppercase">
+                    {title}
+                </CardTitle>
+                <div className={`p-2 rounded-lg ${color}`}>
+                    {icon}
+                </div>
+            </CardHeader>
+            <CardContent>
+                <div className="text-2xl font-black text-foreground">{value.toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+            </CardContent>
+        </Card>
     )
 }

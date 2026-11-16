@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { getServerAuth } from "@/lib/server-auth";
 import { checkRateLimitAsync, getClientIp } from "@/lib/rate-limiter";
+import { isBackofficeRole } from "@/lib/permissions";
 
 export async function POST(request: Request) {
     try {
@@ -50,6 +51,11 @@ export async function POST(request: Request) {
             }
         }
 
+        // Only admin / staff (backoffice) sessions may file entries under the admin_action category
+        if (safeCategory === "admin_action" && !isBackofficeRole(user?.role)) {
+            safeCategory = "client";
+        }
+
         const validStatuses = ["success", "failed", "pending", "info"];
         const safeStatus = typeof body.status === "string" && validStatuses.includes(body.status)
             ? body.status
@@ -96,7 +102,12 @@ export async function POST(request: Request) {
         const safeUserId = user?.uid || (typeof body.user_id === "string" ? body.user_id.slice(0, 128) : "guest");
         const safeUserName = user?.profile?.full_name || (typeof body.user_name === "string" ? body.user_name.slice(0, 100) : (user?.email || "زائر"));
         const safeUserEmail = user?.email || (typeof body.user_email === "string" ? body.user_email.slice(0, 150) : (body.metadata?.email || ""));
-        const safeUserRole = (user?.role as any) || (typeof body.user_role === "string" ? body.user_role : "guest");
+        // Role always comes from the server-side session (admin & staff included). Anonymous callers can
+        // never claim a privileged role: only student / instructor / guest are accepted from the body.
+        const ANON_ALLOWED_ROLES = ["student", "instructor", "guest"];
+        const safeUserRole = user
+            ? user.role
+            : (typeof body.user_role === "string" && ANON_ALLOWED_ROLES.includes(body.user_role) ? body.user_role : "guest");
 
         const logId = await logServerActivity({
             action: safeAction,

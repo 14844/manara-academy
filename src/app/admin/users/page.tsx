@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase/config"
-import { collection, query, getDocs, doc, updateDoc, orderBy } from "firebase/firestore"
+import { collection, query, getDocs, orderBy } from "firebase/firestore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -35,12 +35,21 @@ import {
     DialogFooter,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { increment, runTransaction } from "firebase/firestore"
 import { auth } from "@/lib/firebase/config"
-import { logActivity } from "@/lib/activity-logger"
+import { logActivity, type ActivityLogInput } from "@/lib/activity-logger"
 import { TablePageSkeleton } from "@/components/skeletons"
+import { useAdminRole } from "@/components/admin/admin-role-context"
+import { getRoleLabel, isBackofficeRole } from "@/lib/permissions"
 
 export default function AdminUsersPage() {
+    const { role, roleLabel, isAdmin, can } = useAdminRole()
+    const canViewWallet = can("wallet.view")
+    const canAdjustWallet = can("wallet.adjust")
+    const canManageStatus = can("users.manage_status")
+    const canVerify = can("users.verify")
+    const canViewContact = can("users.view_contact")
+    // Role sent with client-side activity logs (the server re-derives it from the session anyway)
+    const logRole = (role || "admin") as ActivityLogInput["user_role"]
     const [users, setUsers] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [searchTerm, setSearchTerm] = useState("")
@@ -63,6 +72,11 @@ export default function AdminUsersPage() {
                 const data = await res.json()
                 setUsers(data.users || [])
                 return
+            }
+            // Direct Firestore fallback only for the admin: for staff the API is the single source,
+            // because it strips contact / wallet fields their role is not allowed to see.
+            if (!isAdmin) {
+                throw new Error("users api failed")
             }
             const q = query(collection(db, "profiles"), orderBy("created_at", "desc"))
             const querySnapshot = await getDocs(q)
@@ -107,12 +121,12 @@ export default function AdminUsersPage() {
                 action: "admin_manual_recharge",
                 category: "financial",
                 title: "شحن رصيد يدوي بواسطة الإدارة",
-                description: `قام المسؤول بشحن مبلغ ${rechargeAmount} ج.م مباشرة إلى محفظة المستخدم "${selectedUserForRecharge.full_name}" (${selectedUserForRecharge.email || selectedUserForRecharge.id})`,
+                description: `قام ${roleLabel} بشحن مبلغ ${rechargeAmount} ج.م مباشرة إلى محفظة المستخدم "${selectedUserForRecharge.full_name}" (${selectedUserForRecharge.email || selectedUserForRecharge.id})`,
                 status: "success",
                 user_id: currentAdmin?.uid || "admin",
                 user_name: currentAdmin?.displayName || "مسؤول المنصة",
                 user_email: currentAdmin?.email || "",
-                user_role: "admin",
+                user_role: logRole,
                 target_user_id: selectedUserForRecharge.id,
                 target_user_name: selectedUserForRecharge.full_name,
                 amount: Number(rechargeAmount),
@@ -172,12 +186,12 @@ export default function AdminUsersPage() {
                 action: "admin_manual_deduct",
                 category: "financial",
                 title: "خصم رصيد يدوي بواسطة الإدارة",
-                description: `قام المسؤول بخصم مبلغ ${withdrawAmount} ج.م من محفظة المستخدم "${selectedUserForWithdraw.full_name}" (${selectedUserForWithdraw.email || selectedUserForWithdraw.id})`,
+                description: `قام ${roleLabel} بخصم مبلغ ${withdrawAmount} ج.م من محفظة المستخدم "${selectedUserForWithdraw.full_name}" (${selectedUserForWithdraw.email || selectedUserForWithdraw.id})`,
                 status: "success",
                 user_id: currentAdmin?.uid || "admin",
                 user_name: currentAdmin?.displayName || "مسؤول المنصة",
                 user_email: currentAdmin?.email || "",
-                user_role: "admin",
+                user_role: logRole,
                 target_user_id: selectedUserForWithdraw.id,
                 target_user_name: selectedUserForWithdraw.full_name,
                 amount: -Number(withdrawAmount),
@@ -224,12 +238,12 @@ export default function AdminUsersPage() {
                 action: "user_status_changed",
                 category: "admin_action",
                 title: newStatus === "approved" ? "تفعيل حساب مستخدم" : "رفض / تعليق حساب مستخدم",
-                description: `قام المسؤول بـ (${newStatus === "approved" ? "تفعيل واعتماد" : "رفض"}) حساب المستخدم "${targetUser?.full_name || userId}"`,
+                description: `قام ${roleLabel} بـ (${newStatus === "approved" ? "تفعيل واعتماد" : "رفض"}) حساب المستخدم "${targetUser?.full_name || userId}"`,
                 status: "success",
                 user_id: currentAdmin?.uid || "admin",
                 user_name: currentAdmin?.displayName || "مسؤول المنصة",
                 user_email: currentAdmin?.email || "",
-                user_role: "admin",
+                user_role: logRole,
                 target_user_id: userId,
                 target_user_name: targetUser?.full_name,
                 metadata: {
@@ -267,12 +281,23 @@ export default function AdminUsersPage() {
         }
     }
 
+    // Verify / auto-report go through the API (direct profile writes are admin-only in Firestore rules)
+    const postUserAction = async (body: Record<string, unknown>) => {
+        const res = await fetch("/api/admin/users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+            throw new Error(data.error || "فشل تنفيذ الإجراء")
+        }
+        return data
+    }
+
     const handleToggleVerify = async (userId: string, currentStatus: boolean) => {
         try {
-            await updateDoc(doc(db, "profiles", userId), {
-                is_verified: !currentStatus,
-                updated_at: new Date().toISOString()
-            })
+            await postUserAction({ userId, action: "set_verified", value: !currentStatus })
             setUsers(users.map(u => u.id === userId ? { ...u, is_verified: !currentStatus } : u))
             toast.success(!currentStatus ? "تم توثيق المدرس بنجاح" : "تم إلغاء توثيق المدرس")
         } catch (error) {
@@ -283,15 +308,37 @@ export default function AdminUsersPage() {
 
     const handleToggleAutoReport = async (userId: string, currentStatus: boolean) => {
         try {
-            await updateDoc(doc(db, "profiles", userId), {
-                auto_report_unlocked: !currentStatus,
-                updated_at: new Date().toISOString()
-            })
+            await postUserAction({ userId, action: "set_auto_report", value: !currentStatus })
             setUsers(users.map(u => u.id === userId ? { ...u, auto_report_unlocked: !currentStatus } : u))
             toast.success(!currentStatus ? "تم تفعيل الجدولة التلقائية للمدرس بنجاح" : "تم قفل الجدولة التلقائية للمدرس")
         } catch (error) {
             console.error("Toggle auto report error:", error)
             toast.error("حدث خطأ أثناء تحديث حالة الجدولة التلقائية")
+        }
+    }
+
+    /**
+     * Which actions the current role may take on a given row.
+     * Non-admin staff never act on admin / staff accounts.
+     */
+    const getRowActions = (
+        user: any,
+        opts: { approve: boolean; reject: boolean }
+    ) => {
+        const isProtectedRow = !isAdmin && isBackofficeRole(user.role)
+        const allowStatus = canManageStatus && !isProtectedRow
+        const allowWallet = canAdjustWallet && !isProtectedRow
+        const allowVerify = canVerify && !isProtectedRow
+        return {
+            onApprove: allowStatus && opts.approve ? () => handleUpdateStatus(user.id, 'approved') : undefined,
+            onReject: allowStatus && opts.reject ? () => handleUpdateStatus(user.id, 'rejected') : undefined,
+            onResetDevices: allowStatus ? () => handleResetDevices(user.id) : undefined,
+            onRecharge: allowWallet ? (u: any) => setSelectedUserForRecharge(u) : undefined,
+            onWithdraw: allowWallet ? (u: any) => setSelectedUserForWithdraw(u) : undefined,
+            onToggleVerify: allowVerify ? handleToggleVerify : undefined,
+            onToggleAutoReport: allowVerify ? handleToggleAutoReport : undefined,
+            showWallet: canViewWallet,
+            showContact: canViewContact,
         }
     }
 
@@ -353,13 +400,7 @@ export default function AdminUsersPage() {
                                     <UserCard
                                         key={user.id}
                                         user={user}
-                                        onApprove={() => handleUpdateStatus(user.id, 'approved')}
-                                        onReject={() => handleUpdateStatus(user.id, 'rejected')}
-                                        onRecharge={(u: any) => setSelectedUserForRecharge(u)}
-                                        onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
-                                        onResetDevices={() => handleResetDevices(user.id)}
-                                        onToggleVerify={handleToggleVerify}
-                                        onToggleAutoReport={handleToggleAutoReport}
+                                        {...getRowActions(user, { approve: true, reject: true })}
                                     />
                             ))
                         ) : (
@@ -376,12 +417,7 @@ export default function AdminUsersPage() {
                             <UserCard
                                 key={user.id}
                                 user={user}
-                                onReject={() => handleUpdateStatus(user.id, 'rejected')}
-                                onRecharge={(u: any) => setSelectedUserForRecharge(u)}
-                                onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
-                                onResetDevices={() => handleResetDevices(user.id)}
-                                onToggleVerify={handleToggleVerify}
-                                onToggleAutoReport={handleToggleAutoReport}
+                                {...getRowActions(user, { approve: false, reject: true })}
                             />
                         ))}
                     </div>
@@ -393,13 +429,10 @@ export default function AdminUsersPage() {
                                     <UserCard
                                         key={user.id}
                                         user={user}
-                                        onApprove={user.status !== 'approved' ? () => handleUpdateStatus(user.id, 'approved') : undefined}
-                                        onReject={user.status !== 'rejected' ? () => handleUpdateStatus(user.id, 'rejected') : undefined}
-                                        onRecharge={(u: any) => setSelectedUserForRecharge(u)}
-                                        onWithdraw={(u: any) => setSelectedUserForWithdraw(u)}
-                                        onResetDevices={() => handleResetDevices(user.id)}
-                                        onToggleVerify={handleToggleVerify}
-                                        onToggleAutoReport={handleToggleAutoReport}
+                                        {...getRowActions(user, {
+                                            approve: user.status !== 'approved',
+                                            reject: user.status !== 'rejected',
+                                        })}
                                     />
                                 ))}
                             </div>
@@ -500,7 +533,7 @@ function StatCard({ title, value, icon: Icon, color }: any) {
     )
 }
 
-function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices, onToggleVerify, onToggleAutoReport }: any) {
+function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices, onToggleVerify, onToggleAutoReport, showWallet, showContact }: any) {
     const avatarUrl = user.photoURL || user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.full_name || user.id}`
 
     return (
@@ -524,7 +557,7 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDe
                                     <span className="text-[10px] font-mono font-bold tracking-tighter">{user.student_id || "بدون كود"}</span>
                                 </div>
                                 <Badge variant={user.role === 'instructor' ? 'default' : 'secondary'}>
-                                    {user.role === 'instructor' ? 'مدرس' : 'طالب'}
+                                    {getRoleLabel(user.role)}
                                 </Badge>
                                 <Badge variant="outline" className={
                                     user.status === 'approved' ? "text-green-600 border-green-200 bg-green-50" :
@@ -536,24 +569,32 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDe
                                 </Badge>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm text-muted-foreground">
-                                <div className="flex items-center gap-2">
-                                    <Mail className="h-3.5 w-3.5" />
-                                    {user.email}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Phone className="h-3.5 w-3.5" />
-                                    {user.phone}
-                                </div>
-                                {user.role === 'student' && (
+                                {showContact && (
                                     <>
-                                        <div className="flex items-center gap-2 text-primary font-bold">
-                                            <Wallet className="h-3.5 w-3.5" />
-                                            المحفظة: {user.wallet_balance || 0} ج.م
+                                        <div className="flex items-center gap-2">
+                                            <Mail className="h-3.5 w-3.5" />
+                                            {user.email}
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <Users className="h-3.5 w-3.5" />
-                                            ولي الأمر: {user.parent_phone}
+                                            <Phone className="h-3.5 w-3.5" />
+                                            {user.phone}
                                         </div>
+                                    </>
+                                )}
+                                {user.role === 'student' && (
+                                    <>
+                                        {showWallet && (
+                                            <div className="flex items-center gap-2 text-primary font-bold">
+                                                <Wallet className="h-3.5 w-3.5" />
+                                                المحفظة: {user.wallet_balance || 0} ج.م
+                                            </div>
+                                        )}
+                                        {showContact && (
+                                            <div className="flex items-center gap-2">
+                                                <Users className="h-3.5 w-3.5" />
+                                                ولي الأمر: {user.parent_phone}
+                                            </div>
+                                        )}
                                         <div className="flex items-center gap-2">
                                             <School className="h-3.5 w-3.5" />
                                             {user.grade_level}
@@ -585,24 +626,28 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDe
                     <div className="flex flex-col gap-2 shrink-0 sm:min-w-[140px]">
                         {user.role === 'instructor' && (
                             <>
-                                <Button 
-                                    variant="outline" 
-                                    className={`w-full gap-2 h-9 font-bold ${user.is_verified ? 'text-amber-600 border-amber-200 bg-amber-50' : 'text-blue-600 border-blue-200 bg-blue-50'}`}
-                                    size="sm" 
-                                    onClick={() => onToggleVerify(user.id, user.is_verified)}
-                                >
-                                    <ShieldCheck className="h-4 w-4" />
-                                    {user.is_verified ? 'إلغاء التوثيق' : 'توثيق المدرس'}
-                                </Button>
-                                <Button 
-                                    variant="outline" 
-                                    className={`w-full gap-2 h-9 font-bold ${user.auto_report_unlocked ? 'text-rose-600 border-rose-200 bg-rose-50 hover:bg-rose-100 hover:text-rose-700' : 'text-purple-600 border-purple-200 bg-purple-50 hover:bg-purple-100 hover:text-purple-700'}`}
-                                    size="sm" 
-                                    onClick={() => onToggleAutoReport(user.id, user.auto_report_unlocked)}
-                                >
-                                    <Calendar className="h-4 w-4" />
-                                    {user.auto_report_unlocked ? 'قفل الجدولة' : 'تفعيل الجدولة'}
-                                </Button>
+                                {onToggleVerify && (
+                                    <Button
+                                        variant="outline"
+                                        className={`w-full gap-2 h-9 font-bold ${user.is_verified ? 'text-amber-600 border-amber-200 bg-amber-50' : 'text-blue-600 border-blue-200 bg-blue-50'}`}
+                                        size="sm"
+                                        onClick={() => onToggleVerify(user.id, !!user.is_verified)}
+                                    >
+                                        <ShieldCheck className="h-4 w-4" />
+                                        {user.is_verified ? 'إلغاء التوثيق' : 'توثيق المدرس'}
+                                    </Button>
+                                )}
+                                {onToggleAutoReport && (
+                                    <Button
+                                        variant="outline"
+                                        className={`w-full gap-2 h-9 font-bold ${user.auto_report_unlocked ? 'text-rose-600 border-rose-200 bg-rose-50 hover:bg-rose-100 hover:text-rose-700' : 'text-purple-600 border-purple-200 bg-purple-50 hover:bg-purple-100 hover:text-purple-700'}`}
+                                        size="sm"
+                                        onClick={() => onToggleAutoReport(user.id, !!user.auto_report_unlocked)}
+                                    >
+                                        <Calendar className="h-4 w-4" />
+                                        {user.auto_report_unlocked ? 'قفل الجدولة' : 'تفعيل الجدولة'}
+                                    </Button>
+                                )}
                             </>
                         )}
                         {onApprove && (

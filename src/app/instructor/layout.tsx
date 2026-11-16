@@ -22,6 +22,7 @@ import { auth, db } from "@/lib/firebase/config"
 import { onAuthStateChanged } from "firebase/auth"
 import { doc, getDoc } from "firebase/firestore"
 import { toast } from "sonner"
+import { isBackofficeRole } from "@/lib/permissions"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { UserNav } from "../../components/user-nav"
@@ -75,7 +76,7 @@ export default function InstructorLayout({
             } else {
                 toast.error("عذراً، لا تمتلك صلاحيات الوصول لهذه الصفحة")
                 const role = docSnap.exists() ? docSnap.data().role : ''
-                if (role === 'admin') {
+                if (isBackofficeRole(role)) {
                     router.push("/admin")
                 } else {
                     router.push("/dashboard")

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
@@ -179,6 +179,16 @@ export function SignupForm() {
             acceptPolicies: false,
         },
     })
+
+    // Pre-select "مدرس" when coming from /teach (/signup?role=instructor).
+    // Read from window (not useSearchParams) to avoid needing a Suspense boundary.
+    useEffect(() => {
+        try {
+            if (new URLSearchParams(window.location.search).get("role") === "instructor") {
+                form.setValue("role", "instructor")
+            }
+        } catch {}
+    }, [form])
 
     async function onSubmit(values: z.infer<typeof signupSchema>) {
         setIsLoading(true)

@@ -40,6 +40,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { logActivity } from "@/lib/activity-logger"
 import { getCourseThumbnailUrl } from "@/lib/utils"
+import { getRoleLabel, hasPermission, isBackofficeRole, isStaffRole } from "@/lib/permissions"
 import {
     Dialog,
     DialogContent,
@@ -432,7 +433,7 @@ export default function CourseDetailsPage() {
                                     </div>
                                 </div>
 
-                                {!isEnrolled && profile?.role !== 'instructor' && profile?.role !== 'admin' && (
+                                {!isEnrolled && profile?.role !== 'instructor' && !isBackofficeRole(profile?.role) && (
                                     <div className="space-y-2 border-y py-4 my-2">
                                         <Label className="text-xs font-bold flex items-center gap-2">
                                             <Ticket className="h-3 w-3 text-primary" />
@@ -470,6 +471,10 @@ export default function CourseDetailsPage() {
                                     <Button className="w-full h-12 text-lg font-bold bg-amber-600 hover:bg-amber-700" size="lg" asChild>
                                         <Link href={`/learn/${course.id}`}>دخول كمسؤول (معاينة)</Link>
                                     </Button>
+                                ) : isStaffRole(profile?.role) && hasPermission(profile?.role, "courses.review") ? (
+                                    <Button className="w-full h-12 text-lg font-bold bg-amber-600 hover:bg-amber-700" size="lg" asChild>
+                                        <Link href={`/learn/${course.id}`}>معاينة الكورس (للمراجعة)</Link>
+                                    </Button>
                                 ) : profile?.role === 'instructor' && course.instructor_id === user?.uid ? (
                                     <Button className="w-full h-12 text-lg font-bold bg-blue-600 hover:bg-blue-700" size="lg" asChild>
                                         <Link href={`/learn/${course.id}`}>معاينة الكورس (أنت المدرس)</Link>
@@ -482,6 +487,11 @@ export default function CourseDetailsPage() {
                                     <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-center">
                                         <p className="text-sm font-bold text-amber-800">محفظة المدرس مخصصة للسحب فقط</p>
                                         <p className="text-xs text-amber-600 mt-1">لا يمكن للمدرسين شراء الكورسات من المنصة</p>
+                                    </div>
+                                ) : isStaffRole(profile?.role) ? (
+                                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                                        <p className="text-sm font-bold text-amber-800">حساب فريق عمل ({getRoleLabel(profile?.role)})</p>
+                                        <p className="text-xs text-amber-600 mt-1">لا يمكن لحسابات فريق العمل شراء الكورسات من المنصة</p>
                                     </div>
                                 ) : (
                                     <Button

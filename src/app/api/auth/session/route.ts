@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import crypto from "crypto";
 import { logServerActivity } from "@/lib/server-activity-logger";
+import { isBackofficeRole } from "@/lib/permissions";
 
 export async function POST(request: Request) {
     const { idToken, deviceId } = await request.json();
@@ -52,7 +53,8 @@ export async function POST(request: Request) {
             const profile = profileSnap.data() || {};
             const priv = privateSnap.exists ? privateSnap.data() || {} : {};
 
-            const status = priv.status || (profile.role === "admin" ? "active" : "pending");
+            // Admin and staff (backoffice) roles default to "active"; explicit blocked/suspended/rejected still stops them.
+            const status = priv.status || (isBackofficeRole(profile.role) ? "active" : "pending");
             if (status === "blocked" || status === "suspended" || status === "rejected") {
                 throw new Error("STATUS_STOPPED");
             }
@@ -64,8 +66,8 @@ export async function POST(request: Request) {
                 device_fingerprint: deviceFingerprint,
             };
 
-            // Server-side device limit check for students inside transaction
-            if (profile.role !== "admin" && profile.role !== "instructor") {
+            // Server-side device limit check for students inside transaction (skipped for instructors, admin & staff)
+            if (!isBackofficeRole(profile.role) && profile.role !== "instructor") {
                 const activeDevices: string[] = priv.active_devices || [];
                 const isKnown = activeDevices.includes(boundDeviceId) || activeDevices.includes(deviceId.trim());
 

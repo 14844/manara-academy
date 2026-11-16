@@ -33,7 +33,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { auth } from "@/lib/firebase/config"
-import { logActivity } from "@/lib/activity-logger"
+import { logActivity, type ActivityLogInput } from "@/lib/activity-logger"
+import { useAdminRole } from "@/components/admin/admin-role-context"
 import { Input } from "@/components/ui/input"
 import {
     Dialog,
@@ -46,6 +47,9 @@ import {
 import { TablePageSkeleton } from "@/components/skeletons"
 
 export default function AdminWithdrawalsPage() {
+    const { role, roleLabel } = useAdminRole()
+    // Role sent with client-side activity logs (the server re-derives it from the session anyway)
+    const logRole = (role || "admin") as ActivityLogInput["user_role"]
     const [requests, setRequests] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [searchTerm, setSearchTerm] = useState("")
@@ -134,12 +138,12 @@ export default function AdminWithdrawalsPage() {
                 action: "withdrawal_rejected",
                 category: "financial",
                 title: "رفض طلب سحب أرباح",
-                description: `رفض المسؤول طلب سحب أرباح بقيمة ${request.net_amount} ج.م للمحاضر "${request.instructor_name || request.instructor_id}" ورد المبلغ لمحفظته. السبب: ${reason || "لم يحدد"}`,
+                description: `رفض ${roleLabel} طلب سحب أرباح بقيمة ${request.net_amount} ج.م للمحاضر "${request.instructor_name || request.instructor_id}" ورد المبلغ لمحفظته. السبب: ${reason || "لم يحدد"}`,
                 status: "failed",
                 user_id: currentAdmin?.uid || "admin",
                 user_name: currentAdmin?.displayName || "مسؤول المنصة",
                 user_email: currentAdmin?.email || "",
-                user_role: "admin",
+                user_role: logRole,
                 target_user_id: request.instructor_id,
                 target_user_name: request.instructor_name,
                 amount: request.net_amount,

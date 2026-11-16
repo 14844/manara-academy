@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { getServerAuth } from "@/lib/server-auth";
+import { activityLogRole, requirePermission } from "@/lib/server-auth";
 import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
-    const user = await getServerAuth(request);
-    if (!user || user.role !== "admin") {
-        return NextResponse.json({ error: "غير مصرح لك بإجراء هذه العملية (مخصصة للمسؤول فقط)" }, { status: 403 });
+    const user = await requirePermission(request, "payments.manage");
+    if (!user) {
+        return NextResponse.json({ error: "غير مصرح لك بإجراء هذه العملية" }, { status: 403 });
     }
 
     try {
@@ -141,6 +141,8 @@ export async function POST(request: Request) {
             status: "info",
             user_id: user.uid,
             user_name: user.profile?.full_name || "مسؤول",
+            user_email: user.email || "",
+            user_role: activityLogRole(user),
             amount: Number(orderDataSnapshot?.amount || 0),
             metadata: {
                 order_id: targetOrderRef.id,

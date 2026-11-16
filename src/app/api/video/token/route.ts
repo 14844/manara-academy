@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { BUNNY_CONFIG } from "@/lib/bunny/config";
 import { getServerAuth } from "@/lib/server-auth";
 import crypto from "crypto";
-import { BUNNY_GUID_RE, extractStoragePath, isCourseScopedPath } from "@/lib/media-security";
+import { BUNNY_GUID_RE, canReviewCourseContent, extractStoragePath, isCourseScopedPath } from "@/lib/media-security";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 // استخراج YouTube Video ID من أي صيغة رابط (بما في ذلك Shorts)
@@ -36,8 +36,8 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: "Invalid params" }, { status: 400 });
     }
 
-    // 1. التحقق من التسجيل ونشاط الحساب (تخطي للمسؤول والمدرس صاحب الكورس)
-    if (user.role !== "admin") {
+    // 1. التحقق من التسجيل ونشاط الحساب (تخطي للمسؤول والمدرس صاحب الكورس ومراجع المحتوى - مشاهدة فقط)
+    if (user.role !== "admin" && !canReviewCourseContent(user)) {
         const courseRef = adminDb.doc(`courses/${courseId}`);
         const courseSnap = await courseRef.get();
         if (!courseSnap.exists) {

@@ -37,6 +37,12 @@ import {
 } from "@/components/ui/sheet"
 import { motion, AnimatePresence } from "framer-motion"
 import { LessonPlayerSkeleton } from "@/components/skeletons"
+import { getRoleLabel, hasPermission } from "@/lib/permissions"
+
+/** Admin (all permissions) or staff with "courses.review" may preview a course read-only without enrolling. */
+function canPreviewAsBackoffice(role: unknown): boolean {
+    return role === 'admin' || hasPermission(role, "courses.review")
+}
 
 export default function LearnPage() {
     const { id } = useParams()
@@ -109,8 +115,9 @@ export default function LearnPage() {
                 setCourse(courseData)
 
                 const isInstructorOwner = courseData.instructor_id === user.uid
-                const isAdmin = fullProfile.role === 'admin'
-                const isPreviewMode = isAdmin || isInstructorOwner
+                // Admin, or staff allowed to review courses (content reviewers), may preview read-only
+                const isBackofficePreviewer = canPreviewAsBackoffice((fullProfile as any).role)
+                const isPreviewMode = isBackofficePreviewer || isInstructorOwner
 
                 // 2. Check enrollment
                 const enrollmentRef = doc(db, "enrollments", `${user.uid}_${id}`)
@@ -176,7 +183,7 @@ export default function LearnPage() {
         if (!course || !lesson) return false
 
         // Instructors viewing their own course or Admins have full access to all lessons in preview
-        if (profile?.role === 'admin' || course.instructor_id === user?.uid) {
+        if (canPreviewAsBackoffice(profile?.role) || course.instructor_id === user?.uid) {
             return false
         }
 
@@ -211,7 +218,7 @@ export default function LearnPage() {
             }
 
             // In preview mode for instructor or admin, mark complete locally without calling progress API
-            if (profile?.role === 'admin' || course?.instructor_id === user?.uid) {
+            if (canPreviewAsBackoffice(profile?.role) || course?.instructor_id === user?.uid) {
                 setCompletedLessons(prev => [...prev, lessonId])
                 toast.success("وضع المعاينة: تم تعليم الدرس كمكتمل للتجربة")
                 return
@@ -388,12 +395,14 @@ export default function LearnPage() {
 
                     <div className="max-w-5xl mx-auto w-full p-4 md:p-8 space-y-6">
                         {/* Preview Mode Banner */}
-                        {(profile?.role === 'admin' || course?.instructor_id === user?.uid) && (
+                        {(canPreviewAsBackoffice(profile?.role) || course?.instructor_id === user?.uid) && (
                             <div className="bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 px-4 py-3 rounded-xl flex items-center justify-between text-xs font-bold font-arabic shadow-sm">
                                 <span>
                                     {course?.instructor_id === user?.uid
                                         ? "🔍 أنت في وضع معاينة الكورس بصفتك المدرس (جميع الدروس مفتوحة للمعاينة والتجربة)"
-                                        : "🔍 أنت في وضع معاينة الكورس بصفتك مسؤول المنصة (أدمن)"}
+                                        : profile?.role === 'admin'
+                                            ? "🔍 أنت في وضع معاينة الكورس بصفتك مسؤول المنصة (أدمن)"
+                                            : `🔍 أنت في وضع معاينة الكورس بصفتك ${getRoleLabel(profile?.role)} (للمراجعة فقط)`}
                                 </span>
                                 <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300">
                                     وضع المعاينة

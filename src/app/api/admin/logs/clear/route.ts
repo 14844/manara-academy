@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getServerAuth } from "@/lib/server-auth";
+import { activityLogRole, requirePermission } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
     try {
         // Session cookie only (no idToken fallback); revoked sessions are rejected by getServerAuth
-        const adminUser = await getServerAuth(request);
+        const adminUser = await requirePermission(request, "logs.clear");
 
-        if (!adminUser || adminUser.role !== "admin") {
+        if (!adminUser) {
             return NextResponse.json({ error: "غير مصرح لك بتنفيذ هذه العملية" }, { status: 403 });
         }
 
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
             user_id: adminUser.uid,
             user_name: adminUser.profile?.full_name || "مسؤول المنصة",
             user_email: adminUser.email || "",
-            user_role: "admin",
+            user_role: activityLogRole(adminUser),
             metadata: {
                 archived_count: archivedCount,
                 cleared_at: new Date().toISOString(),

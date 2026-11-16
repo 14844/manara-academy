@@ -1,12 +1,19 @@
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { cookies } from "next/headers";
+import { hasPermission, isBackofficeRole, isStaffRole, type Permission, type UserRole } from "@/lib/permissions";
+import type { ActivityLogInput } from "@/lib/activity-logger";
 
 export interface ServerUser {
     uid: string;
     email?: string;
-    role: "student" | "instructor" | "admin";
+    role: UserRole;
     status?: string;
     profile: any;
+}
+
+/** Role value to store in server activity logs (the real server-side role of the actor). */
+export function activityLogRole(user: ServerUser): ActivityLogInput["user_role"] {
+    return user.role as ActivityLogInput["user_role"];
 }
 
 export async function getServerAuth(request?: Request): Promise<ServerUser | null> {
@@ -53,7 +60,9 @@ export async function getServerAuth(request?: Request): Promise<ServerUser | nul
         const privateData = privateDoc.data() || {};
 
         // Item 10: Central blocked/suspended/rejected check
-        const accountStatus = privateData.status || profileData.status || (profileData.role === "admin" ? "active" : "pending");
+        // Admin and staff (backoffice) roles default to "active" when no status is stored;
+        // an explicit blocked/suspended/rejected status still blocks them below.
+        const accountStatus = privateData.status || profileData.status || (isBackofficeRole(profileData.role) ? "active" : "pending");
         if (accountStatus === "blocked" || accountStatus === "suspended" || accountStatus === "rejected") {
             return null;
         }
@@ -75,7 +84,7 @@ export async function getServerAuth(request?: Request): Promise<ServerUser | nul
         return {
             uid: decoded.uid,
             email: decoded.email || privateData.email || "",
-            role: (profileData.role as "student" | "instructor" | "admin") || "student",
+            role: (profileData.role as UserRole) || "student",
             status: accountStatus,
             profile: {
                 ...profileData,
@@ -95,8 +104,9 @@ export async function getServerAuth(request?: Request): Promise<ServerUser | nul
 export function isAccountActive(user: ServerUser | null): user is ServerUser {
     if (!user) return false;
     if (user.role === "admin") return true;
-    // Mirrors isAccountActive() in firestore.rules
-    const st = String(user.status || "pending");
+    // Mirrors isAccountActive() in firestore.rules.
+    // Staff roles get "active" as their default status in getServerAuth when none is stored.
+    const st = String(user.status || (isStaffRole(user.role) ? "active" : "pending"));
     return st === "active" || st === "approved";
 }
 
@@ -104,4 +114,17 @@ export function isAccountActive(user: ServerUser | null): user is ServerUser {
 export async function getActiveServerAuth(request?: Request): Promise<ServerUser | null> {
     const user = await getServerAuth(request);
     return isAccountActive(user) ? user : null;
+}
+
+/**
+ * Returns the authenticated user if their role grants `permission` (admin has every permission)
+ * and their account is active; otherwise null. Admin behaviour is identical to the old
+ * `role === "admin"` checks (admin is always considered active).
+ */
+export async function requirePermission(request: Request | undefined, permission: Permission): Promise<ServerUser | null> {
+    const user = await getServerAuth(request);
+    if (!user) return null;
+    if (!hasPermission(user.role, permission)) return null;
+    if (!isAccountActive(user)) return null;
+    return user;
 }

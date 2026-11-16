@@ -25,6 +25,29 @@ service cloud.firestore {
       );
     }
 
+    // ===== Staff roles (RBAC) — mirror of src/lib/permissions.ts =====
+    // Staff accounts are set manually: profiles/{uid}.role = one of the roles below,
+    // and profiles_private/{uid}.status = 'active'. A suspended/blocked staff account loses access.
+    function hasStaffRole(roles) {
+      return isAuthenticated() && getUserRole() in roles && isAccountActive();
+    }
+
+    function isBackoffice() {
+      return isAdmin() || hasStaffRole(['support_team', 'finance_manager', 'marketing_team', 'content_reviewer']);
+    }
+
+    function isFinance() {
+      return hasStaffRole(['finance_manager']);
+    }
+
+    function isMarketing() {
+      return hasStaffRole(['marketing_team']);
+    }
+
+    function isContentReviewer() {
+      return hasStaffRole(['content_reviewer']);
+    }
+
     function isInstructor() {
       return isAuthenticated() && (
         request.auth.token.role == 'instructor' ||
@@ -49,7 +72,7 @@ service cloud.firestore {
     // Client create forbidden (handled by server). Owner can only update allowlisted fields.
     match /profiles/{userId} {
       allow get: if isAuthenticated();
-      allow list: if isAdmin();
+      allow list: if isBackoffice();
       allow create: if false;
       allow update: if isAdmin() || (
         isOwner(userId) &&
@@ -62,10 +85,12 @@ service cloud.firestore {
 
     // Profiles Private (SENSITIVE fields): email, phone, parent_phone, wallet_balance,
     // active_devices, active_session_id, status, student_id
-    // Only the owner or admin can read. All writes are server-side only.
+    // Only the owner, admin or finance can read (contains wallet_balance).
+    // Support staff get contact data through /api/admin/users, which strips money fields.
+    // All writes are server-side only.
     match /profiles_private/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
-      allow list: if isAdmin();
+      allow get: if isOwner(userId) || isAdmin() || isFinance();
+      allow list: if isAdmin() || isFinance();
       allow write: if false;
     }
 
@@ -77,12 +102,12 @@ service cloud.firestore {
         resource == null ||
         resource.data.student_id == request.auth.uid ||
         resource.data.instructor_id == request.auth.uid ||
-        isAdmin()
+        isAdmin() || isFinance() || isMarketing()
       );
       allow list: if isAuthenticated() && (
         resource.data.student_id == request.auth.uid ||
         resource.data.instructor_id == request.auth.uid ||
-        isAdmin()
+        isAdmin() || isFinance() || isMarketing()
       );
       allow update: if isAdmin();
       allow delete: if isAdmin();
@@ -95,40 +120,42 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         resource.data.student_id == request.auth.uid ||
         resource.data.instructor_id == request.auth.uid ||
-        isAdmin()
+        isAdmin() || isFinance()
       );
       allow write: if false;
     }
 
-    // Wallet requests: Student can read own; admin reads & manages. Client create blocked (server only).
+    // Wallet requests: Student can read own; admin/finance read & manage. Client create blocked (server only).
     match /wallet_requests/{requestId} {
       allow read: if isAuthenticated() && (
-        resource.data.student_id == request.auth.uid || isAdmin()
+        resource.data.student_id == request.auth.uid || isAdmin() || isFinance()
       );
       allow create: if false;
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin() || isFinance();
+      allow delete: if isAdmin();
     }
 
-    // Withdrawal requests: Instructor can read own. Admin reads & manages status.
+    // Withdrawal requests: Instructor can read own. Admin/finance read & manage status.
     // Client create forbidden — withdrawals only via /api/instructor/withdrawals/request.
     match /withdrawal_requests/{requestId} {
       allow read: if isAuthenticated() && (
-        resource.data.instructor_id == request.auth.uid || isAdmin()
+        resource.data.instructor_id == request.auth.uid || isAdmin() || isFinance()
       );
       allow create: if false;
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin() || isFinance();
+      allow delete: if isAdmin();
     }
 
     // Coupons: Read restricted to coupon owner and admin.
     // Create: admin or active instructor owning the course (course_id == 'all' only for admin).
     // Update: owner/admin (course_id, instructor_id, and usage_count protected; discount_percent between 1 and 100).
     match /coupons/{couponId} {
-      allow read: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
+      allow read: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin() || isMarketing());
       allow create: if isAuthenticated() && isAccountActive() &&
         request.resource.data.discount_percent is number &&
         request.resource.data.discount_percent >= 1 &&
         request.resource.data.discount_percent <= 100 && (
-          isAdmin() || (
+          isAdmin() || isMarketing() || (
             isInstructor() &&
             request.resource.data.instructor_id == request.auth.uid &&
             'course_id' in request.resource.data &&
@@ -137,7 +164,7 @@ service cloud.firestore {
           )
         );
       allow update: if isAuthenticated() && isAccountActive() && (
-        isAdmin() || (
+        isAdmin() || isMarketing() || (
           resource.data.instructor_id == request.auth.uid &&
           request.resource.data.instructor_id == resource.data.instructor_id &&
           request.resource.data.course_id == resource.data.course_id &&
@@ -147,12 +174,12 @@ service cloud.firestore {
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['usage_count'])
         )
       );
-      allow delete: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin());
+      allow delete: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin() || isMarketing());
     }
 
     // Refund locks: Internal server-only collection for idempotent refund processing.
     match /refund_locks/{lockId} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isFinance();
       allow write: if false;
     }
 
@@ -179,6 +206,13 @@ service cloud.firestore {
       );
       allow update: if isAuthenticated() && isAccountActive() && (
         isAdmin() || (
+          // Content reviewer: may only approve / reject (status + review metadata), nothing else.
+          isContentReviewer() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'updated_at', 'rejection_reason', 'reviewed_at', 'reviewed_by'
+          ]) &&
+          request.resource.data.status in ['approved', 'rejected', 'pending']
+        ) || (
           resource.data.instructor_id == request.auth.uid &&
           request.resource.data.instructor_id == resource.data.instructor_id &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([

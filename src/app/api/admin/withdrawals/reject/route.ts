@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getServerAuth } from "@/lib/server-auth";
+import { activityLogRole, requirePermission } from "@/lib/server-auth";
 import { FieldValue } from "firebase-admin/firestore";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
     try {
-        const adminUser = await getServerAuth(request);
-        if (!adminUser || adminUser.role !== "admin") {
+        const adminUser = await requirePermission(request, "withdrawals.manage");
+        if (!adminUser) {
             return NextResponse.json({ error: "غير مصرح لك بالوصول" }, { status: 403 });
         }
 
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
                 user_id: adminUser.uid,
                 user_name: adminUser.profile?.full_name || adminUser.email || "مسؤول المنصة",
                 user_email: adminUser.email || "",
-                user_role: "admin",
+                user_role: activityLogRole(adminUser),
                 target_user_id: rejectedData.instructor_id,
                 target_user_name: rejectedData.instructor_name,
                 amount: rejectedData.net_amount,

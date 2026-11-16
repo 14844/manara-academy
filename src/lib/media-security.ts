@@ -3,6 +3,9 @@
  * Server-only.
  */
 
+import { hasPermission } from "@/lib/permissions";
+import { isAccountActive, type ServerUser } from "@/lib/server-auth";
+
 export const IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"] as const;
 export type ImageMime = (typeof IMAGE_MIMES)[number];
 
@@ -118,8 +121,20 @@ export function isCourseScopedPath(path: string, courseId: string): boolean {
 export const BUNNY_GUID_RE = /^[0-9a-fA-F-]{32,36}$/;
 
 /**
+ * Read-only content access for staff who review courses (content_reviewer):
+ * they may VIEW lesson media of any course without being enrolled, so they can review it.
+ * This never grants any write / manage ability (uploads, save-media, instructor routes stay admin/owner only).
+ * Admin is NOT covered here on purpose: admin keeps its own (broader) existing bypass in each route.
+ */
+export function canReviewCourseContent(user: ServerUser | null | undefined): boolean {
+    if (!user || user.role === "admin") return false;
+    return hasPermission(user.role, "courses.review") && isAccountActive(user);
+}
+
+/**
  * Verify that `courseId` is a well-formed id of an existing course owned by the user (admins: any course).
  * Returns an error message, or null when allowed.
+ * Used for uploads (WRITE): intentionally admin/owner only — staff roles get no bypass here.
  */
 export async function checkCourseOwnership(
     courseId: string | null | undefined,

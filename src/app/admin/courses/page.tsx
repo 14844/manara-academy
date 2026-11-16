@@ -15,10 +15,14 @@ import {
 import { TablePageSkeleton } from "@/components/skeletons"
 import { toast } from "sonner"
 import { auth } from "@/lib/firebase/config"
-import { logActivity } from "@/lib/activity-logger"
+import { logActivity, type ActivityLogInput } from "@/lib/activity-logger"
 import Link from "next/link"
+import { useAdminRole } from "@/components/admin/admin-role-context"
 
 export default function AdminCoursesPage() {
+    const { role, roleLabel } = useAdminRole()
+    // Role sent with client-side activity logs (the server re-derives it from the session anyway)
+    const logRole = (role || "admin") as ActivityLogInput["user_role"]
     const [courses, setCourses] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
 
@@ -57,12 +61,12 @@ export default function AdminCoursesPage() {
                 action: "course_approved",
                 category: "admin_action",
                 title: "اعتماد ونشر كورس جديد",
-                description: `وافق المسؤول على نشر كورس "${courseObj?.title || courseId}" للمحاضر "${courseObj?.instructor_name || "محاضر"}"`,
+                description: `وافق ${roleLabel} على نشر كورس "${courseObj?.title || courseId}" للمحاضر "${courseObj?.instructor_name || "محاضر"}"`,
                 status: "success",
                 user_id: currentAdmin?.uid || "admin",
                 user_name: currentAdmin?.displayName || "مسؤول المنصة",
                 user_email: currentAdmin?.email || "",
-                user_role: "admin",
+                user_role: logRole,
                 target_user_id: courseObj?.instructor_id,
                 target_user_name: courseObj?.instructor_name,
                 metadata: {
@@ -93,12 +97,12 @@ export default function AdminCoursesPage() {
                 action: "course_rejected",
                 category: "admin_action",
                 title: "رفض كورس",
-                description: `رفض المسؤول نشر كورس "${courseObj?.title || courseId}" للمحاضر "${courseObj?.instructor_name || "محاضر"}"`,
+                description: `رفض ${roleLabel} نشر كورس "${courseObj?.title || courseId}" للمحاضر "${courseObj?.instructor_name || "محاضر"}"`,
                 status: "failed",
                 user_id: currentAdmin?.uid || "admin",
                 user_name: currentAdmin?.displayName || "مسؤول المنصة",
                 user_email: currentAdmin?.email || "",
-                user_role: "admin",
+                user_role: logRole,
                 target_user_id: courseObj?.instructor_id,
                 target_user_name: courseObj?.instructor_name,
                 metadata: {

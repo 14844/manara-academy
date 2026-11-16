@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
 import { logActivity } from "@/lib/activity-logger"
 import { Loader2, Eye, EyeOff } from "lucide-react"
+import { getHomeRouteForRole, getRoleLabel } from "@/lib/permissions"
 
 const loginSchema = z.object({
     email: z.string().email({ message: "البريد الإلكتروني غير صحيح" }),
@@ -115,7 +116,7 @@ export function LoginForm() {
                 action: "user_login",
                 category: "auth",
                 title: "تسجيل دخول مستخدم",
-                description: `قام المستخدم "${profile?.full_name || userCredential.user.email}" بتسجيل الدخول إلى حسابه بنجاح كـ (${profile?.role === "instructor" ? "مدرس" : profile?.role === "admin" ? "مسؤول" : "طالب"})`,
+                description: `قام المستخدم "${profile?.full_name || userCredential.user.email}" بتسجيل الدخول إلى حسابه بنجاح كـ (${getRoleLabel(profile?.role)})`,
                 status: "success",
                 user_id: userCredential.user.uid,
                 user_name: profile?.full_name || userCredential.user.displayName || "مستخدم",
@@ -127,17 +128,13 @@ export function LoginForm() {
                 }
             }).catch(() => {})
 
+            const homeRoute = getHomeRouteForRole(profile?.role)
             try {
-                if (profile?.role === 'instructor') {
-                    console.log("LoginForm: Navigating to /instructor")
-                    await router.push("/instructor")
-                } else {
-                    console.log("LoginForm: Navigating to /dashboard")
-                    await router.push("/dashboard")
-                }
+                console.log("LoginForm: Navigating to", homeRoute)
+                await router.push(homeRoute)
             } catch (navError) {
                 console.error("LoginForm: Navigation failed, forcing reload:", navError)
-                window.location.href = profile?.role === 'instructor' ? "/instructor" : "/dashboard"
+                window.location.href = homeRoute
             }
         } catch (error: any) {
             console.error("LoginForm: Root Error:", error)

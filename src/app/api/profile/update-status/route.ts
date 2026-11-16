@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerAuth } from "@/lib/server-auth";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
+import { isStaffRole } from "@/lib/permissions";
 
 export async function POST(request: Request) {
     const user = await getServerAuth(request);
@@ -26,8 +27,9 @@ export async function POST(request: Request) {
             }
 
             const privateRef = adminDb.collection("profiles_private").doc(user.uid);
+            // Staff accounts are approved by the owner; never downgrade them to pending (would lock them out of /admin APIs)
             await privateRef.set({
-                status: "pending",
+                ...(isStaffRole(user.role) ? {} : { status: "pending" }),
                 updated_at: new Date().toISOString(),
             }, { merge: true });
 
@@ -40,7 +42,9 @@ export async function POST(request: Request) {
 
             const now = new Date().toISOString();
             const publicUpdate: Record<string, any> = { updated_at: now };
-            const privateUpdate: Record<string, any> = { status: "pending", updated_at: now };
+            const privateUpdate: Record<string, any> = isStaffRole(user.role)
+                ? { updated_at: now }
+                : { status: "pending", updated_at: now };
 
             if (profile && typeof profile === "object") {
                 for (const key of publicFields) {

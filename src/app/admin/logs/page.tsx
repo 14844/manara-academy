@@ -58,6 +58,8 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
+import { useAdminRole } from "@/components/admin/admin-role-context"
+import { getRoleLabel as getPermissionRoleLabel, isStaffRole, type StaffRole } from "@/lib/permissions"
 
 export interface ActivityLog {
     id: string;
@@ -69,7 +71,7 @@ export interface ActivityLog {
     user_id?: string;
     user_name?: string;
     user_email?: string;
-    user_role?: "student" | "instructor" | "admin" | "system";
+    user_role?: "student" | "instructor" | "admin" | "system" | StaffRole | (string & {});
     target_user_id?: string;
     target_user_name?: string;
     amount?: number | null;
@@ -80,6 +82,8 @@ export interface ActivityLog {
 }
 
 export default function AdminLogsPage() {
+    const { can } = useAdminRole()
+    const canClearLogs = can("logs.clear")
     const [logs, setLogs] = useState<ActivityLog[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [isRefreshing, setIsRefreshing] = useState(false)
@@ -551,6 +555,7 @@ export default function AdminLogsPage() {
 
     // Clear all logs
     async function handleClearLogs() {
+        if (!canClearLogs) return
         if (!window.confirm("هل أنت متأكد تماماً من رغبتك في تصفير جميع سجلات النشاط للبدء من جديد؟ لا يمكن التراجع عن هذا الإجراء.")) {
             return
         }
@@ -591,6 +596,9 @@ export default function AdminLogsPage() {
             case "system":
                 return <Badge className="bg-zinc-500/10 text-zinc-600 border-zinc-200">النظام التلقائي</Badge>
             default:
+                if (isStaffRole(role)) {
+                    return <Badge className="bg-amber-500/10 text-amber-700 border-amber-200">{getPermissionRoleLabel(role)}</Badge>
+                }
                 return <Badge variant="outline">مستخدم</Badge>
         }
     }
@@ -601,7 +609,7 @@ export default function AdminLogsPage() {
             case "instructor": return "محاضر"
             case "student": return "طالب"
             case "system": return "النظام"
-            default: return "مستخدم"
+            default: return isStaffRole(role) ? getPermissionRoleLabel(role) : "مستخدم"
         }
     }
 
@@ -738,17 +746,19 @@ export default function AdminLogsPage() {
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2.5">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleClearLogs}
-                        disabled={isClearing || isRefreshing}
-                        className="gap-2 font-bold text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300"
-                        title="تصفير ومسح السجلات لبدء دورة اختبار جديدة"
-                    >
-                        <Trash2 className="w-4 h-4" />
-                        <span>{isClearing ? "جاري التصفير..." : "تصفير السجلات"}</span>
-                    </Button>
+                    {canClearLogs && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleClearLogs}
+                            disabled={isClearing || isRefreshing}
+                            className="gap-2 font-bold text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300"
+                            title="تصفير ومسح السجلات لبدء دورة اختبار جديدة"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            <span>{isClearing ? "جاري التصفير..." : "تصفير السجلات"}</span>
+                        </Button>
+                    )}
                     <Button
                         variant="outline"
                         size="sm"

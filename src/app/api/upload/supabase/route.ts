@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin, SUPABASE_BUCKET, SUPABASE_PUBLIC_BUCKET } from "@/lib/supabase/admin"
 import { getActiveServerAuth } from "@/lib/server-auth"
+import { isStaffRole } from "@/lib/permissions"
 import { checkCourseOwnership, detectImageMime, normalizeImageMime, withImageExtension } from "@/lib/media-security"
 
 export const runtime = 'nodejs'
@@ -64,9 +65,14 @@ export async function POST(request: NextRequest) {
     } else if (user.role === "instructor") {
         // Instructors can upload course materials, videos, thumbnails, questions, avatars (not payment proofs)
         if (rawFolder === "payment_proofs") {
-            return NextResponse.json({ 
-                error: "إيصالات الشحن مخصصة للطلاب فقط" 
+            return NextResponse.json({
+                error: "إيصالات الشحن مخصصة للطلاب فقط"
             }, { status: 403 })
+        }
+    } else if (isStaffRole(user.role)) {
+        // Staff (backoffice) accounts may only upload their own profile picture; content/media uploads stay admin/instructor only
+        if (rawFolder !== "avatars") {
+            return NextResponse.json({ error: "غير مصرح لك برفع الملفات في هذا القسم" }, { status: 403 })
         }
     }
 

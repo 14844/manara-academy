@@ -1,6 +1,7 @@
 export type ActivityLogCategory = "financial" | "auth" | "admin_action" | "course" | "system" | "client" | "ai_support";
 export type ActivityLogStatus = "success" | "failed" | "pending" | "info";
-export type UserRole = "student" | "instructor" | "admin" | "system" | "guest";
+export type UserRole = "student" | "instructor" | "admin" | "system" | "guest"
+    | "support_team" | "finance_manager" | "marketing_team" | "content_reviewer";
 
 export interface ActivityLogInput {
     action: string;

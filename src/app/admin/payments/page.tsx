@@ -22,7 +22,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { auth } from "@/lib/firebase/config"
-import { logActivity } from "@/lib/activity-logger"
+import { logActivity, type ActivityLogInput } from "@/lib/activity-logger"
+import { useAdminRole } from "@/components/admin/admin-role-context"
 import {
     Dialog,
     DialogContent,
@@ -34,6 +35,9 @@ import {
 import { TablePageSkeleton } from "@/components/skeletons"
 
 export default function AdminPaymentsPage() {
+    const { role, roleLabel } = useAdminRole()
+    // Role sent with client-side activity logs (the server re-derives it from the session anyway)
+    const logRole = (role || "admin") as ActivityLogInput["user_role"]
     const [requests, setRequests] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [selectedRequest, setSelectedRequest] = useState<any>(null)
@@ -111,12 +115,12 @@ export default function AdminPaymentsPage() {
                 action: "wallet_recharge_manual_approved",
                 category: "financial",
                 title: "موافقة على شحن محفظة (يدوي)",
-                description: `وافق المسؤول على طلب شحن محفظة بمبلغ ${request.amount} ج.م للطالب "${request.student_name || request.student_id}" عبر (${request.payment_method || "تحويل يدوي"})`,
+                description: `وافق ${roleLabel} على طلب شحن محفظة بمبلغ ${request.amount} ج.م للطالب "${request.student_name || request.student_id}" عبر (${request.payment_method || "تحويل يدوي"})`,
                 status: "success",
                 user_id: currentAdmin?.uid || "admin",
                 user_name: currentAdmin?.displayName || "مسؤول المنصة",
                 user_email: currentAdmin?.email || "",
-                user_role: "admin",
+                user_role: logRole,
                 target_user_id: request.student_id,
                 target_user_name: request.student_name,
                 amount: request.amount,
@@ -161,12 +165,12 @@ export default function AdminPaymentsPage() {
                 action: "wallet_recharge_manual_rejected",
                 category: "financial",
                 title: "رفض طلب شحن محفظة (يدوي)",
-                description: `رفض المسؤول طلب شحن محفظة بمبلغ ${request.amount} ج.م للطالب "${request.student_name || request.student_id}"`,
+                description: `رفض ${roleLabel} طلب شحن محفظة بمبلغ ${request.amount} ج.م للطالب "${request.student_name || request.student_id}"`,
                 status: "failed",
                 user_id: currentAdmin?.uid || "admin",
                 user_name: currentAdmin?.displayName || "مسؤول المنصة",
                 user_email: currentAdmin?.email || "",
-                user_role: "admin",
+                user_role: logRole,
                 target_user_id: request.student_id,
                 target_user_name: request.student_name,
                 amount: request.amount,

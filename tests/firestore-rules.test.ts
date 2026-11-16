@@ -7,7 +7,7 @@ import {
 import { describe, it, beforeAll, afterAll, beforeEach } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, addDoc, setLogLevel } from "firebase/firestore";
+import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, addDoc, setLogLevel } from "firebase/firestore";
 
 let testEnv: RulesTestEnvironment;
 
@@ -806,5 +806,75 @@ describe("default deny", () => {
   it("unknown collection write is denied", async () => {
     const db = testEnv.authenticatedContext("anyone").firestore();
     await assertFails(setDoc(doc(db, "unknown_collection", "doc1"), { data: "test" }));
+  });
+});
+
+
+// ──────────────────── STAFF ROLES (RBAC) ────────────────────
+
+describe("staff roles", () => {
+  const roles = {
+    support: "support1",
+    finance: "finance1",
+    marketing: "marketing1",
+    reviewer: "reviewer1",
+    suspended: "suspendedFinance1",
+  };
+
+  beforeEach(async () => {
+    await seedDoc("profiles", roles.support, { role: "support_team" });
+    await seedDoc("profiles_private", roles.support, { status: "active" });
+    await seedDoc("profiles", roles.finance, { role: "finance_manager" });
+    await seedDoc("profiles_private", roles.finance, { status: "active" });
+    await seedDoc("profiles", roles.marketing, { role: "marketing_team" });
+    await seedDoc("profiles_private", roles.marketing, { status: "active" });
+    await seedDoc("profiles", roles.reviewer, { role: "content_reviewer" });
+    await seedDoc("profiles_private", roles.reviewer, { status: "active" });
+    await seedDoc("profiles", roles.suspended, { role: "finance_manager" });
+    await seedDoc("profiles_private", roles.suspended, { status: "suspended" });
+
+    await seedDoc("profiles", "studentX", { role: "student" });
+    await seedDoc("profiles_private", "studentX", { status: "active", wallet_balance: 500 });
+    await seedDoc("wallet_requests", "wr1", { student_id: "studentX", amount: 100, status: "pending" });
+    await seedDoc("coupons", "c1", { instructor_id: "someInstructor", course_id: "all", discount_percent: 10 });
+    await seedDoc("courses", "course1", { instructor_id: "someInstructor", status: "pending", price: 100 });
+    await seedDoc("activity_logs", "log1", { action: "x" });
+  });
+
+  const ctx = (uid: string) => testEnv.authenticatedContext(uid).firestore();
+
+  it("support can list profiles but NOT read wallet data", async () => {
+    await assertSucceeds(getDocs(collection(ctx(roles.support), "profiles")));
+    await assertFails(getDoc(doc(ctx(roles.support), "profiles_private", "studentX")));
+    await assertFails(getDoc(doc(ctx(roles.support), "wallet_requests", "wr1")));
+  });
+
+  it("finance can read wallet data and wallet requests", async () => {
+    await assertSucceeds(getDoc(doc(ctx(roles.finance), "profiles_private", "studentX")));
+    await assertSucceeds(getDoc(doc(ctx(roles.finance), "wallet_requests", "wr1")));
+  });
+
+  it("suspended finance account loses access", async () => {
+    await assertFails(getDoc(doc(ctx(roles.suspended), "profiles_private", "studentX")));
+  });
+
+  it("marketing manages coupons but cannot see money", async () => {
+    await assertSucceeds(getDoc(doc(ctx(roles.marketing), "coupons", "c1")));
+    await assertSucceeds(updateDoc(doc(ctx(roles.marketing), "coupons", "c1"), { discount_percent: 20 }));
+    await assertFails(getDoc(doc(ctx(roles.marketing), "profiles_private", "studentX")));
+    await assertFails(getDoc(doc(ctx(roles.marketing), "wallet_requests", "wr1")));
+  });
+
+  it("content reviewer can approve a course but not change its price", async () => {
+    await assertSucceeds(updateDoc(doc(ctx(roles.reviewer), "courses", "course1"), { status: "approved", updated_at: "now" }));
+    await assertFails(updateDoc(doc(ctx(roles.reviewer), "courses", "course1"), { price: 1 }));
+    await assertFails(deleteDoc(doc(ctx(roles.reviewer), "courses", "course1")));
+  });
+
+  it("no staff role can read activity logs or change a role", async () => {
+    for (const uid of [roles.support, roles.finance, roles.marketing, roles.reviewer]) {
+      await assertFails(getDoc(doc(ctx(uid), "activity_logs", "log1")));
+      await assertFails(updateDoc(doc(ctx(uid), "profiles", "studentX"), { role: "admin" }));
+    }
   });
 });

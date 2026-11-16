@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { BUNNY_CONFIG } from "@/lib/bunny/config"
 import { getServerAuth } from "@/lib/server-auth"
+import { canReviewCourseContent } from "@/lib/media-security"
 import { adminDb } from "@/lib/firebase/admin"
 import { checkRateLimitAsync } from "@/lib/rate-limiter"
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib"
@@ -171,6 +172,8 @@ export async function GET(request: NextRequest) {
         // Strict course-specific authorization
         if (user.role !== "admin") {
             const reqCourseId = searchParams.get('courseId')
+            // Content reviewers: read-only view of course content without enrollment (all other checks still apply)
+            const isContentReviewer = canReviewCourseContent(user)
 
             if (cleanPath.startsWith('courses/') || cleanPath.startsWith('files/courses/') || cleanPath.startsWith('videos/courses/')) {
                 let courseId = ""
@@ -192,7 +195,7 @@ export async function GET(request: NextRequest) {
                 }
 
                 const isCourseInstructor = courseDoc.data()?.instructor_id === user.uid
-                if (!isCourseInstructor) {
+                if (!isCourseInstructor && !isContentReviewer) {
                     const enrollmentDoc = await adminDb.collection("enrollments").doc(`${user.uid}_${courseId}`).get()
                     if (!enrollmentDoc.exists || enrollmentDoc.data()?.status !== "active") {
                         return new NextResponse("Forbidden: ليس لديك اشتراك نشط في هذا الكورس", { status: 403 })
@@ -224,10 +227,12 @@ export async function GET(request: NextRequest) {
                     return new NextResponse("Forbidden: الملف لا ينتمي إلى الكورس المحدد", { status: 403 })
                 }
 
-                // Verify the student has an active enrollment in THIS specific course
-                const enrSnap = await adminDb.collection("enrollments").doc(`${user.uid}_${reqCourseId}`).get()
-                if (!enrSnap.exists || enrSnap.data()?.status !== "active") {
-                    return new NextResponse("Forbidden: ليس لديك اشتراك نشط في هذا الكورس", { status: 403 })
+                // Verify the student has an active enrollment in THIS specific course (content reviewers: view-only bypass)
+                if (!isContentReviewer) {
+                    const enrSnap = await adminDb.collection("enrollments").doc(`${user.uid}_${reqCourseId}`).get()
+                    if (!enrSnap.exists || enrSnap.data()?.status !== "active") {
+                        return new NextResponse("Forbidden: ليس لديك اشتراك نشط في هذا الكورس", { status: 403 })
+                    }
                 }
 
                 // Bind the asset to THIS course: it must be referenced by one of the course's lessons

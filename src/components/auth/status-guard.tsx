@@ -7,6 +7,7 @@ import { onAuthStateChanged } from "firebase/auth"
 import { doc, getDoc } from "firebase/firestore"
 import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { getHomeRouteForRole, isBackofficeRole } from "@/lib/permissions"
 
 export function StatusGuard({ children }: { children: React.ReactNode }) {
     const router = useRouter()
@@ -31,7 +32,7 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                 if (profileUnsubscribe) profileUnsubscribe();
                 // If we are on a protected route but auth is missing, we MUST clear any stale session
                 const isPublicRoute = [
-                    '/', '/login', '/signup', '/about', '/faq', '/terms', '/privacy', '/refund'
+                    '/', '/login', '/signup', '/about', '/faq', '/terms', '/privacy', '/refund', '/teach'
                 ].includes(path) || path.startsWith('/courses') || path.startsWith('/help') || path.startsWith('/labs')
                 
                 if (!isPublicRoute) {
@@ -106,7 +107,7 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                     }
 
                     // Handle Status Redirects
-                    if (status === 'pending' && role !== 'admin') {
+                    if (status === 'pending' && !isBackofficeRole(role)) {
                         if (path !== '/pending-approval') {
                             router.push("/pending-approval");
                         }
@@ -116,7 +117,7 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                         }
                     } else {
                         if (path === '/pending-approval' || path === '/restricted-access' || path === '/login' || path === '/signup') {
-                            const target = role === 'instructor' ? "/instructor" : "/dashboard";
+                            const target = getHomeRouteForRole(role);
                             router.push(target);
                         }
                     }

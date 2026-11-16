@@ -8,6 +8,7 @@ import { onAuthStateChanged } from "firebase/auth"
 import { doc, getDoc } from "firebase/firestore"
 import { DashboardSkeleton } from "@/components/skeletons"
 import { toast } from "sonner"
+import { isBackofficeRole } from "@/lib/permissions"
 
 export default function StudentLayout({
     children,
@@ -34,7 +35,7 @@ export default function StudentLayout({
             } else {
                 toast.error("عذراً، لا تمتلك صلاحيات الوصول لهذه الصفحة")
                 const role = docSnap.exists() ? docSnap.data().role : ''
-                if (role === 'admin') {
+                if (isBackofficeRole(role)) {
                     router.push("/admin")
                 } else if (role === 'instructor') {
                     router.push("/instructor")

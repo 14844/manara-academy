@@ -19,8 +19,11 @@ import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import Link from "next/link"
 import { CoursesGridSkeleton } from "@/components/skeletons"
+import { useAdminRole } from "@/components/admin/admin-role-context"
 
 export default function AdminAllCoursesPage() {
+    const { can } = useAdminRole()
+    const canDelete = can("courses.delete")
     const [courses, setCourses] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [searchTerm, setSearchTerm] = useState("")
@@ -45,6 +48,7 @@ export default function AdminAllCoursesPage() {
     }
 
     const handleDelete = async (id: string) => {
+        if (!canDelete) return
         if (!confirm("هل أنت متأكد من حذف هذا الكورس نهائياً؟")) return
         try {
             await deleteDoc(doc(db, "courses", id))
@@ -131,9 +135,11 @@ export default function AdminAllCoursesPage() {
                                                     عرض
                                                 </Link>
                                             </Button>
-                                            <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive hover:text-white" onClick={() => handleDelete(course.id)}>
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
+                                            {canDelete && (
+                                                <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive hover:text-white" onClick={() => handleDelete(course.id)}>
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            )}
                                         </div>
                                     </div>
                                 </CardContent>

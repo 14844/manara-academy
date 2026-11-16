@@ -23,8 +23,11 @@ import {
     Coins
 } from "lucide-react"
 import Link from "next/link"
+import { useAdminRole } from "@/components/admin/admin-role-context"
 
 export default function AdminDashboard() {
+    const { can } = useAdminRole()
+    const canViewFinance = can("finance.view")
     const [stats, setStats] = useState({
         totalUsers: 0,
         totalCourses: 0,
@@ -42,10 +45,13 @@ export default function AdminDashboard() {
         async function fetchAdminStats() {
             try {
                 // Fetch stats concurrently
+                // Enrollments are only used for money figures (GMV) → only query them when the role can see finance
                 const [usersSnap, coursesSnap, enrollmentsSnap] = await Promise.all([
                     getDocs(collection(db, "profiles")),
                     getDocs(collection(db, "courses")),
-                    getDocs(collection(db, "enrollments")).catch(() => ({ docs: [] } as any)),
+                    canViewFinance
+                        ? getDocs(collection(db, "enrollments")).catch(() => ({ docs: [] } as any))
+                        : Promise.resolve({ docs: [] } as any),
                 ])
 
                 const profiles = usersSnap.docs.map((doc: any) => doc.data())
@@ -93,7 +99,9 @@ export default function AdminDashboard() {
         }
 
         fetchAdminStats()
-    }, [])
+    }, [canViewFinance])
+
+    const hasQuickLinks = can("analytics.view") || can("logs.view") || can("payments.manage") || can("withdrawals.manage")
 
     return (
         <div className="space-y-8 font-arabic">
@@ -109,22 +117,27 @@ export default function AdminDashboard() {
                     </p>
                 </div>
                 <div className="flex items-center gap-2.5">
-                    <Button asChild variant="outline" size="sm" className="gap-2 font-bold">
-                        <Link href="/admin/logs">
-                            <Activity className="w-4 h-4 text-primary" />
-                            <span>سجل النشاطات (Logs)</span>
-                        </Link>
-                    </Button>
-                    <Button asChild variant="default" size="sm" className="gap-2 font-bold shadow-sm">
-                        <Link href="/admin/kpis">
-                            <BarChart3 className="w-4 h-4" />
-                            <span>المؤشرات المالية (KPIs)</span>
-                        </Link>
-                    </Button>
+                    {can("logs.view") && (
+                        <Button asChild variant="outline" size="sm" className="gap-2 font-bold">
+                            <Link href="/admin/logs">
+                                <Activity className="w-4 h-4 text-primary" />
+                                <span>سجل النشاطات (Logs)</span>
+                            </Link>
+                        </Button>
+                    )}
+                    {can("analytics.view") && (
+                        <Button asChild variant="default" size="sm" className="gap-2 font-bold shadow-sm">
+                            <Link href="/admin/kpis">
+                                <BarChart3 className="w-4 h-4" />
+                                <span>{canViewFinance ? "المؤشرات المالية (KPIs)" : "مؤشرات الأداء (KPIs)"}</span>
+                            </Link>
+                        </Button>
+                    )}
                 </div>
             </div>
 
             {/* Financial Health Banner (P&L Status) */}
+            {canViewFinance && (
             <Card className="border-2 border-emerald-500/30 bg-gradient-to-l from-emerald-500/10 via-background to-background shadow-sm overflow-hidden">
                 <CardContent className="p-6">
                     <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
@@ -165,9 +178,10 @@ export default function AdminDashboard() {
                     </div>
                 </CardContent>
             </Card>
+            )}
 
             {/* Quick Stats Grid */}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className={`grid gap-4 sm:grid-cols-2 ${canViewFinance ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
                 <StatCard
                     title="إجمالي المستخدمين"
                     value={stats.totalUsers.toString()}
@@ -189,13 +203,15 @@ export default function AdminDashboard() {
                     icon={<AlertCircle className="h-5 w-5" />}
                     color={stats.pendingCourses > 0 ? "text-amber-600 bg-amber-500/10" : "text-muted-foreground bg-muted"}
                 />
-                <StatCard
-                    title="حجم التداول (GMV)"
-                    value={`${stats.totalGmv.toLocaleString()} ج.م`}
-                    subtitle={`أرباح المنصة: ${stats.platformCommission.toLocaleString()} ج.م`}
-                    icon={<Coins className="h-5 w-5" />}
-                    color="text-purple-600 bg-purple-500/10"
-                />
+                {canViewFinance && (
+                    <StatCard
+                        title="حجم التداول (GMV)"
+                        value={`${stats.totalGmv.toLocaleString()} ج.م`}
+                        subtitle={`أرباح المنصة: ${stats.platformCommission.toLocaleString()} ج.م`}
+                        icon={<Coins className="h-5 w-5" />}
+                        color="text-purple-600 bg-purple-500/10"
+                    />
+                )}
             </div>
 
             {/* Two Column Layout */}
@@ -248,6 +264,7 @@ export default function AdminDashboard() {
 
                 {/* Quick Shortcuts & Alerts */}
                 <div className="col-span-3 space-y-4">
+                    {hasQuickLinks && (
                     <Card className="border-border/60 shadow-sm">
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="text-base font-bold flex items-center gap-2">
@@ -256,6 +273,7 @@ export default function AdminDashboard() {
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-4 space-y-3">
+                            {can("analytics.view") && (
                             <Link
                                 href="/admin/kpis"
                                 className="p-3 rounded-xl border bg-muted/20 hover:bg-muted/40 transition-colors flex items-center justify-between block group"
@@ -265,13 +283,19 @@ export default function AdminDashboard() {
                                         <BarChart3 className="w-4 h-4" />
                                     </div>
                                     <div>
-                                        <h5 className="font-bold text-xs text-foreground group-hover:text-primary transition-colors">تحليل المؤشرات المالية (KPIs)</h5>
-                                        <span className="text-[11px] text-muted-foreground">متابعة الأرباح وحجم التداول والسيولة</span>
+                                        <h5 className="font-bold text-xs text-foreground group-hover:text-primary transition-colors">
+                                            {canViewFinance ? "تحليل المؤشرات المالية (KPIs)" : "تحليل مؤشرات الأداء (KPIs)"}
+                                        </h5>
+                                        <span className="text-[11px] text-muted-foreground">
+                                            {canViewFinance ? "متابعة الأرباح وحجم التداول والسيولة" : "متابعة الاشتراكات ونمو المستخدمين والكورسات"}
+                                        </span>
                                     </div>
                                 </div>
                                 <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
                             </Link>
+                            )}
 
+                            {can("logs.view") && (
                             <Link
                                 href="/admin/logs"
                                 className="p-3 rounded-xl border bg-muted/20 hover:bg-muted/40 transition-colors flex items-center justify-between block group"
@@ -287,7 +311,9 @@ export default function AdminDashboard() {
                                 </div>
                                 <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
                             </Link>
+                            )}
 
+                            {can("payments.manage") && (
                             <Link
                                 href="/admin/payments"
                                 className="p-3 rounded-xl border bg-muted/20 hover:bg-muted/40 transition-colors flex items-center justify-between block group"
@@ -303,7 +329,9 @@ export default function AdminDashboard() {
                                 </div>
                                 <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
                             </Link>
+                            )}
 
+                            {can("withdrawals.manage") && (
                             <Link
                                 href="/admin/withdrawals"
                                 className="p-3 rounded-xl border bg-muted/20 hover:bg-muted/40 transition-colors flex items-center justify-between block group"
@@ -319,10 +347,12 @@ export default function AdminDashboard() {
                                 </div>
                                 <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
                             </Link>
+                            )}
                         </CardContent>
                     </Card>
+                    )}
 
-                    {stats.pendingCourses > 0 && (
+                    {stats.pendingCourses > 0 && can("courses.review") && (
                         <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-700">
                             <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
                             <div>
