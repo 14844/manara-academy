@@ -29,6 +29,7 @@ export const PERMISSIONS = [
     "logs.view",             // Activity logs
     "logs.clear",            // Clear activity logs
     "settings.manage",       // Platform settings
+    "plans.manage",          // Instructor subscription plans: approve requests, assign plans
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -65,6 +66,7 @@ const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
         "withdrawals.manage",
         "settlements.view",
         "courses.view",
+        "plans.manage",
     ],
     // التسويق: الكوبونات والأرقام غير المالية
     marketing_team: [
@@ -139,6 +141,7 @@ export const ADMIN_ROUTE_PERMISSIONS: { href: string; permission: Permission }[]
     { href: "/admin/withdrawals", permission: "withdrawals.manage" },
     { href: "/admin/coupons", permission: "coupons.manage" },
     { href: "/admin/settings", permission: "settings.manage" },
+    { href: "/admin/plans", permission: "plans.manage" },
     { href: "/admin", permission: "dashboard.view" },
 ]
 

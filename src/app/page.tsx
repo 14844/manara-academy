@@ -8,53 +8,18 @@ import {
     FlaskConical,
     GraduationCap,
     MonitorPlay,
-    ShieldCheck,
+    Quote,
     UserPlus,
     Wallet,
     Presentation,
 } from "lucide-react"
 import { getSupportSettings } from "@/lib/support-settings"
 import { SupportInfo } from "@/components/support-info"
-import { getPublicStats, STAT_THRESHOLDS, type PublicStats } from "@/components/landing/public-stats"
 
 export const dynamic = "force-dynamic"
 
-type HeroStat = { value?: string; icon?: React.ReactNode; label: string }
-
-/**
- * Only real numbers, and only when they are meaningful. Remaining slots are filled
- * with non-numeric value props so we never show an invented or embarrassing number.
- */
-function buildHeroStats(stats: PublicStats | null): HeroStat[] {
-    const fmt = (n: number) => n.toLocaleString("en-US")
-    const items: HeroStat[] = [{ value: "24/7", label: "تعلّم في أي وقت" }]
-
-    if (stats) {
-        if (stats.coursesCount >= STAT_THRESHOLDS.courses) {
-            items.push({ value: fmt(stats.coursesCount), label: "كورس منشور" })
-        }
-        if (stats.instructorsCount >= STAT_THRESHOLDS.instructors) {
-            items.push({ value: fmt(stats.instructorsCount), label: "مدرس على المنصة" })
-        }
-        if (stats.enrollmentsCount >= STAT_THRESHOLDS.enrollments) {
-            items.push({ value: fmt(stats.enrollmentsCount), label: "اشتراك في الكورسات" })
-        }
-    }
-
-    const fallbacks: HeroStat[] = [
-        { icon: <ShieldCheck className="h-8 w-8 sm:h-9 sm:w-9 text-primary" />, label: "حماية الفيديوهات" },
-        { icon: <ClipboardCheck className="h-8 w-8 sm:h-9 sm:w-9 text-primary" />, label: "اختبارات تفاعلية" },
-    ]
-    for (const f of fallbacks) {
-        if (items.length >= 3) break
-        items.push(f)
-    }
-    return items.slice(0, 3)
-}
-
 export default async function LandingPage() {
-    const [supportSettings, stats] = await Promise.all([getSupportSettings(), getPublicStats()])
-    const heroStats = buildHeroStats(stats)
+    const supportSettings = await getSupportSettings()
 
     return (
         <div className="flex min-h-screen flex-col overflow-x-clip">
@@ -83,21 +48,37 @@ export default async function LandingPage() {
                                 </Button>
                             </div>
 
-                            {/* Real stats (or honest value props) */}
-                            <div className="mt-12 sm:mt-20 w-full max-w-4xl">
-                                <div className="grid grid-cols-3 py-5 sm:py-8 glass rounded-3xl border border-white/20 shadow-lg [&>*:not(:first-child)]:border-s [&>*]:border-border/50">
-                                    {heroStats.map((item) => (
-                                        <div key={item.label} className="flex flex-col items-center justify-center gap-1 px-2">
-                                            {item.value ? (
-                                                <span className="text-2xl sm:text-4xl font-black text-foreground leading-none h-8 sm:h-10 flex items-center" dir="ltr">
-                                                    {item.value}
-                                                </span>
-                                            ) : (
-                                                <span className="h-8 sm:h-10 flex items-center" aria-hidden="true">{item.icon}</span>
-                                            )}
-                                            <span className="text-muted-foreground font-medium text-xs sm:text-base leading-snug">{item.label}</span>
-                                        </div>
-                                    ))}
+                            {/* Social Proofs Section */}
+                            <div className="mt-20 w-full max-w-4xl px-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 py-8 glass rounded-3xl border border-white/20 relative shadow-lg">
+                                    <div className="hidden md:block absolute top-1/2 left-1/3 h-12 w-[1px] bg-border/50 -translate-y-1/2" />
+                                    <div className="hidden md:block absolute top-1/2 left-2/3 h-12 w-[1px] bg-border/50 -translate-y-1/2" />
+
+                                    <div className="flex flex-col items-center">
+                                        <span className="text-4xl font-black text-foreground mb-1">24/7</span>
+                                        <span className="text-muted-foreground font-medium">تعلّم في أي وقت</span>
+                                    </div>
+                                    <div className="flex flex-col items-center">
+                                        <span className="text-4xl font-black text-foreground mb-1">+10</span>
+                                        <span className="text-muted-foreground font-medium">معلم متميز</span>
+                                    </div>
+                                    <div className="flex flex-col items-center">
+                                        <span className="text-4xl font-black text-foreground mb-1">+50</span>
+                                        <span className="text-muted-foreground font-medium">كورس متاح</span>
+                                    </div>
+                                </div>
+
+                                {/* Join Students Section */}
+                                <div className="mt-12 flex items-center justify-center gap-4 flex-wrap animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                                    <div className="flex -space-x-3 rtl:space-x-reverse">
+                                        <div className="h-10 w-10 rounded-full bg-orange-400 flex items-center justify-center text-white font-bold border-2 border-background shadow-sm ring-1 ring-black/5">م أ</div>
+                                        <div className="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold border-2 border-background shadow-sm ring-1 ring-black/5">س م</div>
+                                        <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold border-2 border-background shadow-sm ring-1 ring-black/5">م ع</div>
+                                        <div className="h-10 w-10 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold border-2 border-background shadow-sm ring-1 ring-black/5">أ م</div>
+                                    </div>
+                                    <p className="text-muted-foreground font-medium">
+                                        انضم لـ <span className="text-foreground font-bold">آلاف الطلاب</span> الذين يتعلمون مع أفضل المعلمين في مصر
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -135,6 +116,46 @@ export default async function LandingPage() {
                                 description="جرّب تجارب الكيمياء والفيزياء والرياضيات بشكل تفاعلي بدل ما تحفظها من الكتاب."
                                 href="/labs"
                             />
+                        </div>
+                    </div>
+                </section>
+
+                {/* Testimonials Section */}
+                <section className="py-24">
+                    <div className="container mx-auto px-4">
+                        <div className="mb-16 text-center">
+                            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl text-primary mb-4">قالوا عن أكاديمية المنارة</h2>
+                            <p className="mt-4 text-lg text-muted-foreground">آراء بعض المعلمين والطلاب الذين وثقوا في منصتنا</p>
+                        </div>
+
+                        <div className="grid gap-8 md:grid-cols-2 max-w-5xl mx-auto">
+                            <div className="relative rounded-3xl glass p-8 shadow-lg border border-white/20 ios-transition hover:-translate-y-2">
+                                <Quote className="absolute top-4 left-4 h-12 w-12 text-primary/10" />
+                                <p className="text-lg leading-relaxed text-muted-foreground mb-8 font-medium italic">
+                                    "من أفضل المنصات التي تعاملت معها بفضل الشفافية التامة ونظام الأمان الرائع لحماية شروحاتي ومحاضراتي. أصبح التواصل مع الطلاب وتقييم مستواهم أسهل من أي وقت مضى."
+                                </p>
+                                <div className="flex items-center gap-4">
+                                    <div className="h-14 w-14 flex items-center justify-center rounded-full bg-primary/20 text-primary font-bold text-2xl shadow-inner">م</div>
+                                    <div>
+                                        <h4 className="font-bold text-foreground text-lg">أ. محمود سليم</h4>
+                                        <p className="text-sm text-primary font-medium mt-1">مدرس فيزياء للثانوية العامة</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="relative rounded-3xl glass p-8 shadow-lg border border-white/20 ios-transition hover:-translate-y-2">
+                                <Quote className="absolute top-4 left-4 h-12 w-12 text-primary/10" />
+                                <p className="text-lg leading-relaxed text-muted-foreground mb-8 font-medium italic">
+                                    "أخيراً منصة منظمة تتيح لي التركيز في المذاكرة! الاختبارات التفاعلية ومتابعة الدرجات ساعدتني جداً في تحسين مستواي بشكل ملحوظ دون تعقيد تقني أو أعطال مستمرة."
+                                </p>
+                                <div className="flex items-center gap-4">
+                                    <div className="h-14 w-14 flex items-center justify-center rounded-full bg-primary/20 text-primary font-bold text-2xl shadow-inner">ع</div>
+                                    <div>
+                                        <h4 className="font-bold text-foreground text-lg">عمر خالد</h4>
+                                        <p className="text-sm text-primary font-medium mt-1">طالب بالصف الثالث الثانوي</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </section>

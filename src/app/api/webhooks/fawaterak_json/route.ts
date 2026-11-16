@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { verifyFawaterakWebhookHash, getFawaterakTransactionData, extractFawaterakPaidAmount } from "@/lib/payments/fawaterak";
 import { logServerActivity } from "@/lib/server-activity-logger";
+import { LEGACY_COMMISSION_RATE } from "@/lib/plans";
 
 export async function POST(request: Request) {
     try {
@@ -123,8 +124,10 @@ export async function POST(request: Request) {
             }
 
             const finalPaid = requestedAmount;
-            const instructorEarnings = Number(orderData.instructor_share ?? (finalPaid * 0.95));
-            const platformCommission = Number(orderData.platform_commission ?? (finalPaid * 0.05));
+            // Use the split stored on the order at initiation; legacy rate only as fallback for old orders
+            const commissionRate = Number(orderData.commission_rate ?? LEGACY_COMMISSION_RATE);
+            const instructorEarnings = Number(orderData.instructor_share ?? (finalPaid * (1 - LEGACY_COMMISSION_RATE)));
+            const platformCommission = Number(orderData.platform_commission ?? (finalPaid * LEGACY_COMMISSION_RATE));
 
             const txRef = adminDb.collection("transactions").doc(intentKey);
             const enrollmentRef = adminDb.collection("enrollments").doc(`${studentId}_${courseId}`);
@@ -184,6 +187,9 @@ export async function POST(request: Request) {
                     original_price: orderData.original_price || finalPaid,
                     coupon_used: orderData.coupon_code || null,
                     payment_method: "fawaterak_online",
+                    commission_rate: commissionRate,
+                    platform_commission: platformCommission,
+                    instructor_share: instructorEarnings,
                 }, { merge: true });
 
                 // 2. Increment students count & total_sales on course
@@ -193,7 +199,7 @@ export async function POST(request: Request) {
                     updated_at: new Date().toISOString(),
                 });
 
-                // 3. Deposit 95% into instructor wallet (profiles_private ONLY)
+                // 3. Deposit instructor share (after plan commission) into instructor wallet (profiles_private ONLY)
                 if (instructorPrivateRef) {
                     t.set(instructorPrivateRef, {
                         wallet_balance: FieldValue.increment(instructorEarnings),
@@ -215,6 +221,7 @@ export async function POST(request: Request) {
                     amount: finalPaid,
                     instructor_share: instructorEarnings,
                     platform_commission: platformCommission,
+                    commission_rate: commissionRate,
                     payment_method: "fawaterak",
                     provider_method: paymentMethod,
                     fawaterak_transaction_id: transactionId,
@@ -394,7 +401,7 @@ export async function POST(request: Request) {
 /**
  * Handle refund and chargeback webhook events from Fawaterak
  * - Revokes student course enrollment immediately
- * - Deducts 95% earnings from instructor's wallet (allows negative balance to protect the platform)
+ * - Deducts the stored instructor share from instructor's wallet (allows negative balance to protect the platform)
  * - Decrements course students_count
  * - Records refund transaction in the financial ledger
  * - Logs server security activity
@@ -444,7 +451,7 @@ async function processRefundEvent({
             const courseId = orderData.course_id;
             const instructorId = orderData.instructor_id;
             const finalPaid = Number(orderData.amount || 0);
-            const instructorShare = Number(orderData.instructor_share ?? (finalPaid * 0.95));
+            const instructorShare = Number(orderData.instructor_share ?? (finalPaid * (1 - LEGACY_COMMISSION_RATE)));
 
             const enrollmentRef = adminDb.collection("enrollments").doc(`${studentId}_${courseId}`);
             const courseRef = adminDb.collection("courses").doc(courseId);

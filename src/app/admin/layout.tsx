@@ -21,7 +21,8 @@ import {
     Ticket,
     Activity,
     BarChart3,
-    Lock
+    Lock,
+    Crown
 } from "lucide-react"
 import { DashboardSkeleton } from "@/components/skeletons"
 import {
@@ -55,6 +56,7 @@ const adminNavItems = [
     { name: "مراجعة المدفوعات", href: "/admin/payments", icon: Wallet },
     { name: "تسويات المحاضرين", href: "/admin/settlements", icon: DollarSign },
     { name: "طلبات السحب", href: "/admin/withdrawals", icon: CheckCircle2 },
+    { name: "باقات المدرسين", href: "/admin/plans", icon: Crown },
     { name: "إدارة الكوبونات", href: "/admin/coupons", icon: Ticket },
     { name: "الإعدادات", href: "/admin/settings", icon: Settings },
 ]

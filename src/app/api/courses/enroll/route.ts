@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { getActiveServerAuth } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
+import { formatRate, getEffectivePlan, splitSale } from "@/lib/plans";
 
 export async function POST(request: Request) {
     try {
@@ -73,10 +74,13 @@ export async function POST(request: Request) {
                 throw new Error("ALREADY_ENROLLED");
             }
 
-            const [studentSnap, studentPrivateSnap] = await Promise.all([
+            const [studentSnap, studentPrivateSnap, instructorPrivateSnap] = await Promise.all([
                 t.get(studentRef),
                 t.get(studentPrivateRef),
+                instructorPrivateRef ? t.get(instructorPrivateRef) : Promise.resolve(null),
             ]);
+            // Commission follows the instructor's current plan (legacy instructors keep LEGACY rate)
+            const commissionRate = getEffectivePlan(instructorPrivateSnap?.exists ? instructorPrivateSnap.data() : null).commissionRate;
             if (!studentSnap.exists) {
                 throw new Error("STUDENT_NOT_FOUND");
             }
@@ -87,6 +91,7 @@ export async function POST(request: Request) {
             // Validate coupon inside transaction (TOCTOU-safe)
             let appliedCoupon: any = null;
             let finalPrice = coursePrice;
+            let split = { platformCommission: 0, instructorShare: 0 };
 
             if (couponRef) {
                 const cSnap = await t.get(couponRef);
@@ -128,10 +133,11 @@ export async function POST(request: Request) {
                     updated_at: new Date().toISOString(),
                 }, { merge: true });
 
-                // Add 95% to instructor (only if instructor profile exists)
+                // Add instructor share (after plan commission) to instructor (only if instructor profile exists)
                 if (instructorPrivateRef) {
-                    const instructorEarnings = finalPrice * 0.95;
-                    const platformCommission = finalPrice * 0.05;
+                    split = splitSale(finalPrice, commissionRate);
+                    const instructorEarnings = split.instructorShare;
+                    const platformCommission = split.platformCommission;
 
                     t.set(instructorPrivateRef, {
                         wallet_balance: FieldValue.increment(instructorEarnings),
@@ -146,6 +152,7 @@ export async function POST(request: Request) {
                         instructor_id: course.instructor_id,
                         instructor_share: instructorEarnings,
                         platform_commission: platformCommission,
+                        commission_rate: commissionRate,
                         student_id: user.uid,
                         student_name: studentData.full_name || user.email,
                         course_id: courseId,
@@ -173,6 +180,11 @@ export async function POST(request: Request) {
                 paid_amount: finalPrice,
                 original_price: coursePrice,
                 coupon_used: appliedCoupon?.code || null,
+                ...(finalPrice > 0 && instructorPrivateRef ? {
+                    commission_rate: commissionRate,
+                    platform_commission: split.platformCommission,
+                    instructor_share: split.instructorShare,
+                } : {}),
             });
 
             // Increment coupon usage inside transaction
@@ -183,7 +195,7 @@ export async function POST(request: Request) {
             // Increment students_count
             t.update(courseRef, { students_count: FieldValue.increment(1), total_sales: FieldValue.increment(1) });
 
-            return { finalPrice, appliedCoupon };
+            return { finalPrice, appliedCoupon, commissionRate, split };
         });
 
         // 1. Log student course purchase
@@ -214,14 +226,16 @@ export async function POST(request: Request) {
 
         // 2. Log instructor payout if price > 0
         if (result.finalPrice > 0 && course.instructor_id) {
-            const instructorEarnings = result.finalPrice * 0.95;
-            const platformCommission = result.finalPrice * 0.05;
+            const instructorEarnings = result.split.instructorShare;
+            const platformCommission = result.split.platformCommission;
+            const ratePct = formatRate(result.commissionRate);
+            const sharePct = formatRate(1 - result.commissionRate);
 
             await logServerActivity({
                 action: "instructor_payout",
                 category: "financial",
                 title: `تحويل أرباح لمحفظة المدرس (${instructorName})`,
-                description: `تم تحويل مبلغ ${instructorEarnings} ج.م (نسبة 95%) لمحفظة المدرس "${instructorName}" نظير اشتراك الطالب "${studentName}" في كورس "${course.title}". عمولة المنصة 5%: ${platformCommission} ج.م.`,
+                description: `تم تحويل مبلغ ${instructorEarnings} ج.م (نسبة ${sharePct}) لمحفظة المدرس "${instructorName}" نظير اشتراك الطالب "${studentName}" في كورس "${course.title}". عمولة المنصة ${ratePct}: ${platformCommission} ج.م.`,
                 status: "success",
                 user_id: course.instructor_id,
                 user_name: instructorName,
@@ -237,6 +251,7 @@ export async function POST(request: Request) {
                     total_amount: result.finalPrice,
                     instructor_earnings: instructorEarnings,
                     platform_commission: platformCommission,
+                    commission_rate: result.commissionRate,
                 },
             });
         }

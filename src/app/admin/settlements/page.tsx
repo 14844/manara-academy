@@ -131,7 +131,9 @@ export default function AdminSettlementsPage() {
                     studentName: enr.student_name,
                     courseTitle: enr.course_title,
                     date: enr.enrolled_at,
-                    amount: amount
+                    amount: amount,
+                    commission_rate: enr.commission_rate,
+                    platform_commission: enr.platform_commission
                 })
             })
 
@@ -147,7 +149,7 @@ export default function AdminSettlementsPage() {
                 group.details.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
                 group.details.forEach((enr: any) => {
-                    const result = calculateEnrollmentCommission(enr.amount, instId);
+                    const result = calculateEnrollmentCommission(enr.amount, instId, undefined, enr);
                     group.commission += result.commissionAmount;
                     group.netPayout += result.netAmount;
                 });

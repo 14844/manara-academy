@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
+import { DEFAULT_PLAN_ID } from "@/lib/plans";
 
 export async function POST(request: Request) {
     try {
@@ -86,6 +87,8 @@ export async function POST(request: Request) {
             status: "pending",
             wallet_balance: 0,
             active_devices: deviceId ? [deviceId] : [],
+            // New instructors start on the free plan; existing instructors (no plan_id) stay legacy.
+            ...(safeRole === "instructor" ? { plan_id: DEFAULT_PLAN_ID, plan_expires_at: null } : {}),
             created_at: now,
             updated_at: now,
         });

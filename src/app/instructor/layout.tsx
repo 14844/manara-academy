@@ -15,7 +15,8 @@ import {
     Wallet,
     ClipboardList,
     Ticket,
-    TrendingUp
+    TrendingUp,
+    Crown
 } from "lucide-react"
 import { DashboardSkeleton } from "@/components/skeletons"
 import { auth, db } from "@/lib/firebase/config"
@@ -44,6 +45,7 @@ const sidebarItems = [
     { name: "الإحصائيات", href: "/instructor/analytics", icon: TrendingUp },
     { name: "إدارة الكوبونات", href: "/instructor/coupons", icon: Ticket },
     { name: "المحفظة والأرباح", href: "/instructor/withdrawals", icon: Wallet },
+    { name: "باقتي", href: "/instructor/plan", icon: Crown },
     { name: "الإعدادات", href: "/instructor/settings", icon: Settings },
 ]
 

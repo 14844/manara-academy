@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { getFawaterakTransactionData, extractFawaterakPaidAmount } from "@/lib/payments/fawaterak";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { getActiveServerAuth } from "@/lib/server-auth";
+import { LEGACY_COMMISSION_RATE } from "@/lib/plans";
 
 export async function POST(request: Request) {
     try {
@@ -66,8 +67,10 @@ export async function POST(request: Request) {
                     return NextResponse.json({ status: "pending", message: "جاري تأكيد المعاملة من البنك..." });
                 }
                 const finalPaid = requestedAmount;
-                const instructorEarnings = Number(orderData.instructor_share ?? (finalPaid * 0.95));
-                const platformCommission = Number(orderData.platform_commission ?? (finalPaid * 0.05));
+                // Use the split stored on the order at initiation; legacy rate only as fallback for old orders
+                const commissionRate = Number(orderData.commission_rate ?? LEGACY_COMMISSION_RATE);
+                const instructorEarnings = Number(orderData.instructor_share ?? (finalPaid * (1 - LEGACY_COMMISSION_RATE)));
+                const platformCommission = Number(orderData.platform_commission ?? (finalPaid * LEGACY_COMMISSION_RATE));
                 const transactionId = data.id || data.transaction_id || intentKey;
                 const paymentMethod = data.payment_method || "Online";
 
@@ -130,6 +133,9 @@ export async function POST(request: Request) {
                         original_price: orderData.original_price || finalPaid,
                         coupon_used: orderData.coupon_code || null,
                         payment_method: "fawaterak_online",
+                        commission_rate: commissionRate,
+                        platform_commission: platformCommission,
+                        instructor_share: instructorEarnings,
                     }, { merge: true });
 
                     // Increment both active students and total sales counter
@@ -159,6 +165,7 @@ export async function POST(request: Request) {
                         amount: finalPaid,
                         instructor_share: instructorEarnings,
                         platform_commission: platformCommission,
+                        commission_rate: commissionRate,
                         payment_method: "fawaterak",
                         provider_method: paymentMethod,
                         fawaterak_transaction_id: transactionId,

@@ -5,6 +5,7 @@ import { getActiveServerAuth } from "@/lib/server-auth";
 import { createFawaterakTransaction } from "@/lib/payments/fawaterak";
 import { checkRateLimitAsync } from "@/lib/rate-limiter";
 import { logServerActivity } from "@/lib/server-activity-logger";
+import { getEffectivePlan, splitSale } from "@/lib/plans";
 
 export async function POST(request: Request) {
     if (!ONLINE_PAYMENTS_ENABLED) {
@@ -125,8 +126,13 @@ export async function POST(request: Request) {
         const proto = request.headers.get("x-forwarded-proto") || "https";
         const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `${proto}://${host}`;
 
-        const instructorEarnings = finalPrice * 0.95;
-        const platformCommission = finalPrice * 0.05;
+        // Commission follows the instructor's plan at the time of purchase; stored on the order
+        // so verify/webhook/refund use exactly this split later.
+        const instructorPrivSnap = course.instructor_id
+            ? await adminDb.collection("profiles_private").doc(course.instructor_id).get()
+            : null;
+        const commissionRate = getEffectivePlan(instructorPrivSnap?.exists ? instructorPrivSnap.data() : null).commissionRate;
+        const { instructorShare: instructorEarnings, platformCommission } = splitSale(finalPrice, commissionRate);
 
         // 7. Create Fawaterak Transaction for direct educational service
         const sessionResult = await createFawaterakTransaction({
@@ -167,6 +173,7 @@ export async function POST(request: Request) {
             amount: finalPrice,
             instructor_share: instructorEarnings,
             platform_commission: platformCommission,
+            commission_rate: commissionRate,
             coupon_code: couponCode || null,
             fawaterak_intent_key: sessionResult.intentKey,
             payment_gateway: "fawaterak",

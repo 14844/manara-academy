@@ -3,6 +3,7 @@ import { activityLogRole, requirePermission } from "@/lib/server-auth";
 import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { logServerActivity } from "@/lib/server-activity-logger";
+import { LEGACY_COMMISSION_RATE } from "@/lib/plans";
 
 export async function POST(request: Request) {
     const user = await requirePermission(request, "payments.manage");
@@ -68,7 +69,8 @@ export async function POST(request: Request) {
             const courseId = orderData.course_id;
             const instructorId = orderData.instructor_id;
             const finalPaid = Number(orderData.amount || 0);
-            const instructorShare = Number(orderData.instructor_share ?? (finalPaid * 0.95));
+            // Stored split wins; legacy rate is only a fallback for very old orders
+            const instructorShare = Number(orderData.instructor_share ?? (finalPaid * (1 - LEGACY_COMMISSION_RATE)));
 
             const enrollmentRef = adminDb.collection("enrollments").doc(`${studentId}_${courseId}`);
             const courseRef = adminDb.collection("courses").doc(courseId);

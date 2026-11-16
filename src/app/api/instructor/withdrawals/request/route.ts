@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getActiveServerAuth } from "@/lib/server-auth";
 import { adminDb } from "@/lib/firebase/admin";
 import { logServerActivity } from "@/lib/server-activity-logger";
+import { LEGACY_COMMISSION_RATE, getEffectivePlan } from "@/lib/plans";
 
 export async function POST(request: Request) {
     const user = await getActiveServerAuth(request);
@@ -21,9 +22,13 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "المبلغ المطلوب سحبه غير صالح" }, { status: 400 });
         }
 
-        // Calculate 5% platform commission strictly on server
-        const grossAmount = Math.round((netAmount / 0.95) * 100) / 100;
-        const commission = Math.round((grossAmount - netAmount) * 100) / 100;
+        // The wallet already holds NET earnings (commission was taken at sale time), and only
+        // netAmount is deducted below. gross/commission are informational fields that back-compute
+        // the sales value behind this payout, using the instructor's effective plan rate
+        // (legacy instructors with no plan keep the old 5% => net / 0.95, exactly as before).
+        let grossAmount = netAmount;
+        let commission = 0;
+        let commissionRate = LEGACY_COMMISSION_RATE;
 
         const profileRef = adminDb.collection("profiles").doc(user.uid);
         const profilePrivateRef = adminDb.collection("profiles_private").doc(user.uid);
@@ -61,7 +66,13 @@ export async function POST(request: Request) {
             }
 
             const currentBalance = Number(privSnap.data()?.wallet_balance ?? 0);
-            
+
+            commissionRate = getEffectivePlan(privSnap.exists ? privSnap.data() : null).commissionRate;
+            grossAmount = commissionRate < 1
+                ? Math.round((netAmount / (1 - commissionRate)) * 100) / 100
+                : netAmount;
+            commission = Math.round((grossAmount - netAmount) * 100) / 100;
+
             if (currentBalance < 0) {
                 throw new Error(`NEGATIVE_BALANCE:${currentBalance}`);
             }
@@ -83,6 +94,7 @@ export async function POST(request: Request) {
                 instructor_name: user.profile?.full_name || user.email || "محاضر",
                 amount: grossAmount,
                 commission: commission,
+                commission_rate: commissionRate,
                 net_amount: netAmount,
                 status: "pending",
                 requested_at: new Date().toISOString(),
