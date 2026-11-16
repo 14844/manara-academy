@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin, SUPABASE_BUCKET } from "@/lib/supabase/admin"
-import { getActiveServerAuth } from "@/lib/server-auth"
+import { getActiveServerAuth, logActor, logRouteFailure } from "@/lib/server-auth"
+import { logServerActivity } from "@/lib/server-activity-logger"
 import { isStaffRole } from "@/lib/permissions"
 import { checkCourseOwnership, normalizeImageMime, withImageExtension } from "@/lib/media-security"
 
@@ -169,6 +170,16 @@ export async function POST(request: NextRequest) {
             finalUrl = storagePath
         }
 
+        await logServerActivity({
+            action: "file_upload_started",
+            category: rawFolder === "avatars" ? "client" : "course",
+            title: "بدء رفع ملف",
+            description: `أنشأ ${user.profile?.full_name || user.email} رابط رفع للملف "${finalFileName}" في مجلد ${rawFolder}${courseId ? ` للكورس ${courseId}` : ""}`,
+            status: "info",
+            ...logActor(user),
+            metadata: { folder: rawFolder, storage_path: storagePath, course_id: courseId || null },
+        }, request)
+
         return NextResponse.json({
             success: true,
             signedUrl: data.signedUrl,
@@ -180,6 +191,14 @@ export async function POST(request: NextRequest) {
         })
     } catch (err: any) {
         console.error("Signed URL generation error:", err)
+        await logRouteFailure(request, {
+            action: "upload_url_failed",
+            category: "system",
+            title: "فشل إنشاء رابط رفع",
+            description: "تعذر إنشاء رابط رفع موقّع للملف",
+            error: err,
+            user,
+        })
         return NextResponse.json({ error: "خطأ داخلي أثناء إنشاء رابط الرفع" }, { status: 500 })
     }
 }

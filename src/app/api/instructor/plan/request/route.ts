@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { activityLogRole, getActiveServerAuth } from "@/lib/server-auth";
+import { activityLogRole, getActiveServerAuth, logRouteFailure } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { PLANS, getEffectivePlan, isPlanId } from "@/lib/plans";
 
@@ -105,6 +105,13 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ requestId: requestRef.id });
     } catch (err: any) {
+        await logRouteFailure(request, {
+            action: "instructor_plan_request_failed",
+            category: "admin_action",
+            title: "فشل طلب ترقية باقة",
+            description: "تعذر تسجيل طلب باقة المدرس",
+            error: err,
+        });
         if (err?.message === "PENDING_EXISTS") {
             return NextResponse.json({ error: "لديك طلب باقة قيد المراجعة بالفعل" }, { status: 409 });
         }

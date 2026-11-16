@@ -642,7 +642,7 @@ describe("settings", () => {
   beforeEach(async () => {
     await seedDoc("profiles", adminUid, { role: "admin", status: "active" });
     await seedDoc("settings", "support", { phone: "123", email: "a@b.com" });
-    await seedDoc("settings", "fawaterak", { api_key: "secret" });
+    await seedDoc("settings", "private_config", { api_key: "secret" });
   });
 
   it("anyone can read settings/support", async () => {
@@ -650,19 +650,19 @@ describe("settings", () => {
     await assertSucceeds(getDoc(doc(db, "settings", "support")));
   });
 
-  it("unauthenticated cannot read settings/fawaterak", async () => {
+  it("unauthenticated cannot read settings/private_config", async () => {
     const db = testEnv.unauthenticatedContext().firestore();
-    await assertFails(getDoc(doc(db, "settings", "fawaterak")));
+    await assertFails(getDoc(doc(db, "settings", "private_config")));
   });
 
-  it("non-admin cannot read settings/fawaterak", async () => {
+  it("non-admin cannot read settings/private_config", async () => {
     const db = testEnv.authenticatedContext("student1").firestore();
-    await assertFails(getDoc(doc(db, "settings", "fawaterak")));
+    await assertFails(getDoc(doc(db, "settings", "private_config")));
   });
 
-  it("admin can read settings/fawaterak", async () => {
+  it("admin can read settings/private_config", async () => {
     const db = testEnv.authenticatedContext(adminUid).firestore();
-    await assertSucceeds(getDoc(doc(db, "settings", "fawaterak")));
+    await assertSucceeds(getDoc(doc(db, "settings", "private_config")));
   });
 
   it("admin can write settings", async () => {
@@ -849,18 +849,21 @@ describe("staff roles", () => {
     await assertFails(getDoc(doc(ctx(roles.support), "wallet_requests", "wr1")));
   });
 
-  it("finance can read wallet data and wallet requests", async () => {
-    await assertSucceeds(getDoc(doc(ctx(roles.finance), "profiles_private", "studentX")));
+  it("finance reads wallet requests but not private profiles, and can't edit requests directly", async () => {
     await assertSucceeds(getDoc(doc(ctx(roles.finance), "wallet_requests", "wr1")));
+    await assertFails(getDoc(doc(ctx(roles.finance), "profiles_private", "studentX")));
+    await assertFails(updateDoc(doc(ctx(roles.finance), "wallet_requests", "wr1"), { amount: 99999 }));
   });
 
   it("suspended finance account loses access", async () => {
-    await assertFails(getDoc(doc(ctx(roles.suspended), "profiles_private", "studentX")));
+    await assertFails(getDoc(doc(ctx(roles.suspended), "wallet_requests", "wr1")));
   });
 
-  it("marketing manages coupons but cannot see money", async () => {
+  it("marketing manages platform coupons only and cannot see money", async () => {
+    await seedDoc("coupons", "platform1", { course_id: "all", discount_percent: 10, usage_count: 0 });
     await assertSucceeds(getDoc(doc(ctx(roles.marketing), "coupons", "c1")));
-    await assertSucceeds(updateDoc(doc(ctx(roles.marketing), "coupons", "c1"), { discount_percent: 20 }));
+    await assertSucceeds(updateDoc(doc(ctx(roles.marketing), "coupons", "platform1"), { discount_percent: 20 }));
+    await assertFails(updateDoc(doc(ctx(roles.marketing), "coupons", "c1"), { discount_percent: 100 }));
     await assertFails(getDoc(doc(ctx(roles.marketing), "profiles_private", "studentX")));
     await assertFails(getDoc(doc(ctx(roles.marketing), "wallet_requests", "wr1")));
   });

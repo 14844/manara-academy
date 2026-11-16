@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { activityLogRole, requirePermission } from "@/lib/server-auth";
+import { activityLogRole, logRouteFailure, requirePermission } from "@/lib/server-auth";
 import { adminDb } from "@/lib/firebase/admin";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
@@ -9,33 +9,55 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "غير مصرح لك بإجراء هذه العملية" }, { status: 403 });
     }
 
+    let logRequestId = "";
+    const fail = (description: string, error?: unknown) => logRouteFailure(request, {
+        action: "wallet_recharge_reject_failed",
+        category: "financial",
+        title: "فشل رفض طلب شحن محفظة",
+        description,
+        error,
+        user: adminUser,
+        metadata: { request_id: logRequestId },
+    });
     try {
         const body = await request.json();
         const { requestId, reason } = body;
+        logRequestId = typeof requestId === "string" ? requestId : "";
 
-        if (!requestId) {
+        if (!requestId || typeof requestId !== "string" || requestId.includes("/")) {
             return NextResponse.json({ error: "معرّف الطلب مطلوب" }, { status: 400 });
         }
 
         const requestRef = adminDb.collection("wallet_requests").doc(requestId);
-        const reqSnap = await requestRef.get();
 
-        if (!reqSnap.exists) {
+        // Read + update atomically: only a still-pending request can be rejected
+        const outcome = await adminDb.runTransaction(async (t) => {
+            const reqSnap = await t.get(requestRef);
+            if (!reqSnap.exists) return { kind: "not_found" as const };
+            const data = reqSnap.data()!;
+            if (data.status !== "pending") return { kind: "not_pending" as const, data };
+            const now = new Date().toISOString();
+            t.update(requestRef, {
+                status: "rejected",
+                reject_reason: reason || null,
+                rejected_by: adminUser.uid,
+                reviewed_at: now,
+                updated_at: now,
+            });
+            return { kind: "ok" as const, data };
+        });
+
+        if (outcome.kind === "not_found") {
+            await fail(`طلب الشحن ${requestId} غير موجود`);
             return NextResponse.json({ error: "الطلب غير موجود" }, { status: 404 });
         }
-
-        const reqData = reqSnap.data()!;
-        if (reqData.status === "approved") {
-            return NextResponse.json({ error: "لا يمكن رفض طلب تم اعتماده مسبقاً" }, { status: 400 });
+        const reqData = outcome.data;
+        if (outcome.kind === "not_pending") {
+            await fail(`محاولة رفض طلب شحن ${requestId} تمت مراجعته مسبقاً (الحالة: ${reqData.status || "غير معروفة"}) للطالب "${reqData.student_name || reqData.student_id}"`);
+            return NextResponse.json({
+                error: reqData.status === "approved" ? "لا يمكن رفض طلب تم اعتماده مسبقاً" : "تمت مراجعة هذا الطلب بالفعل",
+            }, { status: reqData.status === "approved" ? 400 : 409 });
         }
-
-        await requestRef.update({
-            status: "rejected",
-            reject_reason: reason || null,
-            rejected_by: adminUser.uid,
-            reviewed_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        });
 
         // Log server activity
         await logServerActivity({
@@ -60,6 +82,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true });
     } catch (err: any) {
         console.error("Reject payment error:", err);
+        await fail(`تعذر رفض طلب الشحن ${logRequestId || "(بدون معرّف)"}`, err);
         return NextResponse.json({ error: "فشل رفض الطلب" }, { status: 500 });
     }
 }

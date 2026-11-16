@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { getServerAuth } from "@/lib/server-auth";
 import { checkRateLimitAsync, getClientIp } from "@/lib/rate-limiter";
-import { isBackofficeRole } from "@/lib/permissions";
 
 export async function POST(request: Request) {
     try {
@@ -33,28 +32,23 @@ export async function POST(request: Request) {
             ? body.action
             : "client_action";
 
-        const validCategories = ["financial", "auth", "admin_action", "course", "system", "client", "ai_support"];
-        let safeCategory = typeof body.category === "string" && validCategories.includes(body.category)
-            ? body.category
-            : "client";
+        // Categories reserved for server-generated events ("security", "admin_action", "financial")
+        // can NEVER be written from the browser — they are downgraded to "client" so a staff member
+        // cannot forge an audit entry that looks like a real server-side action.
+        const RESERVED_CATEGORIES = ["security", "admin_action", "financial"];
+        const CLIENT_CATEGORIES = ["auth", "course", "system", "client", "ai_support"];
+        const requestedCategory = typeof body.category === "string" ? body.category.slice(0, 32) : "";
+        let safeCategory = CLIENT_CATEGORIES.includes(requestedCategory) ? requestedCategory : "client";
 
-        // Infer category if client set client or generic
+        // Infer a (non-reserved) category if the client sent a generic one
         if (safeCategory === "client") {
             if (/^(user_)?(login|signup|auth|session|password)/i.test(safeAction)) {
                 safeCategory = "auth";
-            } else if (/^(recharge|withdraw|payment|refund|wallet|payout|enroll)/i.test(safeAction)) {
-                safeCategory = "financial";
-            } else if (/^(admin_)/i.test(safeAction)) {
-                safeCategory = "admin_action";
             } else if (/^(course_|lesson_|exam_|quiz_|video_)/i.test(safeAction)) {
                 safeCategory = "course";
             }
         }
-
-        // Only admin / staff (backoffice) sessions may file entries under the admin_action category
-        if (safeCategory === "admin_action" && !isBackofficeRole(user?.role)) {
-            safeCategory = "client";
-        }
+        if (RESERVED_CATEGORIES.includes(safeCategory)) safeCategory = "client";
 
         const validStatuses = ["success", "failed", "pending", "info"];
         const safeStatus = typeof body.status === "string" && validStatuses.includes(body.status)
@@ -99,15 +93,18 @@ export async function POST(request: Request) {
             ? body.description.slice(0, 1000)
             : (typeof body.details === "string" ? body.details.slice(0, 1000) : safeAction);
 
-        const safeUserId = user?.uid || (typeof body.user_id === "string" ? body.user_id.slice(0, 128) : "guest");
-        const safeUserName = user?.profile?.full_name || (typeof body.user_name === "string" ? body.user_name.slice(0, 100) : (user?.email || "زائر"));
-        const safeUserEmail = user?.email || (typeof body.user_email === "string" ? body.user_email.slice(0, 150) : (body.metadata?.email || ""));
-        // Role always comes from the server-side session (admin & staff included). Anonymous callers can
-        // never claim a privileged role: only student / instructor / guest are accepted from the body.
-        const ANON_ALLOWED_ROLES = ["student", "instructor", "guest"];
-        const safeUserRole = user
-            ? user.role
-            : (typeof body.user_role === "string" && ANON_ALLOWED_ROLES.includes(body.user_role) ? body.user_role : "guest");
+        // Actor identity comes ONLY from the server-side session. Anonymous callers are always logged
+        // as "guest"; whatever identity they claim is kept in metadata (clearly marked as claimed).
+        if (requestedCategory && requestedCategory !== safeCategory) safeMetadata.requested_category = requestedCategory;
+        if (!user) {
+            const claimedEmail = typeof body.user_email === "string" ? body.user_email : (typeof body.metadata?.email === "string" ? body.metadata.email : "");
+            if (claimedEmail) safeMetadata.claimed_email = claimedEmail.slice(0, 150);
+            if (typeof body.user_id === "string") safeMetadata.claimed_user_id = body.user_id.slice(0, 128);
+        }
+        const safeUserId = user?.uid || "guest";
+        const safeUserName = user ? (user.profile?.full_name || user.email || user.uid) : "زائر";
+        const safeUserEmail = user?.email || "";
+        const safeUserRole = user ? user.role : "guest";
 
         const logId = await logServerActivity({
             action: safeAction,
@@ -124,7 +121,8 @@ export async function POST(request: Request) {
             target_user_id: typeof body.target_user_id === "string" ? body.target_user_id.slice(0, 128) : undefined,
             target_user_name: typeof body.target_user_name === "string" ? body.target_user_name.slice(0, 100) : undefined,
             error_message: typeof body.error_message === "string" ? body.error_message.slice(0, 500) : undefined,
-        });
+            source: "client",
+        }, request);
 
         return NextResponse.json({ success: true, logId });
     } catch (error: any) {

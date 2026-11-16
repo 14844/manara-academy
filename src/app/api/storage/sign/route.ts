@@ -255,8 +255,35 @@ export async function GET(request: NextRequest) {
                 if (!isReferenced) {
                     return new NextResponse("Forbidden: الملف لا ينتمي إلى الكورس المحدد", { status: 403 })
                 }
-            } else if (cleanPath.startsWith('avatars/') || cleanPath.startsWith('thumbnails/') || cleanPath.startsWith('questions/')) {
-                // Public/educational assets accessible to authenticated users
+            } else if (cleanPath.startsWith('questions/')) {
+                // Question images: questions/q_<uploaderUid>_<ts>_<name> (no course id in the path).
+                // The uploader may always view their own; anyone else must name the course (courseId),
+                // which must belong to the uploader, reference this image in its lessons, and be
+                // accessible to the caller (course instructor, content reviewer, or active enrollment).
+                const uploaderMatch = cleanPath.match(/^questions\/q_([A-Za-z0-9]+)_/)
+                const uploaderUid = uploaderMatch ? uploaderMatch[1] : ""
+                if (!uploaderUid) {
+                    return new NextResponse("Forbidden", { status: 403 })
+                }
+                if (uploaderUid !== user.uid) {
+                    if (!reqCourseId || !/^[\w-]+$/.test(reqCourseId)) {
+                        return new NextResponse("Forbidden: يجب تحديد معرّف الكورس للوصول إلى هذا الملف", { status: 403 })
+                    }
+                    const qCourseSnap = await adminDb.collection("courses").doc(reqCourseId).get()
+                    const qCourse = qCourseSnap.exists ? qCourseSnap.data() || {} : null
+                    if (!qCourse || qCourse.instructor_id !== uploaderUid || !JSON.stringify(qCourse.modules || []).includes(cleanPath)) {
+                        return new NextResponse("Forbidden: الملف لا ينتمي إلى الكورس المحدد", { status: 403 })
+                    }
+                    const isQCourseInstructor = qCourse.instructor_id === user.uid
+                    if (!isQCourseInstructor && !isContentReviewer) {
+                        const enrSnap = await adminDb.collection("enrollments").doc(`${user.uid}_${reqCourseId}`).get()
+                        if (!enrSnap.exists || enrSnap.data()?.status !== "active") {
+                            return new NextResponse("Forbidden: ليس لديك اشتراك نشط في هذا الكورس", { status: 403 })
+                        }
+                    }
+                }
+            } else if (cleanPath.startsWith('avatars/') || cleanPath.startsWith('thumbnails/')) {
+                // Public assets accessible to authenticated users
             } else if (cleanPath.startsWith('payment_proofs/')) {
                 // Payment proof receipts: only the student who uploaded or admin can access
                 const isStudentOwner = cleanPath.includes(`_${user.uid}_`)

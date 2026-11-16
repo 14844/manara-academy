@@ -59,6 +59,16 @@ export default function AdminPaymentsPage() {
 
     async function fetchStudentBalance(uid: string) {
         try {
+            // profiles_private is readable from the client only by its owner and admin;
+            // other staff (finance) get the balance from the server, redacted per permission.
+            if (role !== "admin") {
+                const res = await fetch(`/api/admin/users/${encodeURIComponent(uid)}`)
+                if (!res.ok) return
+                const data = await res.json()
+                const bal = data?.user?.wallet_balance
+                setStudentBalance(typeof bal === "number" ? bal : Number(bal) || 0)
+                return
+            }
             const privRef = doc(db, "profiles_private", uid)
             const privSnap = await getDoc(privRef)
             if (privSnap.exists()) {

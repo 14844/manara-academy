@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { auth, db } from "@/lib/firebase/config"
+import { escapeHtml } from "@/lib/escape-html"
 import { 
     collection, 
     query, 
@@ -131,7 +132,7 @@ export default function InstructorWithdrawalsPage() {
         printWindow.document.write(`
             <html>
                 <head>
-                    <title>إيصال صرف أرباح - ${selectedRequest?.instructor_name}</title>
+                    <title>إيصال صرف أرباح - ${escapeHtml(selectedRequest?.instructor_name)}</title>
                     <style>
                         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl; padding: 40px; }
                         .receipt { border: 2px solid #eee; padding: 30px; border-radius: 15px; max-width: 600px; margin: 0 auto; }
@@ -291,7 +292,7 @@ export default function InstructorWithdrawalsPage() {
                         </Badge>
                     </h4>
                     <p className="text-muted-foreground leading-relaxed">
-                        يتم إيداع حصتك الصافية (<strong className="text-foreground">95%</strong> من قيمة كل اشتراك) تلقائياً في رصيدك لحظة التحاق أي طالب، سواء سدد الطالب عبر <strong className="text-foreground">الدفع الإلكتروني المباشر (فواتيرك - فيزا/فوري/ميزة)</strong> أو من خلال <strong className="text-foreground">رصيد محفظته</strong>. يُسمح بتقديم طلب سحب الأرباح <strong className="text-foreground">مرة واحدة كل 7 أيام (أسبوعياً)</strong> لضمان استقرار المعاملات البنكية وحماية المنصة والمحاضر ضد نزاعات الاسترداد (Chargeback).
+                        يتم إيداع حصتك الصافية (<strong className="text-foreground">95%</strong> من قيمة كل اشتراك) تلقائياً في رصيدك لحظة التحاق أي طالب واشتراكه من خلال <strong className="text-foreground">رصيد محفظته</strong>. يُسمح بتقديم طلب سحب الأرباح <strong className="text-foreground">مرة واحدة كل 7 أيام (أسبوعياً)</strong> لضمان استقرار المعاملات المالية وحماية المنصة والمحاضر.
                     </p>
                 </div>
             </div>

@@ -17,7 +17,6 @@ import {
     Clock,
     XCircle,
     Search,
-    CreditCard,
     Smartphone,
     BookOpen,
     Filter,
@@ -66,7 +65,7 @@ export default function WalletHistoryPage() {
                 console.error("Profile fetch error:", err)
             }
 
-            // 2. Fetch Wallet Requests (manual & fawaterak recharges)
+            // 2. Fetch Wallet Requests (manual recharges)
             const walletRequestsQuery = query(
                 collection(db, "wallet_requests"),
                 where("student_id", "==", uid)
@@ -77,18 +76,18 @@ export default function WalletHistoryPage() {
                 return {
                     id: doc.id,
                     type: "recharge",
-                    title: data.payment_gateway === "fawaterak" ? "شحن محفظة (فواتيرك)" : "شحن محفظة يدوي",
+                    title: "شحن محفظة يدوي",
                     details: data.sender_number || "تحويل يدوي",
                     proof_url: data.screenshot_url || data.proof_url || null,
                     amount: Number(data.amount || 0),
                     is_credit: true,
-                    payment_method: data.payment_gateway === "fawaterak" ? "fawaterak" : "manual",
+                    payment_method: "manual",
                     status: data.status || "pending",
                     created_at: data.created_at || new Date().toISOString(),
                 }
             })
 
-            // 3. Fetch Transactions (course enrollments, payouts, fawaterak course purchases)
+            // 3. Fetch Transactions (course purchases from wallet balance)
             const txQuery = query(
                 collection(db, "transactions"),
                 where("student_id", "==", uid)
@@ -96,7 +95,6 @@ export default function WalletHistoryPage() {
             const txSnap = await getDocs(txQuery)
             const txItems = txSnap.docs.map(doc => {
                 const data = doc.data()
-                const isFawaterak = data.type === "course_purchase_fawaterak" || data.payment_method === "fawaterak"
                 const isWalletRecharge = data.type === "wallet_recharge"
 
                 if (isWalletRecharge) {
@@ -108,10 +106,10 @@ export default function WalletHistoryPage() {
                     id: doc.id,
                     type: "course",
                     title: `شراء كورس: ${data.course_title || "دورة تعليمية"}`,
-                    details: isFawaterak ? "دفع إلكتروني فوري (فواتيرك)" : "خصم من رصيد المحفظة الداخلي",
+                    details: "خصم من رصيد المحفظة الداخلي",
                     amount: Number(data.amount || 0),
                     is_credit: false,
-                    payment_method: isFawaterak ? "fawaterak" : "wallet",
+                    payment_method: "wallet",
                     status: data.status === "completed" || data.status === "success" ? "approved" : (data.status || "approved"),
                     created_at: data.created_at || new Date().toISOString(),
                 }
@@ -135,7 +133,7 @@ export default function WalletHistoryPage() {
         if (filterType !== "all" && tx.type !== filterType) return false
         if (filterStatus !== "all") {
             if (filterStatus === "approved" && tx.status !== "approved" && tx.status !== "completed") return false
-            if (filterStatus === "pending" && tx.status !== "pending" && tx.status !== "pending_payment") return false
+            if (filterStatus === "pending" && tx.status !== "pending") return false
             if (filterStatus === "rejected" && tx.status !== "rejected") return false
         }
         if (searchQuery.trim()) {
@@ -185,7 +183,7 @@ export default function WalletHistoryPage() {
                             السجل المالي الشامل
                         </h1>
                         <p className="text-xs text-muted-foreground mt-1">
-                            سجل دقيق وموثق لجميع عمليات الشحن اليدوي والإلكتروني، ومشتريات الكورسات وحالات الدفع.
+                            سجل دقيق وموثق لجميع عمليات شحن المحفظة، ومشتريات الكورسات وحالات الدفع.
                         </p>
                     </div>
 
@@ -349,7 +347,7 @@ export default function WalletHistoryPage() {
                                     <tbody className="divide-y">
                                         {filteredTransactions.map((tx) => {
                                             const isApproved = tx.status === "approved" || tx.status === "completed"
-                                            const isPending = tx.status === "pending" || tx.status === "pending_payment"
+                                            const isPending = tx.status === "pending"
                                             const isRejected = tx.status === "rejected"
 
                                             return (
@@ -376,12 +374,7 @@ export default function WalletHistoryPage() {
                                                     {/* Payment Method */}
                                                     <td className="p-3.5">
                                                         <div className="flex items-center gap-1.5 font-bold text-[11px] text-muted-foreground">
-                                                            {tx.payment_method === "fawaterak" ? (
-                                                                <>
-                                                                    <CreditCard className="h-3.5 w-3.5 text-primary shrink-0" />
-                                                                    <span>فواتيرك (إلكتروني فوري)</span>
-                                                                </>
-                                                            ) : tx.payment_method === "wallet" ? (
+                                                            {tx.payment_method === "wallet" ? (
                                                                 <>
                                                                     <Wallet className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
                                                                     <span>رصيد المحفظة</span>

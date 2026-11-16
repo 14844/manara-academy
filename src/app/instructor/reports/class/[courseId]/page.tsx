@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner"
 import Link from "next/link"
 import { AnalyticsSkeleton } from "@/components/skeletons"
+import { escapeHtml } from "@/lib/escape-html"
 
 export default function ClassReportPage() {
     const { courseId } = useParams()
@@ -137,7 +138,7 @@ export default function ClassReportPage() {
             <html lang="ar" dir="rtl">
                 <head>
                     <meta charset="utf-8">
-                    <title>تقرير الفصل الدراسي - ${course?.title || "كورس"}</title>
+                    <title>تقرير الفصل الدراسي - ${escapeHtml(course?.title || "كورس")}</title>
                     <style>
                         @page { size: A4 portrait; margin: 12mm 15mm; }
                         * { box-sizing: border-box; }
@@ -280,15 +281,15 @@ export default function ClassReportPage() {
                             </div>
                             <div style="text-align: left; font-size: 11px; color: #64748b;">
                                 <div><strong>تاريخ التقرير:</strong> ${dateStr}</div>
-                                <div><strong>المحاضر:</strong> ${course?.instructor_name || "مدرس المادة"}</div>
+                                <div><strong>المحاضر:</strong> ${escapeHtml(course?.instructor_name || "مدرس المادة")}</div>
                             </div>
                         </div>
 
                         <div class="meta-box">
-                            <div class="meta-item"><strong>المقرر التعليمي:</strong> ${course?.title || "الكورس"}</div>
-                            <div class="meta-item"><strong>إجمالي عدد الدروس:</strong> ${totalLessons} درس</div>
-                            <div class="meta-item"><strong>إجمالي الطلاب المسجلين:</strong> ${totalStudents} طالب</div>
-                            <div class="meta-item"><strong>الصف الدراسي / الفئة:</strong> ${course?.grade_level || "عام"}</div>
+                            <div class="meta-item"><strong>المقرر التعليمي:</strong> ${escapeHtml(course?.title || "الكورس")}</div>
+                            <div class="meta-item"><strong>إجمالي عدد الدروس:</strong> ${escapeHtml(totalLessons)} درس</div>
+                            <div class="meta-item"><strong>إجمالي الطلاب المسجلين:</strong> ${escapeHtml(totalStudents)} طالب</div>
+                            <div class="meta-item"><strong>الصف الدراسي / الفئة:</strong> ${escapeHtml(course?.grade_level || "عام")}</div>
                         </div>
 
                         <div class="kpi-grid">
@@ -330,11 +331,11 @@ export default function ClassReportPage() {
                                     return `
                                         <tr>
                                             <td style="color: #64748b;">${idx + 1}</td>
-                                            <td style="font-weight: 800;">${s.name}</td>
-                                            <td style="direction: ltr; text-align: right; color: #475569;">${s.phone || 'غير مسجل'}</td>
-                                            <td>${s.completedLessons} من ${s.totalLessons}</td>
-                                            <td><strong>${s.progress}%</strong></td>
-                                            <td><span class="badge ${evalClass}">${s.averageScore}%</span></td>
+                                            <td style="font-weight: 800;">${escapeHtml(s.name)}</td>
+                                            <td style="direction: ltr; text-align: right; color: #475569;">${escapeHtml(s.phone || 'غير مسجل')}</td>
+                                            <td>${escapeHtml(s.completedLessons)} من ${escapeHtml(s.totalLessons)}</td>
+                                            <td><strong>${escapeHtml(s.progress)}%</strong></td>
+                                            <td><span class="badge ${evalClass}">${escapeHtml(s.averageScore)}%</span></td>
                                             <td><span class="badge ${evalClass}">${evalText}</span></td>
                                         </tr>
                                     `;

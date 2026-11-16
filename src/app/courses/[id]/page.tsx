@@ -26,9 +26,7 @@ import {
     Activity,
     Loader2,
     Wallet,
-    CreditCard,
     ArrowRight,
-    Zap,
     Sparkles
 } from "lucide-react"
 import { auth, db } from "@/lib/firebase/config"
@@ -50,8 +48,6 @@ import {
 } from "@/components/ui/dialog"
 import { CourseDetailsSkeleton } from "@/components/skeletons"
 
-const ONLINE_PAYMENTS_UI_ENABLED = process.env.NEXT_PUBLIC_ONLINE_PAYMENTS_ENABLED === "true"
-
 export default function CourseDetailsPage() {
     const { id } = useParams()
     const router = useRouter()
@@ -64,7 +60,6 @@ export default function CourseDetailsPage() {
 
     // Checkout modal states
     const [showCheckoutDialog, setShowCheckoutDialog] = useState(false)
-    const [isFawaterakLoading, setIsFawaterakLoading] = useState(false)
 
     // Coupon states
     const [couponCode, setCouponCode] = useState("")
@@ -122,45 +117,6 @@ export default function CourseDetailsPage() {
         }
         fetchCourse()
     }, [id, router])
-
-    // Direct Fawaterak Online Payment for Course
-    const handleFawaterakCoursePay = async () => {
-        if (!user) {
-            toast.error("يرجى تسجيل الدخول أولاً للالتحاق بالكورس")
-            router.push(`/login?redirect=/courses/${id}`)
-            return
-        }
-
-        setIsFawaterakLoading(true)
-        try {
-            const idToken = await user.getIdToken()
-            const res = await fetch("/api/payments/fawaterak/initiate-course", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    courseId: course.id,
-                    couponCode: appliedCoupon?.code || null,
-                    idToken,
-                }),
-            })
-
-            const data = await res.json()
-            if (!res.ok) {
-                throw new Error(data.error || "فشل الاتصال ببوابة فواتيرك")
-            }
-
-            if (data.paymentUrl) {
-                toast.loading("جاري تحويلك إلى صفحة الدفع الآمنة في فواتيرك...")
-                window.location.href = data.paymentUrl
-            } else {
-                throw new Error("لم يتم استلام رابط الدفع من فواتيرك")
-            }
-        } catch (error: any) {
-            console.error("Fawaterak course pay error:", error)
-            toast.error(error.message || "حدث خطأ أثناء بدء عملية الدفع الإلكتروني")
-            setIsFawaterakLoading(false)
-        }
-    }
 
     const handleEnroll = async () => {
         if (!user) {
@@ -569,7 +525,7 @@ export default function CourseDetailsPage() {
                             تأكيد الاشتراك في الكورس
                         </DialogTitle>
                         <DialogDescription className="text-xs text-muted-foreground">
-                            اختر طريقة الدفع المناسبة لك لإتمام الالتحاق بكورس <strong className="text-foreground">"{course?.title}"</strong>
+                            سيتم خصم قيمة الكورس من رصيد محفظتك لإتمام الالتحاق بكورس <strong className="text-foreground">"{course?.title}"</strong>
                         </DialogDescription>
                     </DialogHeader>
 
@@ -661,80 +617,6 @@ export default function CourseDetailsPage() {
                                         )}
                                     </div>
 
-                                    {ONLINE_PAYMENTS_UI_ENABLED ? (
-                                        <>
-                                    {/* Divider */}
-                                    <div className="relative flex py-1 items-center">
-                                        <div className="flex-grow border-t border-muted"></div>
-                                        <span className="flex-shrink mx-3 text-muted-foreground text-[10px] font-bold">أو ادفع مباشرة إلكترونياً</span>
-                                        <div className="flex-grow border-t border-muted"></div>
-                                    </div>
-
-                                    {/* Option 2: Fawaterak Instant Payment */}
-                                    <div className="p-4 rounded-xl border-2 border-emerald-500/40 bg-emerald-500/5 space-y-3">
-                                        <div className="space-y-1">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2 font-bold text-sm text-foreground">
-                                                    <Zap className="h-4 w-4 text-emerald-600 fill-emerald-600" />
-                                                    <span>دفع إلكتروني فوري (فواتيرك)</span>
-                                                </div>
-                                                <Badge className="bg-emerald-600 text-white text-[10px] font-bold">
-                                                    تفعيل لحظي ⚡
-                                                </Badge>
-                                            </div>
-                                            <p className="text-[11px] text-muted-foreground leading-relaxed">
-                                                فيزا، ماستركارد، كروت ميزة، محافظ الهاتف، فوري باي، أو إنستاباي.
-                                            </p>
-                                        </div>
-
-                                        {fPrice < 5 && (
-                                            <p className="text-[11px] text-amber-600 font-bold flex items-center gap-1">
-                                                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                                                الحد الأدنى للدفع المباشر عبر فواتيرك هو 5 ج.م.
-                                            </p>
-                                        )}
-
-                                        <Button
-                                            type="button"
-                                            onClick={handleFawaterakCoursePay}
-                                            disabled={isFawaterakLoading || fPrice < 5}
-                                            className="w-full h-12 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shadow-lg shadow-emerald-600/20"
-                                        >
-                                            {isFawaterakLoading ? (
-                                                <>
-                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                    جاري الاتصال ببوابة فواتيرك...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <CreditCard className="h-4 w-4" />
-                                                    <span>الانتقال لبوابة فواتيرك وسداد ({fPrice} ج.م)</span>
-                                                    <ArrowRight className="h-4 w-4 mr-auto" />
-                                                </>
-                                            )}
-                                        </Button>
-                                    </div>
-                                        </>
-                                    ) : (
-                                        <>
-                                    {/* Online payment is not open yet */}
-                                    <div className="relative flex py-1 items-center">
-                                        <div className="flex-grow border-t border-muted"></div>
-                                        <span className="flex-shrink mx-3 text-muted-foreground text-[10px] font-bold">الدفع الإلكتروني</span>
-                                        <div className="flex-grow border-t border-muted"></div>
-                                    </div>
-                                    <div className="p-4 rounded-xl border-2 border-dashed border-muted bg-muted/20 space-y-2 text-center">
-                                        <div className="flex items-center justify-center gap-2 font-bold text-sm text-foreground">
-                                            <CreditCard className="h-4 w-4 text-muted-foreground" />
-                                            <span>الدفع بالبطاقات والمحافظ الإلكترونية</span>
-                                        </div>
-                                        <Badge variant="secondary" className="text-[10px] font-bold">قريباً</Badge>
-                                        <p className="text-[11px] text-muted-foreground leading-relaxed">
-                                            سيتم فتحه قريباً. حالياً يمكنك شحن المحفظة عبر فودافون كاش أو إنستاباي ثم الاشتراك في الكورس.
-                                        </p>
-                                    </div>
-                                        </>
-                                    )}
                                 </div>
                             </div>
                         )

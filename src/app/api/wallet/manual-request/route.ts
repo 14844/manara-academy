@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getActiveServerAuth } from "@/lib/server-auth";
+import { getActiveServerAuth, logRouteFailure } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { checkRateLimitAsync } from "@/lib/rate-limiter";
 import { extractStoragePath } from "@/lib/media-security";
@@ -87,6 +87,13 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true, requestId: docRef.id });
     } catch (err: any) {
         console.error("Manual wallet request error:", err);
+        await logRouteFailure(request, {
+            action: "wallet_recharge_request_failed",
+            category: "financial",
+            title: "فشل إرسال طلب شحن محفظة",
+            description: "تعذر تسجيل طلب شحن المحفظة اليدوي",
+            error: err,
+        });
         return NextResponse.json({ error: "حدث خطأ أثناء إرسال طلب الشحن" }, { status: 500 });
     }
 }

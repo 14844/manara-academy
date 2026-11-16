@@ -39,7 +39,10 @@ import { auth } from "@/lib/firebase/config"
 import { logActivity, type ActivityLogInput } from "@/lib/activity-logger"
 import { TablePageSkeleton } from "@/components/skeletons"
 import { useAdminRole } from "@/components/admin/admin-role-context"
-import { getRoleLabel, isBackofficeRole } from "@/lib/permissions"
+import { getRoleLabel, isBackofficeRole, ROLE_LABELS, type UserRole } from "@/lib/permissions"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+
+const ALL_ROLES = Object.keys(ROLE_LABELS) as UserRole[]
 
 export default function AdminUsersPage() {
     const { role, roleLabel, isAdmin, can } = useAdminRole()
@@ -48,6 +51,10 @@ export default function AdminUsersPage() {
     const canManageStatus = can("users.manage_status")
     const canVerify = can("users.verify")
     const canViewContact = can("users.view_contact")
+    const canManageRoles = can("users.manage_roles")
+    const [roleFilter, setRoleFilter] = useState<string>("all")
+    const [pendingRoleChange, setPendingRoleChange] = useState<{ user: any; to: UserRole } | null>(null)
+    const [isChangingRole, setIsChangingRole] = useState(false)
     // Role sent with client-side activity logs (the server re-derives it from the session anyway)
     const logRole = (role || "admin") as ActivityLogInput["user_role"]
     const [users, setUsers] = useState<any[]>([])
@@ -317,6 +324,25 @@ export default function AdminUsersPage() {
         }
     }
 
+    const handleConfirmRoleChange = async () => {
+        if (!pendingRoleChange) return
+        const { user: target, to } = pendingRoleChange
+        setIsChangingRole(true)
+        try {
+            const data = await postUserAction({ userId: target.id, action: "set_role", role: to })
+            setUsers(prev => prev.map(u => u.id === target.id
+                ? { ...u, role: to, ...(data?.status ? { status: data.status } : {}) }
+                : u))
+            toast.success(`تم تغيير دور ${target.full_name || target.email || ""} إلى ${getRoleLabel(to)}`)
+            setPendingRoleChange(null)
+        } catch (error: any) {
+            console.error("Change role error:", error)
+            toast.error(error.message || "حدث خطأ أثناء تغيير الدور")
+        } finally {
+            setIsChangingRole(false)
+        }
+    }
+
     /**
      * Which actions the current role may take on a given row.
      * Non-admin staff never act on admin / staff accounts.
@@ -339,13 +365,19 @@ export default function AdminUsersPage() {
             onToggleAutoReport: allowVerify ? handleToggleAutoReport : undefined,
             showWallet: canViewWallet,
             showContact: canViewContact,
+            // Admin only, never on your own account
+            onChangeRole: canManageRoles && user.id !== auth.currentUser?.uid
+                ? (u: any, to: UserRole) => setPendingRoleChange({ user: u, to })
+                : undefined,
         }
     }
 
     const filteredUsers = users.filter(u =>
-        u.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        u.phone?.includes(searchTerm)
+        (roleFilter === "all" || (u.role || "student") === roleFilter) && (
+            u.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            u.phone?.includes(searchTerm)
+        )
     )
 
     const PendingUsers = filteredUsers.filter(u => u.status === 'pending' || !u.status)
@@ -363,14 +395,27 @@ export default function AdminUsersPage() {
                     <h1 className="text-3xl font-bold">إدارة المستخدمين</h1>
                     <p className="text-muted-foreground italic">مراجعة وتفعيل حسابات الطلاب والمعلمين</p>
                 </div>
-                <div className="relative w-full md:w-64">
-                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="بحث بالاسم أو الإيميل..."
-                        className="pr-10"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
+                <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+                    <Select value={roleFilter} onValueChange={setRoleFilter}>
+                        <SelectTrigger className="w-full sm:w-44">
+                            <SelectValue placeholder="كل الأدوار" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">كل الأدوار</SelectItem>
+                            {ALL_ROLES.map((r) => (
+                                <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <div className="relative w-full md:w-64">
+                        <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="بحث بالاسم أو الإيميل..."
+                            className="pr-10"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -475,6 +520,28 @@ export default function AdminUsersPage() {
                 </DialogContent>
             </Dialog>
 
+            {/* Change Role Confirm Dialog (admin only) */}
+            <Dialog open={!!pendingRoleChange} onOpenChange={(open) => !open && !isChangingRole && setPendingRoleChange(null)}>
+                <DialogContent className="sm:max-w-[440px] font-arabic">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold">تأكيد تغيير الدور</DialogTitle>
+                        <DialogDescription>
+                            {pendingRoleChange &&
+                                `تغيير دور ${pendingRoleChange.user.full_name || pendingRoleChange.user.email || ""} من ${getRoleLabel(pendingRoleChange.user.role)} إلى ${getRoleLabel(pendingRoleChange.to)}؟`}
+                            <br />
+                            <span className="text-xs">سيتم تسجيل خروج المستخدم لتطبيق الصلاحيات الجديدة عند دخوله التالي.</span>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setPendingRoleChange(null)} disabled={isChangingRole}>إلغاء</Button>
+                        <Button onClick={handleConfirmRoleChange} disabled={isChangingRole} className="font-bold">
+                            {isChangingRole && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
+                            تأكيد التغيير
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             {/* Withdraw Dialog */}
             <Dialog open={!!selectedUserForWithdraw} onOpenChange={(open) => !open && setSelectedUserForWithdraw(null)}>
                 <DialogContent className="sm:max-w-[425px] font-arabic">
@@ -533,7 +600,7 @@ function StatCard({ title, value, icon: Icon, color }: any) {
     )
 }
 
-function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices, onToggleVerify, onToggleAutoReport, showWallet, showContact }: any) {
+function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices, onToggleVerify, onToggleAutoReport, onChangeRole, showWallet, showContact }: any) {
     const avatarUrl = user.photoURL || user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.full_name || user.id}`
 
     return (
@@ -624,6 +691,23 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDe
                     </div>
 
                     <div className="flex flex-col gap-2 shrink-0 sm:min-w-[140px]">
+                        {onChangeRole && (
+                            <Select
+                                value={user.role || "student"}
+                                onValueChange={(value) => {
+                                    if (value !== (user.role || "student")) onChangeRole(user, value)
+                                }}
+                            >
+                                <SelectTrigger className="w-full h-9" aria-label="تغيير الدور">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {ALL_ROLES.map((r) => (
+                                        <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        )}
                         {user.role === 'instructor' && (
                             <>
                                 {onToggleVerify && (

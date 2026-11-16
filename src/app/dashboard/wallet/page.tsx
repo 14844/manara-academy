@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, Suspense } from "react"
-import { useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { auth, db } from "@/lib/firebase/config"
 import { onAuthStateChanged } from "firebase/auth"
@@ -22,8 +21,6 @@ import {
     XCircle,
     Copy,
     AlertCircle,
-    CreditCard,
-    Zap,
     ShieldCheck,
     ArrowRight,
     Lock
@@ -35,7 +32,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { WalletSkeleton } from "@/components/skeletons"
 
 function WalletContent() {
-    const searchParams = useSearchParams()
     const [user, setUser] = useState<any>(null)
     const [profile, setProfile] = useState<any>(null)
     const [loading, setLoading] = useState(true)
@@ -46,9 +42,6 @@ function WalletContent() {
     const [amount, setAmount] = useState("")
     const [senderNumber, setSenderNumber] = useState("")
     const [file, setFile] = useState<File | null>(null)
-
-    // URL Status Banner
-    const fawaterakStatus = searchParams.get("fawaterak")
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -209,43 +202,6 @@ function WalletContent() {
                 <p className="text-muted-foreground mt-1">بوابتك لإدارة رصيدك والتحكم الدقيق في عمليات الشراء والاشتراك في الكورسات</p>
             </div>
 
-            {/* Notification Banners based on Fawaterak Redirect */}
-            {fawaterakStatus === "success" && (
-                <div className="bg-emerald-500/10 border-2 border-emerald-500/30 text-emerald-950 dark:text-emerald-200 p-5 rounded-2xl flex items-center gap-4 animate-in slide-in-from-top-4">
-                    <div className="h-10 w-10 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
-                        <CheckCircle2 className="h-6 w-6 text-emerald-600" />
-                    </div>
-                    <div>
-                        <h4 className="font-bold text-base">تم شحن المحفظة بنجاح عبر فواتيرك! 🎉</h4>
-                        <p className="text-xs text-muted-foreground mt-0.5">تمت إضافة الرصيد إلى محفظتك بنجاح وهو متاح الآن للاشتراك في أي كورس فوراً.</p>
-                    </div>
-                </div>
-            )}
-
-            {fawaterakStatus === "failed" && (
-                <div className="bg-destructive/10 border-2 border-destructive/30 text-destructive p-5 rounded-2xl flex items-center gap-4 animate-in slide-in-from-top-4">
-                    <div className="h-10 w-10 rounded-xl bg-destructive/20 flex items-center justify-center shrink-0">
-                        <XCircle className="h-6 w-6 text-destructive" />
-                    </div>
-                    <div>
-                        <h4 className="font-bold text-base">تعذر استكمال عملية الدفع الإلكتروني</h4>
-                        <p className="text-xs opacity-90 mt-0.5">تم إلغاء عملية الدفع أو رفضها من قبل البنك. يمكنك المحاولة مجدداً أو استخدام التحويل اليدوي.</p>
-                    </div>
-                </div>
-            )}
-
-            {fawaterakStatus === "pending" && (
-                <div className="bg-amber-500/10 border-2 border-amber-500/30 text-amber-900 dark:text-amber-200 p-5 rounded-2xl flex items-center gap-4 animate-in slide-in-from-top-4">
-                    <div className="h-10 w-10 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
-                        <Clock className="h-6 w-6 text-amber-600" />
-                    </div>
-                    <div>
-                        <h4 className="font-bold text-base">عملية الدفع قيد المعالجة (فوري / أمان)</h4>
-                        <p className="text-xs text-muted-foreground mt-0.5">إذا قمت بالدفع عبر كود فوري أو أمان، سيتم شحن رصيدك تلقائياً فور تأكيد السداد لدى المحل.</p>
-                    </div>
-                </div>
-            )}
-
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Left Column: Balance & Recharge Methods */}
                 <div className="lg:col-span-2 space-y-6">
@@ -281,25 +237,6 @@ function WalletContent() {
                             <CardDescription>قم بالتحويل اليدوي لأحد أرقامنا المعتمدة وسيقوم فريق الدعم بتأكيد الرصيد فوراً</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            {/* Direct Course Purchase Banner */}
-                            <div className="p-4 bg-emerald-500/10 border-2 border-emerald-500/20 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                <div className="space-y-1">
-                                    <h4 className="font-bold text-sm text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
-                                        <Zap className="h-4 w-4 text-emerald-600 fill-emerald-600" />
-                                        تريد الدفع الفوري بالفيزا أو كروت ميزة أو فوري؟
-                                    </h4>
-                                    <p className="text-xs text-muted-foreground leading-relaxed">
-                                        يمكنك التوجه مباشرة لصفحة أي كورس والضغط على <strong className="text-foreground">"الاشتراك وشراء الكورس"</strong> وستتمكن من سداد قيمته فورياً بأمان دون الحاجة لشحن المحفظة مسبقاً!
-                                    </p>
-                                </div>
-                                <Button size="sm" asChild className="shrink-0 font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-md">
-                                    <Link href="/courses">
-                                        <span>تصفح الكورسات</span>
-                                        <ArrowRight className="h-3.5 w-3.5 mr-auto" />
-                                    </Link>
-                                </Button>
-                            </div>
-
                             {/* MANUAL TRANSFER FORM & NUMBERS */}
                             <div className="bg-muted/50 p-6 rounded-2xl space-y-6 border-2 border-dashed border-primary/20">
                                 <div className="space-y-4">
@@ -446,18 +383,13 @@ function WalletContent() {
                                                 >
                                                     {req.status === 'approved' && <CheckCircle2 className="h-3 w-3" />}
                                                     {req.status === 'pending' && <Clock className="h-3 w-3" />}
-                                                    {req.status === 'pending_payment' && <Clock className="h-3 w-3" />}
                                                     {req.status === 'rejected' && <XCircle className="h-3 w-3" />}
-                                                    {req.status === 'approved' ? 'مقبول ومضاف' : req.status === 'rejected' ? 'مرفوض' : req.status === 'pending_payment' ? 'بانتظار السداد' : 'بانتظار المراجعة'}
+                                                    {req.status === 'approved' ? 'مقبول ومضاف' : req.status === 'rejected' ? 'مرفوض' : 'بانتظار المراجعة'}
                                                 </Badge>
                                             </div>
                                             <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 p-2 rounded-lg truncate">
-                                                {req.payment_gateway === 'fawaterak' ? (
-                                                    <CreditCard className="h-3.5 w-3.5 text-primary shrink-0" />
-                                                ) : (
-                                                    <Smartphone className="h-3.5 w-3.5 shrink-0" />
-                                                )}
-                                                <span className="truncate">{req.sender_number || "دفع إلكتروني فواتيرك"}</span>
+                                                <Smartphone className="h-3.5 w-3.5 shrink-0" />
+                                                <span className="truncate">{req.sender_number || "تحويل يدوي"}</span>
                                             </div>
                                         </div>
                                     ))}
@@ -482,7 +414,7 @@ function WalletContent() {
                             تنبيه هام
                         </h4>
                         <p className="text-xs text-orange-800/80 leading-relaxed font-medium">
-                            الدفع الإلكتروني بالبطاقات سيتم فتحه قريباً. حالياً يتم شحن المحفظة بالتحويل اليدوي (فودافون كاش / إنستاباي) ويتم فحص وتأكيد الإيصالات من قبل فريق الدعم.
+                            يتم شحن المحفظة بالتحويل اليدوي (فودافون كاش / إنستاباي) ويتم فحص وتأكيد الإيصالات من قبل فريق الدعم.
                         </p>
                     </div>
                 </div>

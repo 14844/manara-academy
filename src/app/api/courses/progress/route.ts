@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getServerAuth } from "@/lib/server-auth";
+import { getServerAuth, logRouteFailure } from "@/lib/server-auth";
 import { checkRateLimitAsync, getClientIp } from "@/lib/rate-limiter";
 
 export async function POST(request: Request) {
@@ -81,6 +81,15 @@ export async function POST(request: Request) {
             completed_lessons: newCompleted,
         });
     } catch (err: any) {
+        await logRouteFailure(request, {
+            action: "course_progress_failed",
+            category: "course",
+            title: "فشل تحديث التقدم الدراسي",
+            description: err?.message === "ENROLLMENT_NOT_FOUND" || err?.message === "FORBIDDEN"
+                ? "محاولة تحديث تقدم دراسي لكورس غير مشترك فيه"
+                : "تعذر تحديث التقدم الدراسي",
+            error: err,
+        });
         if (err.message === "ENROLLMENT_NOT_FOUND" || err.message === "FORBIDDEN") {
             return NextResponse.json({ error: "غير مصرح لك بتحديث هذا الكورس" }, { status: 403 });
         }

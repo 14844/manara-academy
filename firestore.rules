@@ -85,12 +85,12 @@ service cloud.firestore {
 
     // Profiles Private (SENSITIVE fields): email, phone, parent_phone, wallet_balance,
     // active_devices, active_session_id, status, student_id
-    // Only the owner, admin or finance can read (contains wallet_balance).
-    // Support staff get contact data through /api/admin/users, which strips money fields.
-    // All writes are server-side only.
+    // Only the owner or admin can read (contains contact data, sessions, wallet_balance).
+    // Staff (support/finance) get the subset they're allowed through /api/admin/users,
+    // which strips fields per permission. All writes are server-side only.
     match /profiles_private/{userId} {
-      allow get: if isOwner(userId) || isAdmin() || isFinance();
-      allow list: if isAdmin() || isFinance();
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
       allow write: if false;
     }
 
@@ -131,7 +131,8 @@ service cloud.firestore {
         resource.data.student_id == request.auth.uid || isAdmin() || isFinance()
       );
       allow create: if false;
-      allow update: if isAdmin() || isFinance();
+      // All status changes go through /api/admin/payments/* (transactional + logged).
+      allow update: if false;
       allow delete: if isAdmin();
     }
 
@@ -142,7 +143,8 @@ service cloud.firestore {
         resource.data.instructor_id == request.auth.uid || isAdmin() || isFinance()
       );
       allow create: if false;
-      allow update: if isAdmin() || isFinance();
+      // All status changes go through /api/admin/withdrawals/* (transactional + logged).
+      allow update: if false;
       allow delete: if isAdmin();
     }
 
@@ -155,7 +157,12 @@ service cloud.firestore {
         request.resource.data.discount_percent is number &&
         request.resource.data.discount_percent >= 1 &&
         request.resource.data.discount_percent <= 100 && (
-          isAdmin() || isMarketing() || (
+          isAdmin() || (
+            // Marketing: platform coupons only (no instructor_id), starting unused
+            isMarketing() &&
+            !('instructor_id' in request.resource.data) &&
+            (!('usage_count' in request.resource.data) || request.resource.data.usage_count == 0)
+          ) || (
             isInstructor() &&
             request.resource.data.instructor_id == request.auth.uid &&
             'course_id' in request.resource.data &&
@@ -164,7 +171,15 @@ service cloud.firestore {
           )
         );
       allow update: if isAuthenticated() && isAccountActive() && (
-        isAdmin() || isMarketing() || (
+        isAdmin() || (
+          isMarketing() &&
+          !('instructor_id' in resource.data) &&
+          !('instructor_id' in request.resource.data) &&
+          request.resource.data.discount_percent is number &&
+          request.resource.data.discount_percent >= 1 &&
+          request.resource.data.discount_percent <= 100 &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['usage_count'])
+        ) || (
           resource.data.instructor_id == request.auth.uid &&
           request.resource.data.instructor_id == resource.data.instructor_id &&
           request.resource.data.course_id == resource.data.course_id &&
@@ -174,12 +189,15 @@ service cloud.firestore {
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['usage_count'])
         )
       );
-      allow delete: if isAuthenticated() && (resource.data.instructor_id == request.auth.uid || isAdmin() || isMarketing());
+      allow delete: if isAuthenticated() && (
+        resource.data.instructor_id == request.auth.uid || isAdmin() ||
+        (isMarketing() && !('instructor_id' in resource.data))
+      );
     }
 
     // Refund locks: Internal server-only collection for idempotent refund processing.
     match /refund_locks/{lockId} {
-      allow read: if isAdmin() || isFinance();
+      allow read: if isAdmin();
       allow write: if false;
     }
 
@@ -193,6 +211,11 @@ service cloud.firestore {
           isInstructor() &&
           request.resource.data.instructor_id == request.auth.uid &&
           request.resource.data.status == "pending" &&
+          request.resource.data.price is number &&
+          request.resource.data.price >= 0 &&
+          request.resource.data.price <= 100000 &&
+          // Lesson media must go through /api/courses/save-media (validates video ownership)
+          (!('modules' in request.resource.data) || request.resource.data.modules.size() == 0) &&
           (!('students_count' in request.resource.data) || request.resource.data.students_count == 0) &&
           !('total_sales' in request.resource.data) &&
           !('is_published' in request.resource.data) &&
@@ -244,7 +267,13 @@ service cloud.firestore {
       );
       allow create: if false;
       allow update: if isAuthenticated() && (
-        resource.data.instructor_id == request.auth.uid || isAdmin()
+        isAdmin() || (
+          resource.data.instructor_id == request.auth.uid &&
+          // Grading only: ownership fields can't be reassigned
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'instructor_id', 'student_id', 'course_id', 'answers', 'submitted_at'
+          ])
+        )
       );
       allow delete: if isAdmin();
     }
@@ -293,22 +322,38 @@ service cloud.firestore {
         )
       );
       allow update: if isAuthenticated() && isAccountActive() && (
-        (isInstructor() && resource.data.instructor_id == request.auth.uid) || isAdmin()
+        isAdmin() || (
+          isInstructor() && resource.data.instructor_id == request.auth.uid &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'instructor_id', 'student_id', 'course_id', 'expires_at', 'created_at'
+          ])
+        )
       );
       allow delete: if isAuthenticated() && (
         (isInstructor() && resource.data.instructor_id == request.auth.uid) || isAdmin()
       );
     }
 
-    // Report Schedules: Only the instructor who owns the schedule or admin.
+    // Report Schedules: Only the instructor who owns the schedule AND the course, or admin.
     match /report_schedules/{scheduleId} {
       allow read: if isAuthenticated() && (
         resource.data.instructor_id == request.auth.uid || isAdmin()
       );
       allow create: if isAuthenticated() && (
-        (isInstructor() && request.resource.data.instructor_id == request.auth.uid) || isAdmin()
+        isAdmin() || (
+          isInstructor() &&
+          request.resource.data.instructor_id == request.auth.uid &&
+          get(/databases/$(database)/documents/courses/$(request.resource.data.course_id)).data.instructor_id == request.auth.uid
+        )
       );
-      allow update, delete: if isAuthenticated() && (
+      allow update: if isAuthenticated() && (
+        isAdmin() || (
+          resource.data.instructor_id == request.auth.uid &&
+          request.resource.data.instructor_id == resource.data.instructor_id &&
+          request.resource.data.course_id == resource.data.course_id
+        )
+      );
+      allow delete: if isAuthenticated() && (
         resource.data.instructor_id == request.auth.uid || isAdmin()
       );
     }

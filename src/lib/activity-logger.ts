@@ -1,4 +1,4 @@
-export type ActivityLogCategory = "financial" | "auth" | "admin_action" | "course" | "system" | "client" | "ai_support";
+export type ActivityLogCategory = "financial" | "auth" | "admin_action" | "course" | "system" | "client" | "ai_support" | "security";
 export type ActivityLogStatus = "success" | "failed" | "pending" | "info";
 export type UserRole = "student" | "instructor" | "admin" | "system" | "guest"
     | "support_team" | "finance_manager" | "marketing_team" | "content_reviewer";
@@ -18,6 +18,8 @@ export interface ActivityLogInput {
     amount?: number;
     metadata?: Record<string, any>;
     error_message?: string;
+    /** Set by the server: "client" for entries submitted through /api/logs/record. */
+    source?: "server" | "client";
 }
 
 /**

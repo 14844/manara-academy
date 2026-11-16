@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getActiveServerAuth } from "@/lib/server-auth";
+import { getActiveServerAuth, logRouteFailure } from "@/lib/server-auth";
 import { adminDb } from "@/lib/firebase/admin";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { LEGACY_COMMISSION_RATE, getEffectivePlan } from "@/lib/plans";
@@ -124,6 +124,14 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, requestId: withdrawalRef.id });
     } catch (err: any) {
+        await logRouteFailure(request, {
+            action: "instructor_withdrawal_request_failed",
+            category: "financial",
+            title: "فشل طلب سحب أرباح",
+            description: `رُفض/فشل طلب سحب الأرباح للمحاضر "${user.profile?.full_name || user.email}"`,
+            error: err,
+            user,
+        });
         if (err.message?.startsWith("NEGATIVE_BALANCE")) {
             const bal = err.message.split(":")[1] || "0";
             return NextResponse.json({ 

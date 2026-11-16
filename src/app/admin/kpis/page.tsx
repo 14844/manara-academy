@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { db } from "@/lib/firebase/config"
+import { escapeHtml } from "@/lib/escape-html"
 import { collection, getDocs, query, orderBy, limit } from "firebase/firestore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -158,7 +159,7 @@ export default function AdminKpisPage() {
             }
         })
 
-        // Total Recharged Money into Platform Wallets (Fawaterak + Approved Manual)
+        // Total Recharged Money into Platform Wallets (Approved Manual)
         let totalRechargedAmount = 0
         walletRequests.forEach(wr => {
             if (wr.status === "approved") {
@@ -194,7 +195,7 @@ export default function AdminKpisPage() {
             }
         })
 
-        // Operational Costs estimate (e.g. Bunny stream/storage, Hosting, Payment gateways)
+        // Operational Costs estimate (e.g. Bunny stream/storage, Hosting)
         // Typically around 1.5% - 2.5% or fixed monthly estimate ~250 EGP
         const estimatedHostingCosts = Math.max(150, totalGmv * 0.015)
         
@@ -339,14 +340,6 @@ export default function AdminKpisPage() {
                 action: "تشجيع المعلمين على إطلاق باقات مجمعة (Course Bundles مثل: باقة الترم كامل) لزيادة إيراد العملية الواحدة.",
             })
         }
-
-        // 4. Instant Payment Adoption (Fawaterak)
-        insights.push({
-            type: "positive",
-            title: "تفعيل الدفع الإلكتروني الفوري (فواتيرك)",
-            desc: "توفير بوابات الدفع الفورية (فيزا، كاش، فوري) يقلل من تردد الطالب ويزيد معدل إتمام عمليات الشحن بنسبة تفوق 40% مقارنة بالتحويل اليدوي.",
-            action: "توجيه الطلاب في الإعلانات إلى خيار (الدفع الفوري) لسرعة وصول الكورس بدون انتظار مراجعة يدوية.",
-        })
 
         return insights
     }, [metrics])
@@ -521,7 +514,7 @@ export default function AdminKpisPage() {
 
                         <div class="meta-strip">
                             <div><strong>الفترة المحددة بالتقرير:</strong> ${timeLabel}</div>
-                            <div><strong>إجمالي العمليات الموثقة:</strong> ${(metrics.enrollmentCount || 0)} عملية اشتراك</div>
+                            <div><strong>إجمالي العمليات الموثقة:</strong> ${escapeHtml(metrics.enrollmentCount || 0)} عملية اشتراك</div>
                         </div>
 
                         <div class="kpi-grid">
@@ -538,7 +531,7 @@ export default function AdminKpisPage() {
                                 <div class="lbl">مستحقات المحاضرين (95%)</div>
                             </div>
                             <div class="kpi-card">
-                                <div class="val">${metrics.enrollmentCount || 0}</div>
+                                <div class="val">${escapeHtml(metrics.enrollmentCount || 0)}</div>
                                 <div class="lbl">إجمالي اشتراكات الطلاب</div>
                             </div>
                             <div class="kpi-card">
@@ -569,9 +562,9 @@ export default function AdminKpisPage() {
                                     </tr>
                                 ` : (metrics.topCourses || []).slice(0, 8).map((c: any) => `
                                     <tr>
-                                        <td style="font-weight: 800;">${c.title}</td>
-                                        <td>${c.instructor || 'مدرس المادة'}</td>
-                                        <td>${c.enrollments} طالب</td>
+                                        <td style="font-weight: 800;">${escapeHtml(c.title)}</td>
+                                        <td>${escapeHtml(c.instructor || 'مدرس المادة')}</td>
+                                        <td>${escapeHtml(c.enrollments)} طالب</td>
                                         <td style="color: #2563eb; font-weight: 800;">${(c.revenue || 0).toLocaleString()} ج.م</td>
                                         <td style="color: #16a34a; font-weight: 800;">${Math.round((c.revenue || 0) * 0.05).toLocaleString()} ج.م</td>
                                     </tr>

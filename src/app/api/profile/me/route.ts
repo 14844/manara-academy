@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getServerAuth } from "@/lib/server-auth";
+import { getServerAuth, logActor, type ServerUser } from "@/lib/server-auth";
+import { errorText, logServerActivity } from "@/lib/server-activity-logger";
 
 /**
  * GET /api/profile/me
@@ -42,8 +43,9 @@ export async function GET(request: Request) {
  * Private fields (phone) -> profiles_private/{uid}
  */
 export async function PUT(request: Request) {
+    let user: ServerUser | null = null;
     try {
-        const user = await getServerAuth(request);
+        user = await getServerAuth(request);
         if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
@@ -59,6 +61,15 @@ export async function PUT(request: Request) {
             phone !== undefined;
 
         if (user.role !== "admin" && isTryingToChangePersonalData) {
+            await logServerActivity({
+                action: "profile_update_denied",
+                category: "security",
+                title: "محاولة تعديل بيانات شخصية مرفوضة",
+                description: `حاول ${user.profile?.full_name || user.email} تعديل بياناته الشخصية الموثقة (غير مسموح إلا للإدارة)`,
+                status: "failed",
+                ...logActor(user),
+                metadata: { fields: ["full_name", "specialty", "bio", "phone"].filter(k => (body as any)[k] !== undefined) },
+            }, request);
             return NextResponse.json({
                 error: "البيانات الشخصية للقراءة فقط وموثقة في المنصة. لتعديلها يرجى التواصل مع الإدارة. يُسمح فقط بتغيير الصورة الشخصية."
             }, { status: 403 });
@@ -127,9 +138,31 @@ export async function PUT(request: Request) {
             adminDb.doc(`profiles_private/${user.uid}`).set(privateUpdate, { merge: true }),
         ]);
 
+        const changed = [...Object.keys(publicUpdate), ...Object.keys(privateUpdate)].filter(k => k !== "updated_at");
+        await logServerActivity({
+            action: "profile_updated",
+            category: "client",
+            title: "تحديث الملف الشخصي",
+            description: `قام ${user.profile?.full_name || user.email} بتحديث: ${changed.join("، ") || "لا شيء"}`,
+            status: "success",
+            ...logActor(user),
+            metadata: { fields: changed },
+        }, request);
+
         return NextResponse.json({ success: true });
     } catch (err: any) {
         console.error("Profile update error:", err);
+        if (user) {
+            await logServerActivity({
+                action: "profile_update_failed",
+                category: "client",
+                title: "فشل تحديث الملف الشخصي",
+                description: `فشل تحديث الملف الشخصي لـ ${user.profile?.full_name || user.email}`,
+                status: "failed",
+                ...logActor(user),
+                error_message: errorText(err),
+            }, request);
+        }
         return NextResponse.json({ error: "حدث خطأ داخلي" }, { status: 500 });
     }
 }

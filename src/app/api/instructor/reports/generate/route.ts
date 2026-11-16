@@ -1,6 +1,6 @@
 import { adminDb } from "@/lib/firebase/admin";
 import { NextResponse } from "next/server";
-import { getActiveServerAuth } from "@/lib/server-auth";
+import { getActiveServerAuth, logRouteFailure } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 /**
@@ -186,6 +186,13 @@ export async function POST(request: Request) {
         });
     } catch (error: any) {
         console.error("Generate report API error:", error);
+        await logRouteFailure(request, {
+            action: "student_report_generate_failed",
+            category: "course",
+            title: "فشل توليد تقرير طالب",
+            description: "تعذر توليد تقرير ولي الأمر للطالب",
+            error,
+        });
         return NextResponse.json({ error: error.message || "فشل توليد التقرير" }, { status: 500 });
     }
 }

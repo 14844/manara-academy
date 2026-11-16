@@ -1,36 +1,114 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebase/admin";
-import { activityLogRole, getServerAuth, isAccountActive, requirePermission } from "@/lib/server-auth";
+import { adminAuth, adminDb } from "@/lib/firebase/admin";
+import { activityLogRole, getServerAuth, isAccountActive, requirePermission, type ServerUser } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
-import { hasPermission, isBackofficeRole, type Permission, type UserRole } from "@/lib/permissions";
-
-/** Contact fields only visible with users.view_contact. */
-const CONTACT_FIELDS = ["email", "phone", "parent_phone"];
-/** Money fields only visible with wallet.view. */
-const MONEY_FIELDS = ["wallet_balance", "total_earned", "total_spent", "total_withdrawn", "pending_balance", "balance", "earnings"];
-// Whole snake_case words only (e.g. total_earned, pending_balance) so names like "learning_goal" are not caught
-const MONEY_FIELD_PATTERN = /(^|_)(balance|earned|earnings?|spent|withdrawn|revenue|payouts?)(_|$)/i;
-/** Session / device binding secrets — admin only. */
-const SESSION_FIELDS = ["active_session_id", "device_fingerprint"];
+import { getRoleLabel, hasPermission, isBackofficeRole, STAFF_ROLES, type Permission, type UserRole } from "@/lib/permissions";
+// Redaction lives in a lib module: Next.js route files may only export HTTP handlers / route config.
+import { redactUserForRole } from "@/lib/user-redaction";
 
 /** Account statuses a non-admin staff member may set. */
 const STAFF_ALLOWED_STATUSES = ["approved", "active", "pending", "rejected", "suspended", "blocked"];
 
-function redactUserForRole(userDoc: Record<string, any>, role: UserRole): Record<string, any> {
-    // Admin gets the exact same payload as before.
-    if (role === "admin") return userDoc;
+/** Every role an admin may assign with set_role. */
+const ASSIGNABLE_ROLES: readonly UserRole[] = ["student", "instructor", "admin", ...STAFF_ROLES];
 
-    const out: Record<string, any> = { ...userDoc };
-    if (!hasPermission(role, "users.view_contact")) {
-        for (const f of CONTACT_FIELDS) delete out[f];
+class RoleChangeError extends Error {
+    constructor(message: string, public httpStatus: number) {
+        super(message);
     }
-    if (!hasPermission(role, "wallet.view")) {
-        for (const key of Object.keys(out)) {
-            if (MONEY_FIELDS.includes(key) || MONEY_FIELD_PATTERN.test(key)) delete out[key];
+}
+
+/**
+ * set_role: change a user's role (users.manage_roles — admin only).
+ *  - cannot change your own role
+ *  - cannot demote the last remaining admin
+ *  - backoffice role + pending/missing status → status "active"
+ *  - revokes refresh tokens & clears active_session_id so the new role applies on next login
+ * Note: the platform does not use Firebase custom claims for roles (profiles/{uid}.role is the source of truth).
+ */
+async function handleSetRole(user: ServerUser, userId: string, newRole: unknown) {
+    if (typeof newRole !== "string" || !(ASSIGNABLE_ROLES as readonly string[]).includes(newRole)) {
+        return NextResponse.json({ error: "دور غير صالح" }, { status: 400 });
+    }
+    if (userId === user.uid) {
+        return NextResponse.json({ error: "لا يمكنك تغيير دورك بنفسك" }, { status: 400 });
+    }
+    const role = newRole as UserRole;
+    const profileRef = adminDb.doc(`profiles/${userId}`);
+    const privateRef = adminDb.doc(`profiles_private/${userId}`);
+    const now = new Date().toISOString();
+
+    let oldRole: UserRole = "student";
+    let targetName = "";
+    let statusChangedTo: string | null = null;
+    try {
+        await adminDb.runTransaction(async (t) => {
+            const [profileSnap, privateSnap] = await Promise.all([t.get(profileRef), t.get(privateRef)]);
+            if (!profileSnap.exists) {
+                throw new RoleChangeError("المستخدم غير موجود", 404);
+            }
+            const profile = profileSnap.data() || {};
+            const priv = privateSnap.exists ? privateSnap.data() || {} : {};
+            oldRole = ((profile.role as UserRole) || "student");
+            targetName = profile.full_name || priv.email || userId;
+            statusChangedTo = null;
+
+            if (oldRole === role) return;
+
+            if (oldRole === "admin" && role !== "admin") {
+                const adminsSnap = await t.get(adminDb.collection("profiles").where("role", "==", "admin"));
+                if (adminsSnap.size <= 1) {
+                    throw new RoleChangeError("لا يمكن إزالة آخر مدير للمنصة", 400);
+                }
+            }
+
+            const currentStatus = typeof priv.status === "string" ? priv.status : "";
+            const privateUpdate: Record<string, any> = { active_session_id: null, updated_at: now };
+            if (isBackofficeRole(role) && (!currentStatus || currentStatus === "pending")) {
+                privateUpdate.status = "active";
+                statusChangedTo = "active";
+            } else if (!isBackofficeRole(role) && !currentStatus && isBackofficeRole(oldRole)) {
+                // Staff had no stored status (implicitly active) — keep them able to log in as a regular user.
+                privateUpdate.status = "approved";
+                statusChangedTo = "approved";
+            }
+
+            t.update(profileRef, { role, updated_at: now });
+            t.set(privateRef, privateUpdate, { merge: true });
+        });
+    } catch (err) {
+        if (err instanceof RoleChangeError) {
+            return NextResponse.json({ error: err.message }, { status: err.httpStatus });
         }
+        throw err;
     }
-    for (const f of SESSION_FIELDS) delete out[f];
-    return out;
+
+    if (oldRole === role) {
+        return NextResponse.json({ success: true, role, unchanged: true });
+    }
+
+    // Force re-login so the new role (and its permissions) is picked up everywhere.
+    await adminAuth.revokeRefreshTokens(userId).catch((e) => {
+        console.error("revokeRefreshTokens failed:", e);
+    });
+
+    const actorName = user.profile?.full_name || user.email || "مسؤول المنصة";
+    await logServerActivity({
+        action: "user_role_changed",
+        category: "admin_action",
+        title: `تغيير دور مستخدم إلى (${getRoleLabel(role)})`,
+        description: `قام ${getRoleLabel(user.role)} "${actorName}" بتغيير دور "${targetName}" من ${getRoleLabel(oldRole)} إلى ${getRoleLabel(role)}`,
+        status: "success",
+        user_id: user.uid,
+        user_name: actorName,
+        user_email: user.email || "",
+        user_role: activityLogRole(user),
+        target_user_id: userId,
+        target_user_name: targetName,
+        metadata: { target_user_id: userId, old_role: oldRole, new_role: role, status_changed_to: statusChangedTo },
+    }).catch(() => {});
+
+    return NextResponse.json({ success: true, role, old_role: oldRole, status: statusChangedTo });
 }
 
 /**
@@ -81,7 +159,11 @@ export async function POST(request: Request) {
         if (
             !user ||
             !isAccountActive(user) ||
-            !(hasPermission(user.role, "users.manage_status") || hasPermission(user.role, "users.verify"))
+            !(
+                hasPermission(user.role, "users.manage_status") ||
+                hasPermission(user.role, "users.verify") ||
+                hasPermission(user.role, "users.manage_roles")
+            )
         ) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
@@ -98,12 +180,18 @@ export async function POST(request: Request) {
             requiredPermission = "users.manage_status";
         } else if (action === "set_verified" || action === "set_auto_report") {
             requiredPermission = "users.verify";
+        } else if (action === "set_role") {
+            requiredPermission = "users.manage_roles";
         } else {
             return NextResponse.json({ error: "Invalid action" }, { status: 400 });
         }
 
         if (!hasPermission(user.role, requiredPermission)) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+
+        if (action === "set_role") {
+            return await handleSetRole(user, userId, body?.role);
         }
 
         const isAdmin = user.role === "admin";

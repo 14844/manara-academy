@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { activityLogRole, requirePermission } from "@/lib/server-auth";
+import { activityLogRole, logRouteFailure, requirePermission } from "@/lib/server-auth";
 import { FieldValue } from "firebase-admin/firestore";
 
 export async function POST(request: Request) {
+    let logRequestId = "";
     try {
         const adminUser = await requirePermission(request, "payments.manage");
         if (!adminUser) {
@@ -12,6 +13,7 @@ export async function POST(request: Request) {
 
         const body = await request.json();
         const { requestId } = body;
+        logRequestId = typeof requestId === "string" ? requestId : "";
 
         if (!requestId) {
             return NextResponse.json({ error: "معرّف الطلب مطلوب" }, { status: 400 });
@@ -94,6 +96,14 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true });
     } catch (err: any) {
+        await logRouteFailure(request, {
+            action: "wallet_recharge_approve_failed",
+            category: "financial",
+            title: "فشل اعتماد طلب شحن محفظة",
+            description: `تعذر اعتماد طلب الشحن ${logRequestId || "(بدون معرّف)"}`,
+            error: err,
+            metadata: { request_id: logRequestId },
+        });
         if (err.message === "ALREADY_APPROVED") {
             return NextResponse.json({ error: "تم اعتماد هذا الطلب بالفعل مسبقاً" }, { status: 400 });
         }

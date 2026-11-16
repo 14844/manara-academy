@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { DEFAULT_PLAN_ID } from "@/lib/plans";
+import { computeDeviceBinding } from "@/lib/device-binding";
+import { errorText, logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
+    let actorUid = "guest";
+    let actorEmail = "";
+    let actorName = "زائر";
     try {
         const body = await request.json();
         const {
@@ -25,11 +30,27 @@ export async function POST(request: Request) {
         const decoded = await adminAuth.verifyIdToken(idToken);
         const uid = decoded.uid;
         const email = decoded.email || "";
+        actorUid = uid;
+        actorEmail = email;
+        actorName = (typeof fullName === "string" && fullName.slice(0, 100)) || email || uid;
+        const logFail = (reason: string) => logServerActivity({
+            action: "user_signup_failed",
+            category: "auth",
+            title: "فشل إنشاء حساب جديد",
+            description: `فشل تسجيل حساب ${actorName} (${email || uid}): ${reason}`,
+            status: "failed",
+            user_id: uid,
+            user_name: actorName,
+            user_email: email,
+            user_role: "guest",
+            error_message: reason,
+        }, request);
 
         // Check if profile document already exists (prevent resetting balance/role/status)
         const profileRef = adminDb.collection("profiles").doc(uid);
         const existingSnap = await profileRef.get();
         if (existingSnap.exists) {
+            await logFail("الحساب مسجل بالفعل مسبقاً");
             return NextResponse.json({ error: "الحساب مسجل بالفعل مسبقاً" }, { status: 409 });
         }
 
@@ -42,6 +63,7 @@ export async function POST(request: Request) {
             if (!phoneSnap.empty || !privPhoneSnap.empty) {
                 // Delete orphaned auth user
                 await adminAuth.deleteUser(uid).catch(() => {});
+                await logFail("رقم الهاتف مسجل بالفعل بحساب آخر");
                 return NextResponse.json({ error: "رقم الهاتف هذا مسجل بالفعل بحساب آخر" }, { status: 400 });
             }
         }
@@ -86,16 +108,44 @@ export async function POST(request: Request) {
             student_id: studentId,
             status: "pending",
             wallet_balance: 0,
-            active_devices: deviceId ? [deviceId] : [],
+            // Store only the server-bound device id (same binding as /api/auth/session), never the raw client id
+            active_devices: typeof deviceId === "string" && deviceId.trim()
+                ? [computeDeviceBinding(request, deviceId).boundDeviceId]
+                : [],
             // New instructors start on the free plan; existing instructors (no plan_id) stay legacy.
             ...(safeRole === "instructor" ? { plan_id: DEFAULT_PLAN_ID, plan_expires_at: null } : {}),
             created_at: now,
             updated_at: now,
         });
 
+        await logServerActivity({
+            action: "user_signup",
+            category: "auth",
+            title: safeRole === "instructor" ? "تسجيل مدرس جديد" : "تسجيل طالب جديد",
+            description: `تم إنشاء حساب جديد (${safeRole === "instructor" ? "مدرس" : "طالب"}) باسم ${actorName} (${email || uid}) برقم ${studentId} — بانتظار المراجعة`,
+            status: "success",
+            user_id: uid,
+            user_name: actorName,
+            user_email: email,
+            user_role: safeRole,
+            metadata: { student_id: studentId, role: safeRole },
+        }, request);
+
         return NextResponse.json({ success: true, studentId });
     } catch (err: any) {
         console.error("register-profile error:", err);
+        await logServerActivity({
+            action: "user_signup_failed",
+            category: "auth",
+            title: "فشل إنشاء حساب جديد",
+            description: `خطأ أثناء إنشاء الحساب ${actorName}${actorEmail ? ` (${actorEmail})` : ""}`,
+            status: "failed",
+            user_id: actorUid,
+            user_name: actorName,
+            user_email: actorEmail,
+            user_role: "guest",
+            error_message: errorText(err),
+        }, request);
         return NextResponse.json({ error: "فشل إنشاء الحساب. حاول مجدداً." }, { status: 500 });
     }
 }

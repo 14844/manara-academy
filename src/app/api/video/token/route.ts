@@ -62,6 +62,9 @@ export async function GET(request: Request) {
     // 2. جلب مسار الوسائط الحساس من courses/{courseId}/private/media مع دعم التوافق
     try {
         let videoPath: string | null = null;
+        // Private media (written only by save-media after validation) is the source of truth;
+        // the legacy fallback to the public course document is not trusted for Bunny Stream GUIDs.
+        let fromPrivateMedia = false;
 
         const privateMediaSnap = await adminDb.doc(`courses/${courseId}/private/media`).get();
         if (privateMediaSnap.exists) {
@@ -71,6 +74,7 @@ export async function GET(request: Request) {
             const lessonMedia = matchKey ? mediaData[matchKey] : mediaData[lessonId];
             if (lessonMedia) {
                 videoPath = typeof lessonMedia === "string" ? lessonMedia : (lessonMedia.video_path || lessonMedia.url || null);
+                if (videoPath) fromPrivateMedia = true;
             }
         }
 
@@ -179,6 +183,10 @@ export async function GET(request: Request) {
             const guid = rawPath.split("://")[1];
             if (!BUNNY_GUID_RE.test(guid)) {
                 return NextResponse.json({ error: "Invalid stream identifier" }, { status: 400 });
+            }
+            // A GUID can't be proven to belong to this course unless it came from the validated private media map
+            if (!fromPrivateMedia) {
+                return NextResponse.json({ error: "الفيديو لا ينتمي لهذا الكورس" }, { status: 403 });
             }
 
             const securityKey = BUNNY_CONFIG.SECURITY_KEY;

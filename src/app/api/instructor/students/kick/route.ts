@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getActiveServerAuth } from "@/lib/server-auth";
+import { getActiveServerAuth, logRouteFailure } from "@/lib/server-auth";
 import { adminDb } from "@/lib/firebase/admin";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
@@ -95,6 +95,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true, action: "suspended", count: suspendedCourses.length });
     } catch (err: any) {
         console.error("Kick student error:", err);
+        await logRouteFailure(request, {
+            action: "instructor_kick_student_failed",
+            category: "course",
+            title: "فشل استبعاد طالب من كورس",
+            description: "تعذر استبعاد الطالب من الكورس",
+            error: err,
+            user,
+        });
         return NextResponse.json({ error: "حدث خطأ أثناء استبعاد الطالب" }, { status: 500 });
     }
 }

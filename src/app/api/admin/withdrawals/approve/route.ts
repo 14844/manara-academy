@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { activityLogRole, requirePermission } from "@/lib/server-auth";
+import { activityLogRole, logRouteFailure, requirePermission } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
+    let logRequestId = "";
+    let logReq: FirebaseFirestore.DocumentData | null = null;
     try {
         const adminUser = await requirePermission(request, "withdrawals.manage");
         if (!adminUser) {
@@ -12,6 +14,7 @@ export async function POST(request: Request) {
 
         const body = await request.json();
         const { requestId } = body;
+        logRequestId = typeof requestId === "string" ? requestId : "";
 
         if (!requestId) {
             return NextResponse.json({ error: "معرّف الطلب مطلوب" }, { status: 400 });
@@ -26,6 +29,7 @@ export async function POST(request: Request) {
                 throw new Error("REQUEST_NOT_FOUND");
             }
             reqData = reqSnap.data()!;
+            logReq = reqData;
             if (reqData.status === "paid" || reqData.status === "approved") {
                 throw new Error("ALREADY_PAID");
             }
@@ -68,6 +72,18 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true });
     } catch (err: any) {
+        const lr: any = logReq;
+        await logRouteFailure(request, {
+            action: "withdrawal_approve_failed",
+            category: "financial",
+            title: "فشل اعتماد طلب سحب أرباح",
+            description: `تعذر اعتماد طلب السحب ${logRequestId || "(بدون معرّف)"}${lr?.instructor_name ? ` للمحاضر "${lr.instructor_name}"` : ""}`,
+            error: err,
+            target_user_id: lr?.instructor_id,
+            target_user_name: lr?.instructor_name,
+            amount: lr ? Number(lr.net_amount || lr.amount || 0) : undefined,
+            metadata: { request_id: logRequestId },
+        });
         if (err.message === "ALREADY_PAID") {
             return NextResponse.json({ error: "تم تحويل هذا الطلب بالفعل مسبقاً" }, { status: 400 });
         }

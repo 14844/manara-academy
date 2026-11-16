@@ -22,7 +22,8 @@ import {
     Activity,
     BarChart3,
     Lock,
-    Crown
+    Crown,
+    UserCog
 } from "lucide-react"
 import { DashboardSkeleton } from "@/components/skeletons"
 import {
@@ -52,6 +53,7 @@ const adminNavItems = [
     { name: "سجل النشاطات (Logs)", href: "/admin/logs", icon: Activity },
     { name: "مراجعة الكورسات", href: "/admin/courses", icon: CheckSquare },
     { name: "المستخدمين", href: "/admin/users", icon: Users },
+    { name: "فريق العمل", href: "/admin/team", icon: UserCog },
     { name: "جميع الكورسات", href: "/admin/all-courses", icon: BookOpen },
     { name: "مراجعة المدفوعات", href: "/admin/payments", icon: Wallet },
     { name: "تسويات المحاضرين", href: "/admin/settlements", icon: DollarSign },

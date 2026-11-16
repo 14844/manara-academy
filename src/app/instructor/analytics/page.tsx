@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { auth, db } from "@/lib/firebase/config"
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore"
 import { calculateEnrollmentCommission } from "@/lib/commission-utils"
+import { escapeHtml } from "@/lib/escape-html"
 import { onAuthStateChanged } from "firebase/auth"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import {
@@ -151,7 +152,7 @@ export default function InstructorAnalyticsPage() {
         printWindow.document.write(`
             <html>
                 <head>
-                    <title>تقرير الأداء المالي - ${user?.displayName || "محاضر"}</title>
+                    <title>تقرير الأداء المالي - ${escapeHtml(user?.displayName || "محاضر")}</title>
                     <style>
                         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl; padding: 40px; color: #333; }
                         .header { text-align: center; border-bottom: 3px solid #f0f0f0; margin-bottom: 30px; padding-bottom: 20px; }
@@ -168,14 +169,14 @@ export default function InstructorAnalyticsPage() {
                 <body>
                     <div class="header">
                         <h1>تقرير الأداء والتحليلات المالية</h1>
-                        <p>اسم المحاضر: ${user?.displayName || "غير متوفر"}</p>
+                        <p>اسم المحاضر: ${escapeHtml(user?.displayName || "غير متوفر")}</p>
                         <p>تاريخ استخراج التقرير: ${new Date().toLocaleDateString('ar-EG')}</p>
                     </div>
 
                     <div style="display: flex; gap: 20px; margin-bottom: 30px;">
                         <div class="stat-box" style="flex: 1;">
                             <div class="stat-label">إجمالي الطلاب</div>
-                            <div class="stat-value">${stats.totalStudents}</div>
+                            <div class="stat-value">${escapeHtml(stats.totalStudents)}</div>
                         </div>
                         <div class="stat-box" style="flex: 1;">
                             <div class="stat-label">صافي الأرباح</div>
@@ -196,10 +197,10 @@ export default function InstructorAnalyticsPage() {
                         <tbody>
                             ${courseBreakdown.map(c => `
                                 <tr>
-                                    <td>${c.title}</td>
-                                    <td>${c.students}</td>
+                                    <td>${escapeHtml(c.title)}</td>
+                                    <td>${escapeHtml(c.students)}</td>
                                     <td>${c.revenue.toLocaleString()} ج.م</td>
-                                    <td>${c.progress}%</td>
+                                    <td>${escapeHtml(c.progress)}%</td>
                                 </tr>
                             `).join('')}
                         </tbody>

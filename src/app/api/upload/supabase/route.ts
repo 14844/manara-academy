@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin, SUPABASE_BUCKET, SUPABASE_PUBLIC_BUCKET } from "@/lib/supabase/admin"
-import { getActiveServerAuth } from "@/lib/server-auth"
+import { getActiveServerAuth, logAccessDenied, logActor, logRouteFailure } from "@/lib/server-auth"
+import { logServerActivity } from "@/lib/server-activity-logger"
 import { isStaffRole } from "@/lib/permissions"
 import { checkCourseOwnership, detectImageMime, normalizeImageMime, withImageExtension } from "@/lib/media-security"
 
@@ -58,6 +59,7 @@ export async function POST(request: NextRequest) {
     if (user.role === "student") {
         // Students are strictly limited to payment proofs and avatars
         if (rawFolder !== "avatars" && rawFolder !== "payment_proofs") {
+            logAccessDenied(request, user, `upload:${rawFolder}`, "missing_permission")
             return NextResponse.json({ 
                 error: "غير مصرح للطلاب برفع الملفات في هذا القسم (مسموح فقط برفع الصور الشخصية وإيصالات الشحن)" 
             }, { status: 403 })
@@ -65,6 +67,7 @@ export async function POST(request: NextRequest) {
     } else if (user.role === "instructor") {
         // Instructors can upload course materials, videos, thumbnails, questions, avatars (not payment proofs)
         if (rawFolder === "payment_proofs") {
+            logAccessDenied(request, user, `upload:${rawFolder}`, "missing_permission")
             return NextResponse.json({
                 error: "إيصالات الشحن مخصصة للطلاب فقط"
             }, { status: 403 })
@@ -72,6 +75,7 @@ export async function POST(request: NextRequest) {
     } else if (isStaffRole(user.role)) {
         // Staff (backoffice) accounts may only upload their own profile picture; content/media uploads stay admin/instructor only
         if (rawFolder !== "avatars") {
+            logAccessDenied(request, user, `upload:${rawFolder}`, "missing_permission")
             return NextResponse.json({ error: "غير مصرح لك برفع الملفات في هذا القسم" }, { status: 403 })
         }
     }
@@ -108,6 +112,7 @@ export async function POST(request: NextRequest) {
     if (needsCourse || courseId) {
         const ownErr = await checkCourseOwnership(courseId, user)
         if (ownErr) {
+            logAccessDenied(request, user, `upload:${rawFolder}:course:${courseId || "-"}`, ownErr)
             return NextResponse.json({ error: ownErr }, { status: 403 })
         }
     }
@@ -182,6 +187,15 @@ export async function POST(request: NextRequest) {
 
         if (uploadError) {
             console.error("Supabase Storage upload error:", uploadError)
+            await logRouteFailure(request, {
+                action: "file_upload_failed",
+                category: "system",
+                title: "فشل رفع ملف",
+                description: `تعذر رفع الملف "${finalFileName}" إلى مجلد ${rawFolder}`,
+                error: uploadError.message,
+                user,
+                metadata: { folder: rawFolder, course_id: courseId || null },
+            })
             return NextResponse.json({ error: `فشل الرفع لمساحة التخزين: ${uploadError.message}` }, { status: 500 })
         }
 
@@ -203,6 +217,16 @@ export async function POST(request: NextRequest) {
             finalUrl = signedData?.signedUrl || `/api/storage/sign?url=${encodeURIComponent(storagePath)}`
         }
 
+        await logServerActivity({
+            action: "file_uploaded",
+            category: rawFolder === "payment_proofs" ? "financial" : (rawFolder === "videos" || rawFolder === "files" || rawFolder === "questions" || rawFolder === "thumbnails" ? "course" : "client"),
+            title: rawFolder === "payment_proofs" ? "رفع إيصال شحن" : rawFolder === "avatars" ? "رفع صورة شخصية" : "رفع ملف",
+            description: `قام ${user.profile?.full_name || user.email} برفع الملف "${finalFileName}" (${Math.round(fileBuffer.byteLength / 1024)} KB) إلى مجلد ${rawFolder}${courseId ? ` للكورس ${courseId}` : ""}`,
+            status: "success",
+            ...logActor(user),
+            metadata: { folder: rawFolder, storage_path: storagePath, bucket: targetBucket, size: fileBuffer.byteLength, content_type: verifiedContentType, course_id: courseId || null },
+        }, request)
+
         return NextResponse.json({
             success: true,
             url: finalUrl,
@@ -212,6 +236,14 @@ export async function POST(request: NextRequest) {
         })
     } catch (err: any) {
         console.error("Upload API handler error:", err)
+        await logRouteFailure(request, {
+            action: "file_upload_failed",
+            category: "system",
+            title: "فشل رفع ملف",
+            description: "تعذر رفع ملف إلى مساحة التخزين (Supabase)",
+            error: err,
+            user,
+        })
         return NextResponse.json({ error: "خطأ داخلي أثناء معالجة الرفع" }, { status: 500 })
     }
 }

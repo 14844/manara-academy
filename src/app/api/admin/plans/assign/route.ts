@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { activityLogRole, requirePermission } from "@/lib/server-auth";
+import { activityLogRole, logRouteFailure, requirePermission } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { PLANS, isPlanId } from "@/lib/plans";
 
@@ -16,6 +16,9 @@ function addMonths(base: Date, months: number): Date {
  * Sets the instructor's plan (optionally charging their wallet and approving a pending request).
  */
 export async function POST(request: Request) {
+    let logInstructorId = "";
+    let logPlanId = "";
+    let logPlanRequestId = "";
     try {
         const user = await requirePermission(request, "plans.manage");
         if (!user) {
@@ -24,6 +27,9 @@ export async function POST(request: Request) {
 
         const body = await request.json().catch(() => ({}));
         const { instructorId, planId, requestId } = body || {};
+        logInstructorId = typeof instructorId === "string" ? instructorId.slice(0, 128) : "";
+        logPlanId = typeof planId === "string" ? planId.slice(0, 64) : "";
+        logPlanRequestId = typeof requestId === "string" ? requestId.slice(0, 128) : "";
         const chargeWallet = body?.chargeWallet === true;
 
         if (!instructorId || typeof instructorId !== "string" || instructorId.includes("/")) {
@@ -75,6 +81,9 @@ export async function POST(request: Request) {
                 const reqData = reqSnap.data() || {};
                 if (reqData.instructor_id !== instructorId) throw new Error("REQUEST_MISMATCH");
                 if (reqData.status !== "pending") throw new Error("REQUEST_NOT_PENDING");
+                // Approving a request must grant exactly what was requested
+                if (reqData.requested_plan_id !== planId) throw new Error("REQUEST_TERMS_MISMATCH");
+                if (!isFree && Number(reqData.months) !== months) throw new Error("REQUEST_TERMS_MISMATCH");
             }
 
             const priv = privSnap.exists ? privSnap.data() || {} : {};
@@ -158,6 +167,15 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, planId, expiresAt: newExpiresAt });
     } catch (err: any) {
+        await logRouteFailure(request, {
+            action: "admin_plan_assign_failed",
+            category: "admin_action",
+            title: "فشل تعيين باقة لمدرس",
+            description: `تعذر تعيين الباقة ${logPlanId || "(غير محددة)"} للمدرس ${logInstructorId || "(غير محدد)"}`,
+            error: err,
+            target_user_id: logInstructorId || undefined,
+            metadata: { plan_id: logPlanId, request_id: logPlanRequestId },
+        });
         switch (err?.message) {
             case "USER_NOT_FOUND":
                 return NextResponse.json({ error: "المستخدم غير موجود" }, { status: 404 });
@@ -167,6 +185,8 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: "طلب الباقة غير موجود" }, { status: 404 });
             case "REQUEST_MISMATCH":
                 return NextResponse.json({ error: "طلب الباقة لا يخص هذا المدرس" }, { status: 400 });
+            case "REQUEST_TERMS_MISMATCH":
+                return NextResponse.json({ error: "الباقة أو عدد الشهور لا يطابق طلب المدرس" }, { status: 400 });
             case "REQUEST_NOT_PENDING":
                 return NextResponse.json({ error: "تمت مراجعة هذا الطلب بالفعل" }, { status: 409 });
             case "INSUFFICIENT_BALANCE":

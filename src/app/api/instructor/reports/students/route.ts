@@ -169,8 +169,12 @@ export async function GET(request: Request) {
 
                 for (const sched of activeSchedules as any[]) {
                     // Match students enrolled in this sched.course_id
+                    if (typeof sched.course_id !== "string" || !/^[\w-]+$/.test(sched.course_id)) continue;
                     const schedCourseSnap = await adminDb.collection("courses").doc(sched.course_id).get();
+                    if (!schedCourseSnap.exists) continue;
                     const sCourseData = schedCourseSnap.data() || {};
+                    // Never trust the schedule's course_id: it must be a course owned by this instructor
+                    if (user.role !== "admin" && sCourseData.instructor_id !== user.uid) continue;
                     const sTotalLessons = sCourseData.modules?.reduce(
                         (acc: number, mod: any) => acc + (mod.lessons?.length || 0),
                         0

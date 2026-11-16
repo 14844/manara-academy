@@ -352,7 +352,7 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                                         </div>
                                         {(q.imageUrl || q.image_url) && (
                                             <div className="mt-4 border rounded-lg overflow-hidden max-w-md bg-white">
-                                                <img src={`/api/storage/sign?url=${encodeURIComponent(q.imageUrl || q.image_url || "")}`} alt="Question" className="w-full h-auto" />
+                                                <img src={`/api/storage/sign?url=${encodeURIComponent(q.imageUrl || q.image_url || "")}&courseId=${encodeURIComponent(courseId)}`} alt="Question" className="w-full h-auto" />
                                             </div>
                                         )}
                                     </CardHeader>
@@ -504,7 +504,7 @@ export function InternalExam({ courseId, lessonId, examData, onComplete, type = 
                         {(currentQ.imageUrl || currentQ.image_url) && (
                             <div className="w-full border rounded-2xl overflow-hidden bg-muted/30 aspect-video flex items-center justify-center relative group">
                                 <img
-                                    src={`/api/storage/sign?url=${encodeURIComponent(currentQ.imageUrl || currentQ.image_url || "")}`}
+                                    src={`/api/storage/sign?url=${encodeURIComponent(currentQ.imageUrl || currentQ.image_url || "")}&courseId=${encodeURIComponent(courseId)}`}
                                     className="w-full h-full object-contain transition-opacity duration-300"
                                     alt="Question content"
                                     onLoad={(e) => (e.currentTarget.style.opacity = '1')}

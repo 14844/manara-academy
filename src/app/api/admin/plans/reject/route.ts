@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { activityLogRole, requirePermission } from "@/lib/server-auth";
+import { activityLogRole, logRouteFailure, requirePermission } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 /**
@@ -8,6 +8,7 @@ import { logServerActivity } from "@/lib/server-activity-logger";
  * body { requestId, note? }
  */
 export async function POST(request: Request) {
+    let logRequestId = "";
     try {
         const user = await requirePermission(request, "plans.manage");
         if (!user) {
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
 
         const body = await request.json().catch(() => ({}));
         const { requestId } = body || {};
+        logRequestId = typeof requestId === "string" ? requestId.slice(0, 128) : "";
         const note = typeof body?.note === "string" ? body.note.trim().slice(0, 500) : "";
 
         if (!requestId || typeof requestId !== "string" || requestId.includes("/")) {
@@ -62,6 +64,14 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true });
     } catch (err: any) {
+        await logRouteFailure(request, {
+            action: "admin_plan_request_reject_failed",
+            category: "admin_action",
+            title: "فشل رفض طلب باقة",
+            description: `تعذر رفض طلب الباقة ${logRequestId || "(بدون معرّف)"}`,
+            error: err,
+            metadata: { request_id: logRequestId },
+        });
         if (err?.message === "REQUEST_NOT_FOUND") {
             return NextResponse.json({ error: "طلب الباقة غير موجود" }, { status: 404 });
         }

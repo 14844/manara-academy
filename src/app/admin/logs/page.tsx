@@ -1,8 +1,20 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
-import { auth, db } from "@/lib/firebase/config"
-import { collection, query, getDocs, orderBy, limit } from "firebase/firestore"
+import { useState, useEffect, useMemo, useRef } from "react"
+import { db } from "@/lib/firebase/config"
+import { escapeHtml } from "@/lib/escape-html"
+import {
+    collection,
+    query,
+    getDocs,
+    orderBy,
+    limit,
+    where,
+    startAfter,
+    type QueryConstraint,
+    type QueryDocumentSnapshot,
+    type DocumentData,
+} from "firebase/firestore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -33,7 +45,10 @@ import {
     ChevronRight,
     Bot,
     Trash2,
-    Printer
+    Printer,
+    Users,
+    Archive,
+    Globe,
 } from "lucide-react"
 import {
     Select,
@@ -59,12 +74,33 @@ import {
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import { useAdminRole } from "@/components/admin/admin-role-context"
-import { getRoleLabel as getPermissionRoleLabel, isStaffRole, type StaffRole } from "@/lib/permissions"
+import {
+    getRoleLabel as getPermissionRoleLabel,
+    isBackofficeRole,
+    isStaffRole,
+    ROLE_LABELS,
+    STAFF_ROLES,
+    type StaffRole,
+} from "@/lib/permissions"
+
+/** Logs are fetched page by page (cursor based) so nothing beyond the first N is ever hidden. */
+const FETCH_PAGE_SIZE = 500
+/** Rows loaded automatically on open / refresh; "تحميل المزيد" / "تحميل الكل" continue from the cursor. */
+const INITIAL_LOAD_ROWS = 2000
+/** Must match RETENTION_DAYS in /api/admin/logs/clear */
+const LOG_RETENTION_DAYS = 90
+
+function csvCell(value: unknown): string {
+    const s = String(value ?? "")
+    // Neutralise spreadsheet formula injection and quote every cell
+    const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
+    return `"${safe.replace(/"/g, '""')}"`
+}
 
 export interface ActivityLog {
     id: string;
     action: string;
-    category: "financial" | "auth" | "admin_action" | "course" | "system" | "client" | "ai_support" | (string & {});
+    category: "financial" | "auth" | "admin_action" | "course" | "system" | "client" | "ai_support" | "security" | (string & {});
     title: string;
     description: string;
     status: "success" | "failed" | "pending" | "info" | "approved" | "rejected" | "completed" | "paid" | (string & {});
@@ -79,6 +115,13 @@ export interface ActivityLog {
     error_message?: string;
     created_at: string;
     timestamp?: number;
+    ip_address?: string;
+    user_agent?: string;
+    request_path?: string;
+    request_method?: string;
+    source?: "server" | "client" | (string & {});
+    archived?: boolean;
+    archived_at?: string;
 }
 
 export default function AdminLogsPage() {
@@ -95,46 +138,100 @@ export default function AdminLogsPage() {
     const [selectedLog, setSelectedLog] = useState<ActivityLog | null>(null)
     const [currentPage, setCurrentPage] = useState(1)
     const [isClearing, setIsClearing] = useState(false)
+    const [actorSearch, setActorSearch] = useState("")
+    const [staffOnly, setStaffOnly] = useState(false)
+    const [showArchived, setShowArchived] = useState(false)
+    const [dateFrom, setDateFrom] = useState("")
+    const [dateTo, setDateTo] = useState("")
+    const [hasMore, setHasMore] = useState(false)
+    const [isLoadingMore, setIsLoadingMore] = useState(false)
+    const cursorRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null)
+    const fetchGenRef = useRef(0)
+    const stopLoadAllRef = useRef(false)
     const itemsPerPage = 20
 
+    // Date range is applied server-side (single-field range on created_at), so paging walks
+    // through every log inside the chosen window.
     useEffect(() => {
         fetchLogs()
-    }, [])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dateFrom, dateTo])
+
+    function buildLogsQuery(after: QueryDocumentSnapshot<DocumentData> | null) {
+        const constraints: QueryConstraint[] = []
+        if (dateFrom) {
+            const from = new Date(`${dateFrom}T00:00:00`)
+            if (!isNaN(from.getTime())) constraints.push(where("created_at", ">=", from.toISOString()))
+        }
+        if (dateTo) {
+            const to = new Date(`${dateTo}T23:59:59.999`)
+            if (!isNaN(to.getTime())) constraints.push(where("created_at", "<=", to.toISOString()))
+        }
+        constraints.push(orderBy("created_at", "desc"))
+        if (after) constraints.push(startAfter(after))
+        constraints.push(limit(FETCH_PAGE_SIZE))
+        return query(collection(db, "activity_logs"), ...constraints)
+    }
+
+    /** Loads pages after the current cursor until `maxRows` more rows were loaded (or everything). */
+    async function loadPages(gen: number, maxRows: number, reset: boolean) {
+        let loaded = 0
+        let more = true
+        const collected: ActivityLog[] = []
+        while (more && loaded < maxRows) {
+            if (stopLoadAllRef.current && !reset) break
+            const snap = await getDocs(buildLogsQuery(reset && loaded === 0 ? null : cursorRef.current))
+            if (gen !== fetchGenRef.current) return // a newer fetch started (filters changed)
+            const page: ActivityLog[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
+            if (snap.docs.length > 0) cursorRef.current = snap.docs[snap.docs.length - 1]
+            more = snap.docs.length === FETCH_PAGE_SIZE
+            loaded += page.length
+            collected.push(...page)
+            // Show progress while walking through many pages
+            if (reset && loaded === page.length) {
+                setLogs(page)
+            } else {
+                setLogs(prev => {
+                    const seen = new Set(prev.map(l => l.id))
+                    return [...prev, ...page.filter(l => !seen.has(l.id))]
+                })
+            }
+        }
+        if (reset && collected.length === 0) setLogs([])
+        setHasMore(more)
+    }
 
     async function fetchLogs() {
+        const gen = ++fetchGenRef.current
+        stopLoadAllRef.current = true
+        cursorRef.current = null
         setIsRefreshing(true)
         try {
-            const logsRef = collection(db, "activity_logs")
-            // Fetch latest 2000 logs ordered by created_at desc
-            let q = query(logsRef, orderBy("created_at", "desc"), limit(2000))
-            
-            let snap;
-            try {
-                snap = await getDocs(q)
-            } catch (queryErr) {
-                // If orderBy index is building or not yet available, fallback to simple fetch and sort in memory
-                snap = await getDocs(query(logsRef, limit(2000)))
-            }
-
-            const rawLogs: ActivityLog[] = snap.docs.map(doc => ({
-                id: doc.id,
-                ...(doc.data() as any),
-            }))
-
-            // Sort safely in-memory desc
-            rawLogs.sort((a, b) => {
-                const timeA = new Date(a.created_at || a.timestamp || 0).getTime()
-                const timeB = new Date(b.created_at || b.timestamp || 0).getTime()
-                return timeB - timeA
-            })
-
-            setLogs(rawLogs)
+            stopLoadAllRef.current = false
+            await loadPages(gen, INITIAL_LOAD_ROWS, true)
         } catch (error: any) {
             console.error("Error fetching logs:", error)
             toast.error("حدث خطأ أثناء تحميل سجلات النشاط")
         } finally {
-            setIsLoading(false)
-            setIsRefreshing(false)
+            if (gen === fetchGenRef.current) {
+                setIsLoading(false)
+                setIsRefreshing(false)
+            }
+        }
+    }
+
+    async function loadMore(all: boolean) {
+        if (!hasMore || isLoadingMore) return
+        const gen = fetchGenRef.current
+        stopLoadAllRef.current = false
+        setIsLoadingMore(true)
+        try {
+            await loadPages(gen, all ? Number.MAX_SAFE_INTEGER : INITIAL_LOAD_ROWS, false)
+        } catch (error: any) {
+            console.error("Error loading more logs:", error)
+            toast.error("حدث خطأ أثناء تحميل المزيد من السجلات")
+        } finally {
+            setIsLoadingMore(false)
         }
     }
 
@@ -169,7 +266,22 @@ export default function AdminLogsPage() {
     // Filtered logs
     const filteredLogs = useMemo(() => {
         const now = Date.now()
+        const actorQ = actorSearch.toLowerCase().trim()
         return logs.filter(log => {
+            // Archived (older than the retention window and archived by an admin) are hidden unless requested
+            if (!showArchived && log.archived === true) return false
+
+            // Staff (backoffice) only
+            if (staffOnly && !isBackofficeRole(log.user_role)) return false
+
+            // Actor search (name / email / uid)
+            if (actorQ) {
+                const hit = (log.user_name || "").toLowerCase().includes(actorQ) ||
+                    (log.user_email || "").toLowerCase().includes(actorQ) ||
+                    (log.user_id || "").toLowerCase() === actorQ
+                if (!hit) return false
+            }
+
             // Search text
             if (searchTerm.trim()) {
                 const s = searchTerm.toLowerCase().trim()
@@ -178,7 +290,9 @@ export default function AdminLogsPage() {
                 const matchesTitle = (log.title || "").toLowerCase().includes(s)
                 const matchesDesc = (log.description || "").toLowerCase().includes(s)
                 const matchesAction = (log.action || "").toLowerCase().includes(s)
-                if (!matchesUser && !matchesEmail && !matchesTitle && !matchesDesc && !matchesAction) {
+                const matchesTarget = (log.target_user_name || "").toLowerCase().includes(s) || (log.target_user_id || "").toLowerCase() === s
+                const matchesIp = (log.ip_address || "").toLowerCase().includes(s)
+                if (!matchesUser && !matchesEmail && !matchesTitle && !matchesDesc && !matchesAction && !matchesTarget && !matchesIp) {
                     return false
                 }
             }
@@ -227,7 +341,7 @@ export default function AdminLogsPage() {
 
             return true
         })
-    }, [logs, searchTerm, selectedRole, selectedCategory, selectedStatus, selectedTimeRange])
+    }, [logs, searchTerm, actorSearch, staffOnly, showArchived, selectedRole, selectedCategory, selectedStatus, selectedTimeRange])
 
     // Statistics - computed dynamically from filteredLogs so KPI cards are 100% accurate to the active view!
     const stats = useMemo(() => {
@@ -277,22 +391,38 @@ export default function AdminLogsPage() {
             return
         }
 
-        const headers = ["المعرف", "الوقت والتاريخ", "المستخدم", "البريد الإلكتروني", "الدور", "الفئة", "نوع العملية", "الوصف", "المبلغ (ج.م)", "الحالة"]
+        const headers = [
+            "المعرف", "الوقت والتاريخ (ISO)", "الوقت والتاريخ", "معرّف المستخدم", "المستخدم", "البريد الإلكتروني", "الدور",
+            "الفئة", "رمز العملية", "نوع العملية", "الوصف", "المستهدف", "معرّف المستهدف", "المبلغ (ج.م)", "الحالة",
+            "رسالة الخطأ", "عنوان IP", "المتصفح / الجهاز", "المسار", "الطريقة", "المصدر", "مؤرشف",
+        ].map(csvCell)
         const rows = filteredLogs.map(l => [
             l.id,
+            l.created_at,
             new Date(l.created_at).toLocaleString("ar-EG"),
+            l.user_id || "",
             l.user_name || "غير محدد",
             l.user_email || "",
             getRoleLabel(l.user_role),
             getCategoryLabel(l.category),
+            l.action || "",
             l.title,
-            `"${(l.description || "").replace(/"/g, '""')}"`,
-            l.amount ? l.amount.toString() : "0",
+            l.description || "",
+            l.target_user_name || "",
+            l.target_user_id || "",
+            typeof l.amount === "number" ? l.amount.toString() : "",
             getStatusLabel(l.status),
-        ])
+            l.error_message || "",
+            l.ip_address || "",
+            l.user_agent || "",
+            l.request_path || "",
+            l.request_method || "",
+            l.source === "client" ? "واجهة المستخدم" : "الخادم",
+            l.archived ? "نعم" : "",
+        ].map(csvCell))
 
         // Add UTF-8 BOM so Excel opens Arabic correctly
-        const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(r => r.join(","))].join("\n")
+        const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(r => r.join(","))].join("\r\n")
         const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
         const url = URL.createObjectURL(blob)
         const a = document.createElement("a")
@@ -514,11 +644,11 @@ export default function AdminLogsPage() {
                                     return `
                                         <tr>
                                             <td style="color: #64748b; font-size: 10px;">${timeFormatted}</td>
-                                            <td><strong>${l.user_name || "مستخدم"}</strong><div style="color:#64748b; font-size:9px;">${l.user_email || ""}</div></td>
-                                            <td>${getRoleLabel(l.user_role)}</td>
-                                            <td>${getCategoryLabel(l.category)}</td>
-                                            <td style="font-weight: 700;">${l.title || l.action}</td>
-                                            <td style="color: #334155;">${l.description || l.action}</td>
+                                            <td><strong>${escapeHtml(l.user_name || "مستخدم")}</strong><div style="color:#64748b; font-size:9px;">${escapeHtml(l.user_email || "")}</div><div style="color:#94a3b8; font-size:9px;" dir="ltr">${escapeHtml(l.ip_address || "")}</div></td>
+                                            <td>${escapeHtml(getRoleLabel(l.user_role))}</td>
+                                            <td>${escapeHtml(getCategoryLabel(l.category))}</td>
+                                            <td style="font-weight: 700;">${escapeHtml(l.title || l.action)}</td>
+                                            <td style="color: #334155;">${escapeHtml(l.description || l.action)}${l.target_user_name ? `<div style="color:#4f46e5; font-size:9.5px;">المستهدف: ${escapeHtml(l.target_user_name)}</div>` : ""}</td>
                                             <td style="font-weight: 800; color: #0f172a; text-align: center;">${amountFormatted}</td>
                                             <td style="text-align: center;"><span class="badge ${statusClass}">${statusText}</span></td>
                                         </tr>
@@ -553,32 +683,31 @@ export default function AdminLogsPage() {
         }, 300);
     }
 
-    // Clear all logs
+    // Archive logs older than the retention window (the last 90 days can never be cleared)
     async function handleClearLogs() {
         if (!canClearLogs) return
-        if (!window.confirm("هل أنت متأكد تماماً من رغبتك في تصفير جميع سجلات النشاط للبدء من جديد؟ لا يمكن التراجع عن هذا الإجراء.")) {
+        if (!window.confirm(`سيتم أرشفة سجلات النشاط الأقدم من ${LOG_RETENTION_DAYS} يوماً فقط (لا تُحذف نهائياً). سجلات آخر ${LOG_RETENTION_DAYS} يوماً وسجلات الأمان لا يمكن مسحها، وسيُسجَّل هذا الإجراء باسمك بشكل دائم. هل تريد المتابعة؟`)) {
             return
         }
 
         setIsClearing(true)
         try {
-            const idToken = await auth.currentUser?.getIdToken()
             const res = await fetch("/api/admin/logs/clear", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ idToken }),
+                body: "{}",
             })
 
             const data = await res.json()
             if (!res.ok) {
-                throw new Error(data.error || "فشل تصفير السجلات")
+                throw new Error(data.error || "فشل أرشفة السجلات القديمة")
             }
 
-            toast.success(data.message || "تم تصفير السجلات بنجاح")
+            toast.success(data.message || "تمت أرشفة السجلات القديمة")
             await fetchLogs()
         } catch (err: any) {
             console.error("Clear logs error:", err)
-            toast.error(err.message || "حدث خطأ أثناء تصفير السجلات")
+            toast.error(err.message || "حدث خطأ أثناء أرشفة السجلات القديمة")
         } finally {
             setIsClearing(false)
         }
@@ -609,6 +738,7 @@ export default function AdminLogsPage() {
             case "instructor": return "محاضر"
             case "student": return "طالب"
             case "system": return "النظام"
+            case "guest": return "زائر"
             default: return isStaffRole(role) ? getPermissionRoleLabel(role) : "مستخدم"
         }
     }
@@ -651,6 +781,13 @@ export default function AdminLogsPage() {
                         <span>ذكاء اصطناعي AI</span>
                     </Badge>
                 )
+            case "security":
+                return (
+                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 flex items-center gap-1">
+                        <ShieldAlert className="w-3 h-3" />
+                        <span>أمان ورقابة</span>
+                    </Badge>
+                )
             case "client":
                 return (
                     <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 flex items-center gap-1">
@@ -670,6 +807,7 @@ export default function AdminLogsPage() {
             case "admin_action": return "إجراء إداري"
             case "course": return "كورسات"
             case "ai_support": return "ذكاء اصطناعي AI"
+            case "security": return "أمان ورقابة"
             case "client": return "نشاط مستخدم / واجهة"
             default: return "النظام"
         }
@@ -753,10 +891,10 @@ export default function AdminLogsPage() {
                             onClick={handleClearLogs}
                             disabled={isClearing || isRefreshing}
                             className="gap-2 font-bold text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300"
-                            title="تصفير ومسح السجلات لبدء دورة اختبار جديدة"
+                            title={`أرشفة السجلات الأقدم من ${LOG_RETENTION_DAYS} يوماً فقط — سجلات آخر ${LOG_RETENTION_DAYS} يوماً محمية ولا يمكن مسحها`}
                         >
-                            <Trash2 className="w-4 h-4" />
-                            <span>{isClearing ? "جاري التصفير..." : "تصفير السجلات"}</span>
+                            <Archive className="w-4 h-4" />
+                            <span>{isClearing ? "جاري الأرشفة..." : `أرشفة السجلات الأقدم من ${LOG_RETENTION_DAYS} يوماً`}</span>
                         </Button>
                     )}
                     <Button
@@ -883,10 +1021,14 @@ export default function AdminLogsPage() {
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">كل الأدوار</SelectItem>
-                                    <SelectItem value="student">طلاب</SelectItem>
-                                    <SelectItem value="instructor">مدرسين</SelectItem>
-                                    <SelectItem value="admin">مسؤولين</SelectItem>
+                                    <SelectItem value="student">{ROLE_LABELS.student}</SelectItem>
+                                    <SelectItem value="instructor">{ROLE_LABELS.instructor}</SelectItem>
+                                    <SelectItem value="admin">{ROLE_LABELS.admin}</SelectItem>
+                                    {STAFF_ROLES.map(r => (
+                                        <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                                    ))}
                                     <SelectItem value="system">النظام</SelectItem>
+                                    <SelectItem value="guest">زوار</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -905,6 +1047,8 @@ export default function AdminLogsPage() {
                                     <SelectItem value="course">كورسات</SelectItem>
                                     <SelectItem value="client">نشاط مستخدمين وتفاعل</SelectItem>
                                     <SelectItem value="ai_support">دعم ذكي AI ومحادثات</SelectItem>
+                                    <SelectItem value="security">أمان ورقابة (محاولات مرفوضة / أرشفة)</SelectItem>
+                                    <SelectItem value="system">النظام</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -940,16 +1084,89 @@ export default function AdminLogsPage() {
                         </div>
                     </div>
 
-                    <div className="flex items-center justify-between mt-4 pt-3 border-t text-xs text-muted-foreground">
-                        <div>
-                            عدد السجلات المطابقة: <strong className="text-foreground">{filteredLogs.length}</strong> من أصل {logs.length}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+                        {/* Actor search */}
+                        <div className="relative">
+                            <User className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="الفاعل: الاسم أو البريد أو المعرّف"
+                                value={actorSearch}
+                                onChange={(e) => { setActorSearch(e.target.value); setCurrentPage(1) }}
+                                className="pr-9"
+                            />
                         </div>
-                        {(searchTerm || selectedRole !== "all" || selectedCategory !== "all" || selectedStatus !== "all" || selectedTimeRange !== "all") && (
+
+                        {/* Date range (applied on the server query) */}
+                        <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <span className="text-xs text-muted-foreground shrink-0">من</span>
+                            <Input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1) }} />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground shrink-0">إلى</span>
+                            <Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1) }} />
+                        </div>
+
+                        {/* Toggles */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                                type="button"
+                                variant={staffOnly ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => { setStaffOnly(v => !v); setCurrentPage(1) }}
+                                className="gap-1.5 font-bold"
+                                aria-pressed={staffOnly}
+                            >
+                                <Users className="w-4 h-4" />
+                                <span>فريق العمل فقط</span>
+                            </Button>
+                            <Button
+                                type="button"
+                                variant={showArchived ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => { setShowArchived(v => !v); setCurrentPage(1) }}
+                                className="gap-1.5 font-bold"
+                                aria-pressed={showArchived}
+                            >
+                                <Archive className="w-4 h-4" />
+                                <span>إظهار المؤرشف</span>
+                            </Button>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 mt-4 pt-3 border-t text-xs text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span>
+                                عدد السجلات المطابقة: <strong className="text-foreground">{filteredLogs.length}</strong> من أصل {logs.length} سجل محمّل
+                                {hasMore ? " (توجد سجلات أقدم لم تُحمّل بعد)" : " (تم تحميل كل السجلات في هذه الفترة)"}
+                            </span>
+                            {hasMore && (
+                                <>
+                                    <Button variant="outline" size="sm" className="h-7 text-xs" disabled={isLoadingMore || isRefreshing} onClick={() => loadMore(false)}>
+                                        {isLoadingMore ? "جاري التحميل..." : "تحميل المزيد"}
+                                    </Button>
+                                    <Button variant="outline" size="sm" className="h-7 text-xs" disabled={isLoadingMore || isRefreshing} onClick={() => loadMore(true)}>
+                                        تحميل الكل
+                                    </Button>
+                                </>
+                            )}
+                            {isLoadingMore && (
+                                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { stopLoadAllRef.current = true }}>
+                                    إيقاف
+                                </Button>
+                            )}
+                        </div>
+                        {(searchTerm || actorSearch || staffOnly || showArchived || dateFrom || dateTo || selectedRole !== "all" || selectedCategory !== "all" || selectedStatus !== "all" || selectedTimeRange !== "all") && (
                             <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
                                     setSearchTerm("")
+                                    setActorSearch("")
+                                    setStaffOnly(false)
+                                    setShowArchived(false)
+                                    setDateFrom("")
+                                    setDateTo("")
                                     setSelectedRole("all")
                                     setSelectedCategory("all")
                                     setSelectedStatus("all")
@@ -1031,6 +1248,12 @@ export default function AdminLogsPage() {
                                                     {log.user_email && (
                                                         <span className="text-xs text-muted-foreground font-mono truncate max-w-[210px]" dir="ltr">
                                                             {log.user_email}
+                                                        </span>
+                                                    )}
+                                                    {log.ip_address && (
+                                                        <span className="text-[10px] text-muted-foreground/80 font-mono truncate max-w-[210px] flex items-center gap-1" dir="ltr">
+                                                            <Globe className="w-3 h-3 shrink-0" />
+                                                            {log.ip_address}
                                                         </span>
                                                     )}
                                                 </div>
@@ -1139,7 +1362,7 @@ export default function AdminLogsPage() {
 
             {/* Log Details Modal */}
             <Dialog open={!!selectedLog} onOpenChange={(open) => !open && setSelectedLog(null)}>
-                <DialogContent className="max-w-2xl font-arabic" dir="rtl">
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto font-arabic" dir="rtl">
                     <DialogHeader className="text-right">
                         <DialogTitle className="text-xl font-black flex items-center gap-2">
                             <Activity className="w-5 h-5 text-primary" />
@@ -1187,6 +1410,46 @@ export default function AdminLogsPage() {
                                         <span className="font-mono text-lg font-black text-emerald-600">
                                             {selectedLog.amount} ج.م
                                         </span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Request origin (who / where from) */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-muted/20 p-4 rounded-xl border text-xs">
+                                <div>
+                                    <span className="text-muted-foreground block">عنوان IP:</span>
+                                    <span className="font-mono font-semibold text-foreground" dir="ltr">{selectedLog.ip_address || "غير مسجل"}</span>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground block">مصدر السجل:</span>
+                                    <span className="font-semibold text-foreground">
+                                        {selectedLog.source === "client" ? "واجهة المستخدم (بيانات أرسلها المتصفح)" : "الخادم (موثّق)"}
+                                    </span>
+                                </div>
+                                <div className="sm:col-span-2">
+                                    <span className="text-muted-foreground block">المتصفح / الجهاز (User Agent):</span>
+                                    <span className="font-mono text-foreground break-all" dir="ltr">{selectedLog.user_agent || "غير مسجل"}</span>
+                                </div>
+                                {(selectedLog.request_path || selectedLog.request_method) && (
+                                    <div className="sm:col-span-2">
+                                        <span className="text-muted-foreground block">الطلب:</span>
+                                        <span className="font-mono text-foreground break-all" dir="ltr">
+                                            {selectedLog.request_method} {selectedLog.request_path}
+                                        </span>
+                                    </div>
+                                )}
+                                {(selectedLog.target_user_name || selectedLog.target_user_id) && (
+                                    <div className="sm:col-span-2">
+                                        <span className="text-muted-foreground block">المستهدف:</span>
+                                        <span className="font-semibold text-foreground">{selectedLog.target_user_name || "—"}</span>
+                                        {selectedLog.target_user_id && (
+                                            <span className="font-mono text-muted-foreground ms-2" dir="ltr">{selectedLog.target_user_id}</span>
+                                        )}
+                                    </div>
+                                )}
+                                {selectedLog.archived && (
+                                    <div className="sm:col-span-2 text-amber-700">
+                                        سجل مؤرشف{selectedLog.archived_at ? ` بتاريخ ${new Date(selectedLog.archived_at).toLocaleString("ar-EG")}` : ""}
                                     </div>
                                 )}
                             </div>

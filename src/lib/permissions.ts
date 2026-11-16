@@ -30,6 +30,8 @@ export const PERMISSIONS = [
     "logs.clear",            // Clear activity logs
     "settings.manage",       // Platform settings
     "plans.manage",          // Instructor subscription plans: approve requests, assign plans
+    "users.manage_roles",    // Change any user's role (admin only — never give to staff)
+    "team.view",             // Team page: staff members and what each one did (admin only)
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -142,6 +144,7 @@ export const ADMIN_ROUTE_PERMISSIONS: { href: string; permission: Permission }[]
     { href: "/admin/coupons", permission: "coupons.manage" },
     { href: "/admin/settings", permission: "settings.manage" },
     { href: "/admin/plans", permission: "plans.manage" },
+    { href: "/admin/team", permission: "team.view" },
     { href: "/admin", permission: "dashboard.view" },
 ]
 

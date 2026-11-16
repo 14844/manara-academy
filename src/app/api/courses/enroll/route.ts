@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
-import { getActiveServerAuth } from "@/lib/server-auth";
+import { getActiveServerAuth, logRouteFailure } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { formatRate, getEffectivePlan, splitSale } from "@/lib/plans";
+import { checkRateLimitAsync } from "@/lib/rate-limiter";
 
 export async function POST(request: Request) {
+    let logCourseId = "";
+    let logCoupon = "";
     try {
         const user = await getActiveServerAuth(request);
         if (!user) {
@@ -15,8 +18,15 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "الحساب موقوف" }, { status: 403 });
         }
 
+        // Per-user rate limit (also throttles coupon-code guessing)
+        if (!(await checkRateLimitAsync(`enroll_${user.uid}`, 10, 60)).success) {
+            return NextResponse.json({ error: "محاولات كثيرة، يرجى الانتظار دقيقة ثم المحاولة مجدداً" }, { status: 429 });
+        }
+
         const body = await request.json();
         const { courseId, couponCode } = body;
+        logCourseId = typeof courseId === "string" ? courseId.slice(0, 128) : "";
+        logCoupon = typeof couponCode === "string" ? couponCode.slice(0, 64) : "";
 
         if (!courseId) {
             return NextResponse.json({ error: "معرّف الكورس مطلوب" }, { status: 400 });
@@ -59,7 +69,8 @@ export async function POST(request: Request) {
                 .limit(1)
                 .get();
             if (couponSnap.empty) {
-                return NextResponse.json({ error: "كود الكوبون غير موجود" }, { status: 400 });
+                // Same generic message as an invalid coupon (don't reveal which codes exist)
+                throw new Error("COUPON_INVALID");
             }
             couponRef = couponSnap.docs[0].ref;
         }
@@ -96,7 +107,7 @@ export async function POST(request: Request) {
             if (couponRef) {
                 const cSnap = await t.get(couponRef);
                 if (!cSnap.exists) {
-                    throw new Error("COUPON_NOT_FOUND");
+                    throw new Error("COUPON_INVALID");
                 }
                 const cData = cSnap.data()!;
                 const now = new Date();
@@ -258,6 +269,14 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, enrollmentId, paidAmount: result.finalPrice });
     } catch (err: any) {
+        await logRouteFailure(request, {
+            action: "course_enroll_failed",
+            category: "financial",
+            title: "فشل الاشتراك في كورس",
+            description: `تعذر اشتراك المستخدم في الكورس ${logCourseId || "(غير محدد)"}${logCoupon ? ` (كوبون: ${logCoupon})` : ""}`,
+            error: err,
+            metadata: { course_id: logCourseId, coupon_code: logCoupon },
+        });
         if (err.message === "ALREADY_ENROLLED") {
             return NextResponse.json({ error: "أنت مسجل بالفعل في هذا الكورس" }, { status: 400 });
         }

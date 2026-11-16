@@ -1,6 +1,6 @@
 import { adminDb } from "@/lib/firebase/admin";
 import { NextResponse } from "next/server";
-import { getServerAuth, getActiveServerAuth } from "@/lib/server-auth";
+import { getServerAuth, getActiveServerAuth, logRouteFailure } from "@/lib/server-auth";
 import { BUNNY_GUID_RE, extractStoragePath, isCourseScopedPath } from "@/lib/media-security";
 import { SUPABASE_BUCKET } from "@/lib/supabase/admin";
 import { logServerActivity } from "@/lib/server-activity-logger";
@@ -179,6 +179,13 @@ export async function POST(request: Request) {
         });
     } catch (error: any) {
         console.error("Save course media error:", error);
+        await logRouteFailure(request, {
+            action: "course_save_failed",
+            category: "course",
+            title: "فشل حفظ الكورس",
+            description: "تعذر حفظ بيانات/محتوى الكورس",
+            error,
+        });
         return NextResponse.json({ error: error.message || "حدث خطأ أثناء حفظ الكورس" }, { status: 500 });
     }
 }

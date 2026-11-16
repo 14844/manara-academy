@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase/config"
 import { collection, query, where, getDocs, orderBy, doc, getDoc, count as getCount } from "firebase/firestore"
 import { calculateEnrollmentCommission } from "@/lib/commission-utils"
+import { escapeHtml } from "@/lib/escape-html"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -364,8 +365,8 @@ export default function AdminSettlementsPage() {
                                     </tr>
                                 ` : settlements.map((s) => `
                                     <tr>
-                                        <td>${s.instructorName}</td>
-                                        <td>${s.enrollmentCount} طالب</td>
+                                        <td>${escapeHtml(s.instructorName)}</td>
+                                        <td>${escapeHtml(s.enrollmentCount)} طالب</td>
                                         <td style="color: #2563eb; font-weight: 800;">${(s.grossRevenue || 0).toLocaleString()} ج.م</td>
                                         <td style="color: #ea580c; font-weight: 700;">${(s.commission || s.platformFee || 0).toLocaleString()} ج.م</td>
                                         <td style="color: #16a34a; font-weight: 900;">${(s.netPayout || s.netEarnings || 0).toLocaleString()} ج.م</td>
@@ -374,7 +375,7 @@ export default function AdminSettlementsPage() {
                                 ${settlements.length > 0 ? `
                                     <tr class="total-row">
                                         <td>الإجمالي العام للفترة</td>
-                                        <td>${totals.enrollments} طالب</td>
+                                        <td>${escapeHtml(totals.enrollments)} طالب</td>
                                         <td style="color: #2563eb;">${totals.gross.toLocaleString()} ج.م</td>
                                         <td style="color: #ea580c;">${totals.commission.toLocaleString()} ج.م</td>
                                         <td style="color: #16a34a;">${totals.net.toLocaleString()} ج.م</td>

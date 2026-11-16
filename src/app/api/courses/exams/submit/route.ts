@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getServerAuth } from "@/lib/server-auth";
+import { getServerAuth, logActor, logRouteFailure } from "@/lib/server-auth";
+import { logServerActivity } from "@/lib/server-activity-logger";
 import { adminDb } from "@/lib/firebase/admin";
 
 export async function POST(request: Request) {
@@ -139,6 +140,17 @@ export async function POST(request: Request) {
             return { submissionId: targetRef.id, attemptNumber };
         });
 
+        await logServerActivity({
+            action: "exam_submitted",
+            category: "course",
+            title: "تسليم اختبار",
+            description: `قام ${user.profile?.full_name || user.email} بتسليم ${type === "assignment" ? "واجب" : "اختبار"} في كورس "${courseData.title || courseId}" (المحاولة ${submissionResult.attemptNumber} من 3) — الدرجة ${calculatedScore}%${hasEssayQuestions ? " (بانتظار تصحيح الأسئلة المقالية)" : ""}`,
+            status: "success",
+            ...logActor(user),
+            target_user_id: instructorId,
+            metadata: { course_id: courseId, lesson_id: String(lessonId), submission_id: submissionResult.submissionId, score: calculatedScore, attempt: submissionResult.attemptNumber },
+        }, request);
+
         return NextResponse.json({
             success: true,
             score: calculatedScore,
@@ -148,6 +160,14 @@ export async function POST(request: Request) {
             submissionId: submissionResult.submissionId,
         });
     } catch (err: any) {
+        await logRouteFailure(request, {
+            action: "exam_submit_failed",
+            category: "course",
+            title: "فشل تسليم اختبار",
+            description: `تعذر تسليم اختبار للطالب ${user.profile?.full_name || user.email}`,
+            error: err,
+            user,
+        });
         if (err.message === "MAX_ATTEMPTS_EXCEEDED") {
             return NextResponse.json(
                 { error: "لقد استنفدت الحد الأقصى للمحاولات (3 محاولات) لهذا الاختبار" },

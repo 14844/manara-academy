@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { db } from "@/lib/firebase/config"
+import { escapeHtml } from "@/lib/escape-html"
 import { doc, getDoc } from "firebase/firestore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -53,7 +54,7 @@ export default function ParentReportPublicPage() {
         printWindow.document.write(`
             <html>
                 <head>
-                    <title>تقرير متابعة دراسية - ${report.student_name}</title>
+                    <title>تقرير متابعة دراسية - ${escapeHtml(report.student_name)}</title>
                     <style>
                         @page {
                             size: A4;
@@ -287,34 +288,34 @@ export default function ParentReportPublicPage() {
                                 <p>تقرير تفاعلي وموثق لمتابعة مستوى أداء الطالب</p>
                             </div>
                             <div class="date-section">
-                                <div>تاريخ الإصدار: ${formatDate(report.created_at)}</div>
-                                <div>تاريخ الصلاحية: ${formatDate(report.expires_at)}</div>
-                                <div style="color:#18181b; font-weight:bold; margin-top:5px;">معلم المادة: ${report.instructor_name}</div>
+                                <div>تاريخ الإصدار: ${escapeHtml(formatDate(report.created_at))}</div>
+                                <div>تاريخ الصلاحية: ${escapeHtml(formatDate(report.expires_at))}</div>
+                                <div style="color:#18181b; font-weight:bold; margin-top:5px;">معلم المادة: ${escapeHtml(report.instructor_name)}</div>
                             </div>
                         </div>
 
                         <div class="student-card">
                             <div class="avatar">
-                                ${report.student_avatar 
-                                    ? `<img src="${report.student_avatar}" alt="" />`
-                                    : report.student_name.charAt(0)
+                                ${report.student_avatar && /^https?:\/\//i.test(String(report.student_avatar))
+                                    ? `<img src="${escapeHtml(report.student_avatar)}" alt="" />`
+                                    : escapeHtml(String(report.student_name || "").charAt(0))
                                 }
                             </div>
                             <div class="student-info">
-                                <h3>${report.student_name}</h3>
-                                <span>الكورس: ${report.course_title}</span>
+                                <h3>${escapeHtml(report.student_name)}</h3>
+                                <span>الكورس: ${escapeHtml(report.course_title)}</span>
                             </div>
                         </div>
 
                         <div class="stats-grid">
                             <div class="stat-box">
                                 <div style="background-color:#fff7ed; color:#ea580c; width:35px; height:35px; border-radius:8px; display:flex; align-items:center; justify-content:center; margin:0 auto 10px auto; font-weight:bold;">H</div>
-                                <div class="val">${report.stats.attendance_rate}%</div>
-                                <div class="lbl">نسبة حضور المحاضرات (${report.stats.completed_lessons_count} / ${report.stats.total_lessons_count})</div>
+                                <div class="val">${escapeHtml(report.stats.attendance_rate)}%</div>
+                                <div class="lbl">نسبة حضور المحاضرات (${escapeHtml(report.stats.completed_lessons_count)} / ${escapeHtml(report.stats.total_lessons_count)})</div>
                             </div>
                             <div class="stat-box">
                                 <div style="background-color:#f0fdf4; color:#16a34a; width:35px; height:35px; border-radius:8px; display:flex; align-items:center; justify-content:center; margin:0 auto 10px auto; font-weight:bold;">G</div>
-                                <div class="val">${report.stats.average_score}%</div>
+                                <div class="val">${escapeHtml(report.stats.average_score)}%</div>
                                 <div class="lbl">المعدل الكلي للدرجات</div>
                             </div>
                         </div>
@@ -323,14 +324,14 @@ export default function ParentReportPublicPage() {
                             <h3>نسبة تقدم الطالب في المقرر</h3>
                             <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:bold;">
                                 <span style="color:#6b7280;">نسبة الفيديوهات والملفات المكتملة</span>
-                                <span style="color:#18181b;">${report.stats.progress}%</span>
+                                <span style="color:#18181b;">${escapeHtml(report.stats.progress)}%</span>
                             </div>
                             <div class="progress-bar-container">
-                                <div class="progress-bar" style="width: ${report.stats.progress}%;"></div>
+                                <div class="progress-bar" style="width: ${Math.max(0, Math.min(100, Number(report.stats.progress) || 0))}%;"></div>
                             </div>
                             <div class="progress-lbls">
                                 <span>بداية الكورس</span>
-                                ${report.stats.last_accessed ? `<span>آخر نشاط للطالب: ${formatDate(report.stats.last_accessed)}</span>` : ''}
+                                ${report.stats.last_accessed ? `<span>آخر نشاط للطالب: ${escapeHtml(formatDate(report.stats.last_accessed))}</span>` : ''}
                                 <span>اكتمال المقرر</span>
                             </div>
                         </div>
@@ -350,14 +351,14 @@ export default function ParentReportPublicPage() {
                                     <tbody>
                                         ${report.exams.map((exam: any) => `
                                             <tr>
-                                                <td style="font-weight:bold;">${exam.title}</td>
+                                                <td style="font-weight:bold;">${escapeHtml(exam.title)}</td>
                                                 <td>
                                                     <span class="score-badge ${exam.score >= 80 ? 'score-high' : exam.score >= 50 ? 'score-medium' : 'score-low'}">
-                                                        ${exam.score}%
+                                                        ${escapeHtml(exam.score)}%
                                                     </span>
                                                 </td>
-                                                <td style="font-weight:bold; color:#4b5563;">${exam.highest_score}%</td>
-                                                <td style="color:#6b7280;">${formatDate(exam.submitted_at)}</td>
+                                                <td style="font-weight:bold; color:#4b5563;">${escapeHtml(exam.highest_score)}%</td>
+                                                <td style="color:#6b7280;">${escapeHtml(formatDate(exam.submitted_at))}</td>
                                             </tr>
                                         `).join('')}
                                     </tbody>
@@ -372,7 +373,7 @@ export default function ParentReportPublicPage() {
                         ${report.manual_note ? `
                             <div class="note-section">
                                 <h3>توجيهات وملاحظات معلم المادة</h3>
-                                <div class="note-content">${report.manual_note}</div>
+                                <div class="note-content">${escapeHtml(report.manual_note)}</div>
                             </div>
                         ` : ''}
 

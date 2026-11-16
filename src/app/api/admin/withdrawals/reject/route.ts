@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { activityLogRole, requirePermission } from "@/lib/server-auth";
+import { activityLogRole, logRouteFailure, requirePermission } from "@/lib/server-auth";
 import { FieldValue } from "firebase-admin/firestore";
 import { logServerActivity } from "@/lib/server-activity-logger";
 
 export async function POST(request: Request) {
+    let logRequestId = "";
     try {
         const adminUser = await requirePermission(request, "withdrawals.manage");
         if (!adminUser) {
@@ -13,6 +14,7 @@ export async function POST(request: Request) {
 
         const body = await request.json();
         const { requestId, reason } = body;
+        logRequestId = typeof requestId === "string" ? requestId : "";
 
         if (!requestId) {
             return NextResponse.json({ error: "معرّف الطلب مطلوب" }, { status: 400 });
@@ -77,6 +79,14 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true });
     } catch (err: any) {
+        await logRouteFailure(request, {
+            action: "withdrawal_reject_failed",
+            category: "financial",
+            title: "فشل رفض طلب سحب أرباح",
+            description: `تعذر رفض طلب السحب ${logRequestId || "(بدون معرّف)"}`,
+            error: err,
+            metadata: { request_id: logRequestId },
+        });
         return NextResponse.json({ error: "فشل رفض الطلب" }, { status: 500 });
     }
 }

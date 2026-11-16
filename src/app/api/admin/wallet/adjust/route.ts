@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { activityLogRole, requirePermission } from "@/lib/server-auth";
+import { activityLogRole, logRouteFailure, requirePermission } from "@/lib/server-auth";
 import { FieldValue } from "firebase-admin/firestore";
 import { logServerActivity } from "@/lib/server-activity-logger";
+import { isBackofficeRole } from "@/lib/permissions";
 
 export async function POST(request: Request) {
+    let logTarget = "";
+    let logAmount = 0;
+    let logType = "";
     try {
         const adminUser = await requirePermission(request, "wallet.adjust");
         if (!adminUser) {
@@ -15,8 +19,34 @@ export async function POST(request: Request) {
         const { targetUserId, amount, type } = body;
 
         const numAmount = Number(amount);
-        if (!targetUserId || !numAmount || numAmount <= 0) {
-            return NextResponse.json({ error: "بيانات العملية غير صحيحة" }, { status: 400 });
+        logTarget = typeof targetUserId === "string" ? targetUserId : "";
+        logAmount = Number.isFinite(numAmount) ? numAmount : 0;
+        logType = type === "withdraw" ? "withdraw" : "recharge";
+        const isValidTarget = typeof targetUserId === "string" && !!targetUserId.trim() && targetUserId.length <= 128 && !targetUserId.includes("/");
+        const isValidAmount = typeof amount !== "boolean" && amount !== null && amount !== "" && Number.isFinite(numAmount) && numAmount > 0 && numAmount <= 50000;
+        if (!isValidTarget || !isValidAmount) {
+            await logRouteFailure(request, {
+                action: "admin_wallet_adjust_failed",
+                category: "financial",
+                title: "فشل تعديل رصيد محفظة",
+                description: `بيانات غير صحيحة لتعديل رصيد المستخدم ${logTarget || "(غير محدد)"} بمبلغ ${String(amount).slice(0, 30)}`,
+                user: adminUser,
+                target_user_id: logTarget || undefined,
+            });
+            return NextResponse.json({ error: "بيانات العملية غير صحيحة (الحد الأقصى للمبلغ 50000 ج.م)" }, { status: 400 });
+        }
+
+        if (targetUserId === adminUser.uid) {
+            await logRouteFailure(request, {
+                action: "admin_wallet_adjust_failed",
+                category: "financial",
+                title: "محاولة تعديل رصيد المحفظة الشخصية",
+                description: `محاولة ${logType === "withdraw" ? "خصم" : "إيداع"} مبلغ ${numAmount} ج.م في محفظة المنفّذ نفسه (غير مسموح)`,
+                user: adminUser,
+                target_user_id: targetUserId,
+                amount: numAmount,
+            });
+            return NextResponse.json({ error: "لا يمكنك تعديل رصيد محفظتك الشخصية" }, { status: 403 });
         }
 
         const userRef = adminDb.collection("profiles").doc(targetUserId);
@@ -34,6 +64,10 @@ export async function POST(request: Request) {
                 throw new Error("USER_NOT_FOUND");
             }
             targetUserData = userDoc.data();
+            // Only the admin may adjust wallets of admin/staff (backoffice) accounts
+            if (adminUser.role !== "admin" && isBackofficeRole(targetUserData?.role)) {
+                throw new Error("TARGET_FORBIDDEN");
+            }
             const currentBalance = Number(userPrivateDoc.data()?.wallet_balance ?? 0);
 
             if (type === "withdraw") {
@@ -103,8 +137,21 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, transactionId: txRef.id });
     } catch (err: any) {
+        await logRouteFailure(request, {
+            action: "admin_wallet_adjust_failed",
+            category: "financial",
+            title: logType === "withdraw" ? "فشل خصم رصيد يدوي" : "فشل إيداع رصيد يدوي",
+            description: `تعذر ${logType === "withdraw" ? "خصم" : "إيداع"} مبلغ ${logAmount} ج.م لمحفظة المستخدم ${logTarget || "(غير محدد)"}`,
+            error: err,
+            target_user_id: logTarget || undefined,
+            amount: logAmount,
+            metadata: { type: logType },
+        });
         if (err.message === "USER_NOT_FOUND") {
             return NextResponse.json({ error: "المستخدم غير موجود" }, { status: 404 });
+        }
+        if (err.message === "TARGET_FORBIDDEN") {
+            return NextResponse.json({ error: "غير مسموح بتعديل رصيد حسابات الإدارة أو فريق العمل" }, { status: 403 });
         }
         if (err.message === "INSUFFICIENT_BALANCE") {
             return NextResponse.json({ error: "المبلغ المطلوب أكبر من الرصيد الحالي" }, { status: 400 });

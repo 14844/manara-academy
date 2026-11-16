@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase/config"
-import { collection, query, where, getDocs, doc, updateDoc, orderBy } from "firebase/firestore"
+import { collection, query, where, getDocs } from "firebase/firestore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -14,15 +14,9 @@ import {
 } from "lucide-react"
 import { TablePageSkeleton } from "@/components/skeletons"
 import { toast } from "sonner"
-import { auth } from "@/lib/firebase/config"
-import { logActivity, type ActivityLogInput } from "@/lib/activity-logger"
 import Link from "next/link"
-import { useAdminRole } from "@/components/admin/admin-role-context"
 
 export default function AdminCoursesPage() {
-    const { role, roleLabel } = useAdminRole()
-    // Role sent with client-side activity logs (the server re-derives it from the session anyway)
-    const logRole = (role || "admin") as ActivityLogInput["user_role"]
     const [courses, setCourses] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
 
@@ -45,74 +39,42 @@ export default function AdminCoursesPage() {
         }
     }
 
+    /** Approve / reject through the server (permission check, pending-only update and trusted activity log). */
+    async function reviewCourse(courseId: string, decision: "approved" | "rejected", reason?: string) {
+        const res = await fetch("/api/admin/courses/review", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ courseId, decision, ...(reason ? { reason } : {}) }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (res.status === 409) {
+            // Already reviewed elsewhere: drop it from the pending list
+            setCourses(prev => prev.filter(c => c.id !== courseId))
+        }
+        if (!res.ok) {
+            throw new Error(data.error || "")
+        }
+    }
+
     const handleApprove = async (courseId: string) => {
         try {
-            const courseObj = courses.find(c => c.id === courseId)
-            await updateDoc(doc(db, "courses", courseId), {
-                status: "approved",
-                updated_at: new Date().toISOString()
-            })
+            await reviewCourse(courseId, "approved")
             toast.success("تم اعتماد الكورس بنجاح!")
-            setCourses(courses.filter(c => c.id !== courseId))
-
-            // Log activity
-            const currentAdmin = auth.currentUser;
-            logActivity({
-                action: "course_approved",
-                category: "admin_action",
-                title: "اعتماد ونشر كورس جديد",
-                description: `وافق ${roleLabel} على نشر كورس "${courseObj?.title || courseId}" للمحاضر "${courseObj?.instructor_name || "محاضر"}"`,
-                status: "success",
-                user_id: currentAdmin?.uid || "admin",
-                user_name: currentAdmin?.displayName || "مسؤول المنصة",
-                user_email: currentAdmin?.email || "",
-                user_role: logRole,
-                target_user_id: courseObj?.instructor_id,
-                target_user_name: courseObj?.instructor_name,
-                metadata: {
-                    course_id: courseId,
-                    course_title: courseObj?.title,
-                    price: courseObj?.price,
-                }
-            }).catch(() => {})
-        } catch (error) {
+            setCourses(prev => prev.filter(c => c.id !== courseId))
+        } catch (error: any) {
             console.error("Approval error:", error)
-            toast.error("حدث خطأ أثناء اعتماد الكورس")
+            toast.error(error?.message || "حدث خطأ أثناء اعتماد الكورس")
         }
     }
 
     const handleReject = async (courseId: string) => {
         try {
-            const courseObj = courses.find(c => c.id === courseId)
-            await updateDoc(doc(db, "courses", courseId), {
-                status: "rejected",
-                updated_at: new Date().toISOString()
-            })
+            await reviewCourse(courseId, "rejected")
             toast.info("تم رفض الكورس")
-            setCourses(courses.filter(c => c.id !== courseId))
-
-            // Log activity
-            const currentAdmin = auth.currentUser;
-            logActivity({
-                action: "course_rejected",
-                category: "admin_action",
-                title: "رفض كورس",
-                description: `رفض ${roleLabel} نشر كورس "${courseObj?.title || courseId}" للمحاضر "${courseObj?.instructor_name || "محاضر"}"`,
-                status: "failed",
-                user_id: currentAdmin?.uid || "admin",
-                user_name: currentAdmin?.displayName || "مسؤول المنصة",
-                user_email: currentAdmin?.email || "",
-                user_role: logRole,
-                target_user_id: courseObj?.instructor_id,
-                target_user_name: courseObj?.instructor_name,
-                metadata: {
-                    course_id: courseId,
-                    course_title: courseObj?.title,
-                }
-            }).catch(() => {})
-        } catch (error) {
+            setCourses(prev => prev.filter(c => c.id !== courseId))
+        } catch (error: any) {
             console.error("Rejection error:", error)
-            toast.error("حدث خطأ أثناء رفض الكورس")
+            toast.error(error?.message || "حدث خطأ أثناء رفض الكورس")
         }
     }
 
