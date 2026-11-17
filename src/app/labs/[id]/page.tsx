@@ -19,6 +19,7 @@ const CircuitLab = dynamic(() => import("@/components/labs/circuit-lab").then(m 
 const MoleculeLab = dynamic(() => import("@/components/labs/molecule-lab").then(m => m.MoleculeLab), { ssr: false, loading: labLoading })
 const FunctionLab = dynamic(() => import("@/components/labs/function-lab").then(m => m.FunctionLab), { ssr: false, loading: labLoading })
 const ReactionLab = dynamic(() => import("@/components/labs/reaction-lab").then(m => m.ReactionLab), { ssr: false, loading: labLoading })
+const SpaceLab = dynamic(() => import("@/components/labs/space-lab").then(m => m.SpaceLab), { ssr: false, loading: labLoading })
 
 export default function LabViewerPage() {
     const { id } = useParams()
@@ -103,6 +104,7 @@ export default function LabViewerPage() {
                                 {lab.id === "chemical-reactions" && <ReactionLab key={resetKey} />}
                                 {lab.id === "build-a-molecule" && <MoleculeLab key={resetKey} />}
                                 {lab.id === "function-builder" && <FunctionLab key={resetKey} />}
+                                {(lab.id === "space" || lab.id === "solar-system") && <SpaceLab key={resetKey} />}
                             </div>
 
                             <div className="mt-6 p-4 glass rounded-2xl border border-white/10 text-sm text-muted-foreground leading-relaxed">

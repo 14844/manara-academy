@@ -1,23 +1,25 @@
 import Link from "next/link"
 import { Navbar } from "@/components/navbar"
 import { virtualLabs, Subject } from "@/lib/labs-data"
-import { ArrowLeft, Beaker, Calculator, Zap } from "lucide-react"
+import { ArrowLeft, Beaker, Calculator, Zap, Globe2 } from "lucide-react"
 
 export const metadata = {
-  title: "المختبرات الافتراضية | أكاديمية المنارة",
-  description: "تجارب علمية تفاعلية في الفيزياء والكيمياء والرياضيات متاحة للجميع.",
+  title: "المختبرات الافتراضية ثلاثية الأبعاد | أكاديمية المنارة",
+  description: "تجارب علمية تفاعلية واقعية ثلاثية الأبعاد في الفيزياء والكيمياء والرياضيات والفضاء لطلاب الثانوية العامة.",
 }
 
 const subjectIcons: Record<Subject, React.ReactNode> = {
   physics: <Zap className="w-8 h-8 text-blue-500" />,
   chemistry: <Beaker className="w-8 h-8 text-emerald-500" />,
   math: <Calculator className="w-8 h-8 text-purple-500" />,
+  astronomy: <Globe2 className="w-8 h-8 text-cyan-400" />,
 }
 
 const subjectTitles: Record<Subject, string> = {
   physics: "الفيزياء",
   chemistry: "الكيمياء",
   math: "الرياضيات",
+  astronomy: "الفلك والفضاء",
 }
 
 export default function LabsIndexPage() {
