@@ -34,6 +34,7 @@ import {
 import { TablePageSkeleton } from "@/components/skeletons"
 import { useAdminRole } from "@/components/admin/admin-role-context"
 import { MonthsSelector, monthsLabel, type PlanMonths } from "@/components/plans/months-selector"
+import { PLAN_FEATURES } from "@/components/plans/plan-types"
 import { DEFAULT_PLAN_ID, PLANS, PLAN_LIST, formatRate, isPlanId, type PlanId } from "@/lib/plans"
 import { cn } from "@/lib/utils"
 
@@ -410,8 +411,9 @@ export default function AdminPlansPage() {
                                 </p>
                             </div>
                             <div className="flex flex-wrap gap-1.5">
-                                <AccessBadge on={p.access.labs} label="المعامل الافتراضية" />
-                                <AccessBadge on={p.access.autoParentReports} label="تقارير أولياء الأمور تلقائياً" />
+                                {PLAN_FEATURES.map((f) => (
+                                    <AccessBadge key={f.key} on={p.access[f.key]} label={f.label} />
+                                ))}
                             </div>
                         </CardContent>
                     </Card>

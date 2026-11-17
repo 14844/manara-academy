@@ -4,7 +4,7 @@ import { Navbar } from "@/components/navbar"
 import { Button } from "@/components/ui/button"
 import { SupportInfo } from "@/components/support-info"
 import { PlanCard } from "@/components/plans/plan-card"
-import { PLAN_LIST, PLANS, formatRate } from "@/lib/plans"
+import { PLAN_LIST, PLANS, cheapestPlanWith, formatRate } from "@/lib/plans"
 import {
     ArrowLeft,
     BarChart,
@@ -59,7 +59,7 @@ const FEATURES = [
     {
         icon: TicketPercent,
         title: "كوبونات خصم",
-        description: "اعمل كوبونات خصم لكورساتك وشاركها مع طلابك وقت ما تحب.",
+        description: `اعمل كوبونات خصم لكورساتك وشاركها مع طلابك وقت ما تحب (من باقة ${cheapestPlanWith("coupons").name}).`,
     },
 ] as const
 
@@ -169,7 +169,7 @@ export default function TeachPage() {
                         <div className="mb-10 sm:mb-14 text-center">
                             <h2 className="text-2xl font-bold tracking-tight sm:text-4xl text-primary mb-4">الباقات</h2>
                             <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto">
-                                ابدأ مجاناً على باقة {PLANS.starter.name} (عمولة {formatRate(PLANS.starter.commissionRate)} من كل بيع)، ولما شغلك يكبر رقّي باقتك: عمولة أقل، ومعامل افتراضية لطلابك، وتقارير أولياء أمور تلقائية.
+                                ابدأ مجاناً على باقة {PLANS.starter.name} (عمولة {formatRate(PLANS.starter.commissionRate)} من كل بيع)، ولما شغلك يكبر رقّي باقتك: عمولة أقل، وكوبونات خصم لكورساتك، وظهور كورساتك في الأول بعلامة مميز، وتقارير أولياء أمور تلقائية.
                             </p>
                         </div>
                         <div className="grid gap-6 pt-3 md:grid-cols-3 max-w-6xl mx-auto">

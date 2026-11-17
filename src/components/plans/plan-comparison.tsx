@@ -3,9 +3,10 @@ import { Check, X } from "lucide-react"
 import { PLAN_LIST, formatRate, type PlanId } from "@/lib/plans"
 import { cn } from "@/lib/utils"
 import { formatPlanPrice } from "./plan-card"
+import { PLAN_FEATURES } from "./plan-types"
 
 /**
- * Compact plan comparison table (commission, your share, labs, auto reports, price).
+ * Compact plan comparison table (commission, your share, coupons, analytics, auto reports, price).
  * Fits 375px: label column + 3 narrow plan columns. Server-safe.
  */
 export function PlanComparison({ currentPlanId, nextPlanId }: { currentPlanId?: PlanId; nextPlanId?: PlanId | null }) {
@@ -19,8 +20,7 @@ export function PlanComparison({ currentPlanId, nextPlanId }: { currentPlanId?: 
     const rows: { label: string; cell: (p: (typeof PLAN_LIST)[number]) => ReactNode }[] = [
         { label: "عمولة المنصة", cell: (p) => <span className="font-bold">{formatRate(p.commissionRate)}</span> },
         { label: "بيوصلك من كل 100 ج.م", cell: (p) => `${Math.round((1 - p.commissionRate) * 100)} ج.م` },
-        { label: "معامل افتراضية لطلابك", cell: (p) => yes(p.access.labs) },
-        { label: "تقارير أولياء أمور تلقائية", cell: (p) => yes(p.access.autoParentReports) },
+        ...PLAN_FEATURES.map((f) => ({ label: f.label, cell: (p: (typeof PLAN_LIST)[number]) => yes(p.access[f.key]) })),
         {
             label: "السعر الشهري",
             cell: (p) => <span className="font-bold">{formatPlanPrice(p.monthlyPrice)}</span>,

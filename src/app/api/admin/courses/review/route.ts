@@ -3,6 +3,8 @@ import { adminDb } from "@/lib/firebase/admin";
 import { logActor, logRouteFailure, requirePermission } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { getRoleLabel } from "@/lib/permissions";
+import { getEffectivePlan } from "@/lib/plans";
+import { featuredUntilFor } from "@/lib/featured-listing-server";
 
 class ReviewError extends Error {
     constructor(message: string, public httpStatus: number) {
@@ -57,7 +59,15 @@ export async function POST(request: Request) {
             if (course.status !== "pending") {
                 throw new ReviewError("تمت مراجعة هذا الكورس بالفعل أو أنه ليس قيد المراجعة", 409);
             }
+            // On approval, denormalize the instructor's featured listing (from their current effective plan)
+            let featuredUntil: string | null = null;
+            const instructorId = course.instructor_id;
+            if (decision === "approved" && typeof instructorId === "string" && instructorId && !instructorId.includes("/")) {
+                const privSnap = await t.get(adminDb.collection("profiles_private").doc(instructorId));
+                featuredUntil = featuredUntilFor(getEffectivePlan(privSnap.exists ? privSnap.data() : null));
+            }
             t.update(courseRef, {
+                ...(decision === "approved" ? { featured_until: featuredUntil } : {}),
                 status: decision,
                 updated_at: now,
                 reviewed_by: user.uid,

@@ -1,11 +1,11 @@
-import { PLAN_LIST, PLANS, type Plan, type PlanId } from "@/lib/plans"
+import { PLAN_LIST, PLANS, type Plan, type PlanFeature, type PlanId } from "@/lib/plans"
 
 /** GET /api/instructor/plan */
 export interface InstructorPlanResponse {
     planId: PlanId
     planName: string
     commissionRate: number
-    access: { labs: boolean; autoParentReports: boolean }
+    access: Record<PlanFeature, boolean>
     expiresAt: string | null
     expired: boolean
     pendingRequest: {
@@ -17,6 +17,13 @@ export interface InstructorPlanResponse {
     } | null
     introSeen: boolean
 }
+
+/** Display order + short labels of the gated instructor features (plan cards, comparison, intro, admin). */
+export const PLAN_FEATURES: { key: PlanFeature; label: string }[] = [
+    { key: "coupons", label: "كوبونات خصم لكورساتك" },
+    { key: "featuredListing", label: "كورساتك تظهر في الأول بعلامة مميز" },
+    { key: "autoParentReports", label: "تقارير أولياء أمور تلقائية كل أسبوع" },
+]
 
 export type CouponSourceValue = "instructor" | "platform" | null
 

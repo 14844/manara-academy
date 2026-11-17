@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { activityLogRole, logRouteFailure, requirePermission } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { PLANS, getEffectivePlan, isPlanId } from "@/lib/plans";
+import { syncInstructorCoursesFeatured } from "@/lib/featured-listing-server";
 
 function addMonths(base: Date, months: number): Date {
     const d = new Date(base.getTime());
@@ -139,6 +140,12 @@ export async function POST(request: Request) {
                 });
             }
         });
+
+        // Denormalize featured listing onto the instructor's public course docs
+        const featuredUntil = plan.access.featuredListing && newExpiresAt ? newExpiresAt : null;
+        await syncInstructorCoursesFeatured(instructorId, featuredUntil).catch((e) =>
+            console.error("featured_until sync failed:", e),
+        );
 
         await logServerActivity({
             action: "admin_plan_assigned",

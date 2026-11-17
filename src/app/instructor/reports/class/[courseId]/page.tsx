@@ -26,7 +26,7 @@ import { toast } from "sonner"
 import Link from "next/link"
 import { AnalyticsSkeleton } from "@/components/skeletons"
 import { escapeHtml } from "@/lib/escape-html"
-
+// Class report shows instructors their own students' data — available on every plan (never gated).
 export default function ClassReportPage() {
     const { courseId } = useParams()
     const router = useRouter()

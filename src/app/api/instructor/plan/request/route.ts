@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { activityLogRole, getActiveServerAuth, logRouteFailure } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
 import { PLANS, getEffectivePlan, isPlanId } from "@/lib/plans";
+import { syncInstructorCoursesFeatured } from "@/lib/featured-listing-server";
 
 const ALLOWED_MONTHS = [1, 3, 6, 12];
 
@@ -40,6 +41,10 @@ export async function POST(request: Request) {
                 plan_expires_at: null,
                 updated_at: now,
             }, { merge: true });
+            // Free plan has no featured listing
+            await syncInstructorCoursesFeatured(user.uid, null).catch((e) =>
+                console.error("featured_until sync failed:", e),
+            );
 
             await logServerActivity({
                 action: "instructor_plan_changed",

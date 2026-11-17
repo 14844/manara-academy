@@ -8,9 +8,8 @@ import Link from "next/link"
 import { ArrowRight, Loader2, Maximize2, RotateCcw } from "lucide-react"
 import { useState, useRef } from "react"
 import dynamic from "next/dynamic"
-import { InstructorPreviewBanner, LabLockedState, useLabsAccess } from "@/components/labs/labs-access"
 
-// Lab code is only downloaded once access is confirmed (never rendered for locked viewers).
+// Lab components are lazy-loaded (only the selected experiment's code is downloaded).
 const labLoading = () => (
     <div className="flex-1 flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -26,9 +25,6 @@ export default function LabViewerPage() {
     const lab = virtualLabs.find(l => l.id === id)
     const [resetKey, setResetKey] = useState(0)
     const containerRef = useRef<HTMLDivElement>(null)
-    const access = useLabsAccess()
-    const isChecking = access === undefined
-    const isAllowed = !!access?.allowed
 
     if (!lab) {
         return (
@@ -80,18 +76,14 @@ export default function LabViewerPage() {
                             <h1 className="text-3xl font-black text-foreground">{lab.title}</h1>
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
-                            {isAllowed && (
-                                <>
-                                    <Button variant="outline" className="glass h-11 px-5 rounded-xl font-bold" onClick={handleReset}>
-                                        <RotateCcw className="w-4 h-4 ml-2" />
-                                        إعادة تشغيل
-                                    </Button>
-                                    <Button variant="outline" className="glass h-11 px-5 rounded-xl font-bold" onClick={handleFullscreen}>
-                                        <Maximize2 className="w-4 h-4 ml-2" />
-                                        ملء الشاشة
-                                    </Button>
-                                </>
-                            )}
+                            <Button variant="outline" className="glass h-11 px-5 rounded-xl font-bold" onClick={handleReset}>
+                                <RotateCcw className="w-4 h-4 ml-2" />
+                                إعادة تشغيل
+                            </Button>
+                            <Button variant="outline" className="glass h-11 px-5 rounded-xl font-bold" onClick={handleFullscreen}>
+                                <Maximize2 className="w-4 h-4 ml-2" />
+                                ملء الشاشة
+                            </Button>
                             <Button className="h-11 px-5 rounded-xl font-bold" asChild>
                                 <Link href="/labs">
                                     <ArrowRight className="w-4 h-4 ml-2" />
@@ -101,15 +93,7 @@ export default function LabViewerPage() {
                         </div>
                     </div>
 
-                    {access?.reason === "instructor_preview" && <InstructorPreviewBanner />}
-
-                    {isChecking ? (
-                        <div className="flex-1 flex items-center justify-center min-h-[480px]">
-                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                        </div>
-                    ) : !isAllowed ? (
-                        <LabLockedState reason={access ? access.reason : "error"} />
-                    ) : (
+                    {(
                         <>
                             <div
                                 ref={containerRef}

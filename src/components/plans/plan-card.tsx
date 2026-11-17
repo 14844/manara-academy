@@ -1,7 +1,14 @@
 import type { ReactNode } from "react"
-import { Check, Crown, FlaskConical, Mail, X } from "lucide-react"
-import { formatRate, type Plan } from "@/lib/plans"
+import { Check, Crown, Mail, Star, TicketPercent, X } from "lucide-react"
+import { formatRate, type Plan, type PlanFeature } from "@/lib/plans"
 import { cn } from "@/lib/utils"
+import { PLAN_FEATURES } from "./plan-types"
+
+export const FEATURE_ICONS: Record<PlanFeature, typeof Check> = {
+    coupons: TicketPercent,
+    featuredListing: Star,
+    autoParentReports: Mail,
+}
 
 export function formatPlanPrice(monthlyPrice: number): string {
     return monthlyPrice === 0 ? "مجاناً" : `${monthlyPrice.toLocaleString("ar-EG")} ج.م`
@@ -65,8 +72,9 @@ export function PlanCard({ plan, current, ribbon, emphasized, children, classNam
             </div>
 
             <ul className="mt-4 space-y-2 text-sm">
-                <AccessRow on={plan.access.labs} icon={FlaskConical} label="طلابك يدخلوا المعامل الافتراضية" />
-                <AccessRow on={plan.access.autoParentReports} icon={Mail} label="تقارير أولياء الأمور تتبعت تلقائياً" />
+                {PLAN_FEATURES.map((f) => (
+                    <AccessRow key={f.key} on={plan.access[f.key]} icon={FEATURE_ICONS[f.key]} label={f.label} />
+                ))}
             </ul>
 
             <ul className="mt-4 space-y-3 border-t pt-4 text-sm flex-1">

@@ -167,7 +167,9 @@ service cloud.firestore {
             request.resource.data.instructor_id == request.auth.uid &&
             'course_id' in request.resource.data &&
             request.resource.data.course_id != 'all' &&
-            get(/databases/$(database)/documents/courses/$(request.resource.data.course_id)).data.instructor_id == request.auth.uid
+            get(/databases/$(database)/documents/courses/$(request.resource.data.course_id)).data.instructor_id == request.auth.uid &&
+            // Coupons are a paid-plan feature (expiry is enforced at use time by /api/courses/enroll)
+            get(/databases/$(database)/documents/profiles_private/$(request.auth.uid)).data.get('plan_id', 'starter') in ['pro', 'center']
           )
         );
       allow update: if isAuthenticated() && isAccountActive() && (
@@ -224,7 +226,9 @@ service cloud.firestore {
           !('video_path' in request.resource.data) &&
           !('url' in request.resource.data) &&
           !('correctAnswer' in request.resource.data) &&
-          !('answers' in request.resource.data)
+          !('answers' in request.resource.data) &&
+          // featured listing is denormalized server-side from the instructor's plan
+          !('featured_until' in request.resource.data)
         )
       );
       allow update: if isAuthenticated() && isAccountActive() && (
@@ -240,7 +244,8 @@ service cloud.firestore {
           request.resource.data.instructor_id == resource.data.instructor_id &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([
             'students_count', 'total_sales', 'status', 'is_published', 'instructor_verified',
-            'rating', 'price', 'modules', 'video_path', 'url', 'correctAnswer', 'answers'
+            'rating', 'price', 'modules', 'video_path', 'url', 'correctAnswer', 'answers',
+            'featured_until'
           ])
         )
       );

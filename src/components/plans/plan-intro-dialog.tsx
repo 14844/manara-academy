@@ -1,12 +1,13 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { Check, FlaskConical, Mail, Percent, X } from "lucide-react"
+import { Check, Percent, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { PLAN_LIST, PLANS, formatRate } from "@/lib/plans"
 import { cn } from "@/lib/utils"
-import { formatPlanPrice } from "./plan-card"
+import { FEATURE_ICONS, formatPlanPrice } from "./plan-card"
+import { PLAN_FEATURES } from "./plan-types"
 import { useInstructorPlan } from "./instructor-plan-context"
 
 /** One-time welcome modal shown in the instructor area while `introSeen` is false. */
@@ -59,8 +60,9 @@ export function PlanIntroDialog() {
                                     <Percent className="h-3.5 w-3.5 text-primary" />
                                     عمولة {formatRate(p.commissionRate)}
                                 </span>
-                                <FeatureFlag on={p.access.labs} icon={FlaskConical} label="معامل افتراضية لطلابك" />
-                                <FeatureFlag on={p.access.autoParentReports} icon={Mail} label="تقارير أولياء أمور تلقائية" />
+                                {PLAN_FEATURES.map((f) => (
+                                    <FeatureFlag key={f.key} on={p.access[f.key]} icon={FEATURE_ICONS[f.key]} label={f.label} />
+                                ))}
                             </div>
                         </li>
                     ))}

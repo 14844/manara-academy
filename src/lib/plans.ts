@@ -1,9 +1,10 @@
 /**
  * Instructor plans (باقات المدرسين) — ONE system: tiered commission.
  *
- *   البداية (starter): every instructor starts here. Platform takes 15%. Students get NO labs access.
- *   المحترف (pro):     platform takes 10%. Students get labs access.
- *   النخبة (elite):    platform takes 5%.  Students get labs access + automatic parent reports.
+ *   البداية (starter): every instructor starts here. Platform takes 15%.
+ *   المحترف (pro):     platform takes 10%. + discount coupons for own courses + featured listing (courses shown first with a badge).
+ *   النخبة (elite):    platform takes 5%.  + everything in pro + automatic weekly parent reports.
+ * Plans gate INSTRUCTOR features only. Students (incl. virtual labs) are never gated by plan.
  *
  * Higher plans are paid monthly (monthlyPrice) — the goal is to move instructors up.
  * Edit prices / rates / features HERE ONLY; server (commission on each sale, feature gating)
@@ -19,7 +20,8 @@
 
 export type PlanId = "starter" | "pro" | "center"
 
-export type PlanFeature = "labs" | "autoParentReports"
+/** Instructor-side features only (students are never gated by plan — a student may study with several instructors). */
+export type PlanFeature = "coupons" | "featuredListing" | "autoParentReports"
 
 export interface Plan {
     id: PlanId
@@ -45,7 +47,7 @@ export const PLANS: Record<PlanId, Plan> = {
         tagline: "باقتك الحالية عند التسجيل — ابدأ وبيع فوراً",
         monthlyPrice: 0,
         commissionRate: 0.15,
-        access: { labs: false, autoParentReports: false },
+        access: { coupons: false, featuredListing: false, autoParentReports: false },
         features: [
             "رفع كورسات وامتحانات بلا حدود",
             "حماية الفيديوهات والعلامة المائية",
@@ -56,16 +58,16 @@ export const PLANS: Record<PlanId, Plan> = {
     pro: {
         id: "pro",
         name: "المحترف",
-        tagline: "عمولة أقل + المعامل الافتراضية لطلابك",
+        tagline: "عمولة أقل + أدوات تكبّر بيها مبيعاتك",
         monthlyPrice: 499,
         commissionRate: 0.10,
         highlighted: true,
-        access: { labs: true, autoParentReports: false },
+        access: { coupons: true, featuredListing: true, autoParentReports: false },
         features: [
             "كل مميزات البداية",
             "عمولة 10% بدل 15%",
-            "طلابك يدخلوا المعامل الافتراضية (فيزياء، كيمياء، رياضيات)",
-            "أولوية في مراجعة الكورسات",
+            "كوبونات خصم لكورساتك تجذب بيها طلاب جداد",
+            "كورساتك تظهر في الأول بعلامة مميز",
         ],
     },
     center: {
@@ -74,7 +76,7 @@ export const PLANS: Record<PlanId, Plan> = {
         tagline: "أقل عمولة + كل الأدوات أوتوماتيك",
         monthlyPrice: 1499,
         commissionRate: 0.05,
-        access: { labs: true, autoParentReports: true },
+        access: { coupons: true, featuredListing: true, autoParentReports: true },
         features: [
             "كل مميزات المحترف",
             "عمولة 5% بس",

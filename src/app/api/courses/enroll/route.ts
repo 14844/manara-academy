@@ -124,7 +124,11 @@ export async function POST(request: Request) {
                 // Platform coupon (admin/marketing: no instructor_id, "admin" or is_admin) works on any course;
                 // an instructor coupon only on that instructor's own courses.
                 const source = couponSourceOf(cData);
-                const isInstructorMatch = source === "platform" || (!!instructorId && cData.instructor_id === instructorId);
+                // Instructor coupons are a plan feature: valid only while the course instructor's
+                // effective plan includes `coupons` (expired/downgraded plans disable them at use time).
+                const isInstructorMatch =
+                    source === "platform" ||
+                    (!!instructorId && cData.instructor_id === instructorId && eff.plan.access.coupons === true);
 
                 const discountPercent = Number(cData.discount_percent);
                 const isDiscountValid = !isNaN(discountPercent) && discountPercent >= 0 && discountPercent <= 100;

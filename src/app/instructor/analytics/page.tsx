@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button"
 import { Printer, Download } from "lucide-react"
 import { toast } from "sonner"
 import { AnalyticsSkeleton } from "@/components/skeletons"
-
+// Analytics show instructors their own students' data — available on every plan (never gated).
 export default function InstructorAnalyticsPage() {
     const [isLoading, setIsLoading] = useState(true)
     const [stats, setStats] = useState({

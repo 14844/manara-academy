@@ -2,11 +2,10 @@ import Link from "next/link"
 import { Navbar } from "@/components/navbar"
 import { virtualLabs, Subject } from "@/lib/labs-data"
 import { ArrowLeft, Beaker, Calculator, Zap } from "lucide-react"
-import { LabCardLockBadge, LabsAccessBanner } from "@/components/labs/labs-access"
 
 export const metadata = {
   title: "المختبرات الافتراضية | أكاديمية المنارة",
-  description: "تجارب علمية تفاعلية في الفيزياء والكيمياء والرياضيات لطلاب الكورسات المشتركة في باقات المعامل.",
+  description: "تجارب علمية تفاعلية في الفيزياء والكيمياء والرياضيات متاحة للجميع.",
 }
 
 const subjectIcons: Record<Subject, React.ReactNode> = {
@@ -38,8 +37,6 @@ export default function LabsIndexPage() {
                         </p>
                     </div>
 
-                    <LabsAccessBanner />
-
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                         {virtualLabs.map((lab) => (
                             <Link key={lab.id} href={`/labs/${lab.id}`} className="group block h-full">
@@ -53,9 +50,7 @@ export default function LabsIndexPage() {
                                         <div className="flex flex-col items-end gap-2">
                                             <div className="inline-flex items-center rounded-full px-3 py-1 text-xs font-bold bg-muted text-muted-foreground">
                                                 {subjectTitles[lab.subject]}
-                                            </div>
-                                            <LabCardLockBadge />
-                                        </div>
+                                            </div>                                        </div>
                                     </div>
                                     
                                     <h3 className="text-2xl font-bold mb-3">{lab.title}</h3>

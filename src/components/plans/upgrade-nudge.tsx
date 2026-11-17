@@ -94,8 +94,11 @@ export function UpgradeNudge({ whatIf, periodLabel, periodDays, hasActivity, cla
         if (savings > cost) {
             message = `لو كنت على باقة ${next.name} كنت وفّرت ${formatEGP(savings)} في ${periodLabel} — أكتر من اشتراكها (${formatEGP(cost)}).`
         } else if (hasActivity) {
-            if (next.access.labs && !current.access.labs) {
-                message = `طلابك مش بيقدروا يدخلوا المعامل الافتراضية على باقة ${current.name}. باقة ${next.name} بتفتحها ليهم وبتنزّل عمولتك لـ ${formatRate(next.commissionRate)}.`
+            if (
+                (next.access.coupons && !current.access.coupons) ||
+                (next.access.featuredListing && !current.access.featuredListing)
+            ) {
+                message = `في باقة ${next.name} تقدر تعمل كوبونات خصم لكورساتك وكورساتك تظهر في الأول بعلامة مميز، وعمولتك بتنزل لـ ${formatRate(next.commissionRate)}.`
             } else if (next.access.autoParentReports && !current.access.autoParentReports) {
                 message = `في باقة ${next.name} تقارير أولياء الأمور بتتبعت تلقائياً كل أسبوع، وعمولتك بتبقى ${formatRate(next.commissionRate)} بس.`
             }

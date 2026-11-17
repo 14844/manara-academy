@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { AlertTriangle, CalendarClock, Clock, Crown, FlaskConical, Info, Loader2, Mail, RefreshCw, Wallet } from "lucide-react"
+import { AlertTriangle, CalendarClock, Clock, Crown, Info, Loader2, RefreshCw, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -15,11 +15,11 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { PlanCard, formatPlanPrice } from "@/components/plans/plan-card"
+import { FEATURE_ICONS, PlanCard, formatPlanPrice } from "@/components/plans/plan-card"
 import { PlanComparison } from "@/components/plans/plan-comparison"
 import { MonthsSelector, monthsLabel, type PlanMonths } from "@/components/plans/months-selector"
 import { useInstructorPlan } from "@/components/plans/instructor-plan-context"
-import { nextPlanUp } from "@/components/plans/plan-types"
+import { PLAN_FEATURES, nextPlanUp } from "@/components/plans/plan-types"
 import { PLANS, PLAN_LIST, formatRate, isPlanId, type Plan, type PlanId } from "@/lib/plans"
 
 function formatDate(iso: string | null | undefined): string {
@@ -126,14 +126,15 @@ export default function InstructorPlanPage() {
                                     والباقي بيتحط في محفظتك فوراً.
                                 </p>
                                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                                    <span className="inline-flex items-center gap-1">
-                                        <FlaskConical className="h-3.5 w-3.5" aria-hidden />
-                                        المعامل لطلابك: {data.access.labs ? "متاحة" : "مش متاحة"}
-                                    </span>
-                                    <span className="inline-flex items-center gap-1">
-                                        <Mail className="h-3.5 w-3.5" aria-hidden />
-                                        تقارير أولياء الأمور التلقائية: {data.access.autoParentReports ? "متاحة" : "مش متاحة"}
-                                    </span>
+                                    {PLAN_FEATURES.map((f) => {
+                                        const Icon = FEATURE_ICONS[f.key]
+                                        return (
+                                            <span key={f.key} className="inline-flex items-center gap-1">
+                                                <Icon className="h-3.5 w-3.5" aria-hidden />
+                                                {f.label}: {data.access[f.key] ? "متاحة" : "مش متاحة"}
+                                            </span>
+                                        )
+                                    })}
                                 </div>
                             </div>
                         </div>

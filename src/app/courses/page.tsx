@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Search, BookOpen, Clock, User, Filter, X, ArrowUpDown, CheckCircle2, Sparkles } from "lucide-react"
+import { Search, BookOpen, Clock, User, Filter, X, ArrowUpDown, CheckCircle2, Sparkles, Star } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
 
@@ -70,10 +70,12 @@ interface CourseListItem {
     instructor_verified: boolean
     duration: string | null
     created_ms: number
+    /** Featured listing (instructor plan pro/center), denormalized server-side. 0 = not featured. */
+    featured_until_ms: number
 }
 
 // Stale-while-revalidate cache: show the last list instantly, then refresh from Firestore.
-const CACHE_KEY = "manara:courses-list:v1"
+const CACHE_KEY = "manara:courses-list:v2"
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 function readCache(): CourseListItem[] | null {
@@ -124,6 +126,7 @@ function toListItem(id: string, data: any): CourseListItem {
         instructor_verified: !!data.instructor_verified,
         duration: data.duration || null,
         created_ms: toMillis(data.created_at),
+        featured_until_ms: toMillis(data.featured_until),
     }
 }
 
@@ -172,6 +175,8 @@ export default function CoursesPage() {
     }, [])
 
     const normalizedQuery = searchQuery.trim().toLowerCase()
+    const nowMs = Date.now()
+    const isFeatured = (c: CourseListItem) => (c.featured_until_ms || 0) > nowMs
     const filteredAndSortedCourses = courses
         .filter(course => {
             const matchesCategory = selectedCategory === "الكل" || course.category === selectedCategory
@@ -183,6 +188,9 @@ export default function CoursesPage() {
             return matchesCategory && matchesGrade && matchesSearch
         })
         .sort((a, b) => {
+            // Featured listing (active plan) always first; expiry needs no job.
+            const fa = isFeatured(a), fb = isFeatured(b)
+            if (fa !== fb) return fa ? -1 : 1
             if (sortOrder === "price-asc") return a.price - b.price
             if (sortOrder === "price-desc") return b.price - a.price
             return b.created_ms - a.created_ms
@@ -330,7 +338,7 @@ export default function CoursesPage() {
                     ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
                             {filteredAndSortedCourses.map((course, index) => (
-                                <CourseCard key={course.id} course={course} eager={index < 3} />
+                                <CourseCard key={course.id} course={course} eager={index < 3} featured={isFeatured(course)} />
                             ))}
                         </div>
                     )}
@@ -351,7 +359,7 @@ export default function CoursesPage() {
     )
 }
 
-function CourseCard({ course, eager }: { course: CourseListItem; eager?: boolean }) {
+function CourseCard({ course, eager, featured }: { course: CourseListItem; eager?: boolean; featured?: boolean }) {
     return (
         <Card className="overflow-hidden hover:shadow-lg transition-shadow border-muted/60 gap-0 py-0">
             <Link href={`/courses/${course.id}`} className="block aspect-video relative overflow-hidden bg-muted" tabIndex={-1} aria-hidden="true">
@@ -364,6 +372,14 @@ function CourseCard({ course, eager }: { course: CourseListItem; eager?: boolean
                     height={360}
                     className="object-cover w-full h-full motion-safe:transition-transform motion-safe:duration-300 motion-safe:hover:scale-105"
                 />
+                {featured && (
+                    <div className="absolute top-2 left-2 z-10">
+                        <Badge className="gap-1 bg-amber-400 text-amber-950 border-none shadow-md font-bold">
+                            <Star className="h-3 w-3 fill-current" aria-hidden="true" />
+                            مميز
+                        </Badge>
+                    </div>
+                )}
                 <div className="absolute top-2 right-2 flex flex-col gap-2 items-end z-10">
                     <Badge className="bg-primary/95 text-primary-foreground backdrop-blur-sm shadow-md">{CATEGORY_MAP[course.category] || course.category}</Badge>
                     {course.grade_level && (

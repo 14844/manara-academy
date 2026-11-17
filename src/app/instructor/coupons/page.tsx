@@ -43,6 +43,8 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useInstructorPlan } from "@/components/plans/instructor-plan-context"
+import { PlanLockedCard } from "@/components/plans/plan-locked-card"
 
 export default function InstructorCouponsPage() {
     const [coupons, setCoupons] = useState<any[]>([])
@@ -51,6 +53,9 @@ export default function InstructorCouponsPage() {
     const [isSaving, setIsSaving] = useState(false)
     const [searchTerm, setSearchTerm] = useState("")
     const [user, setUser] = useState<any>(null)
+    const { plan, isLoading: planLoading } = useInstructorPlan()
+    // Coupons are a paid-plan feature (also enforced by firestore.rules + /api/courses/enroll)
+    const locked = !plan?.access.coupons
 
     // Form states
     const [code, setCode] = useState("")
@@ -98,7 +103,7 @@ export default function InstructorCouponsPage() {
 
     const handleAddCoupon = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!user) return
+        if (!user || locked) return
         if (!code || !discountPercent || !targetCourse) {
             toast.error("يرجى ملء كافة الحقول المطلوبة")
             return
@@ -197,6 +202,20 @@ export default function InstructorCouponsPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Form Area */}
                 <div className="lg:col-span-1 space-y-6">
+                    {planLoading ? (
+                        <Skeleton className="h-96 w-full rounded-3xl" />
+                    ) : locked ? (
+                        <PlanLockedCard
+                            feature="coupons"
+                            title="كوبونات الخصم مقفولة على باقتك"
+                            description="اعمل أكواد خصم لكورساتك تجذب بيها طلاب جداد وتزوّد مبيعاتك."
+                            benefits={[
+                                "أكواد خصم بنسبة تحددها إنت لكل كورس",
+                                "حد أقصى لعدد الاستخدامات وتفعيل/إيقاف في أي وقت",
+                                "متابعة عدد مرات استخدام كل كوبون",
+                            ]}
+                        />
+                    ) : (
                     <Card className="border-2 border-primary/10 shadow-xl overflow-hidden">
                         <CardHeader className="bg-primary/5 border-b border-primary/10">
                             <div className="flex items-center gap-2">
@@ -270,6 +289,7 @@ export default function InstructorCouponsPage() {
                             </form>
                         </CardContent>
                     </Card>
+                    )}
 
                     <div className="p-4 bg-amber-50 border-2 border-amber-200 rounded-2xl space-y-2">
                         <h4 className="font-bold text-amber-800 text-sm flex items-center gap-2">
@@ -350,6 +370,11 @@ export default function InstructorCouponsPage() {
                                                     </div>
                                                 </div>
                                             </div>
+                                            {locked ? (
+                                                <span className="text-[10px] font-bold text-muted-foreground">
+                                                    غير فعّال على باقتك الحالية
+                                                </span>
+                                            ) : (
                                             <div className="flex items-center justify-end gap-3">
                                                 <div className="flex items-center gap-2 bg-muted/50 px-3 py-1.5 rounded-lg border">
                                                     <span className="text-[10px] font-bold text-muted-foreground">تفعيل</span>
@@ -368,6 +393,7 @@ export default function InstructorCouponsPage() {
                                                     <Trash2 className="h-4 w-4" />
                                                 </Button>
                                             </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
