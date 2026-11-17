@@ -169,7 +169,7 @@ export default function TeachPage() {
                         <div className="mb-10 sm:mb-14 text-center">
                             <h2 className="text-2xl font-bold tracking-tight sm:text-4xl text-primary mb-4">الباقات</h2>
                             <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto">
-                                ابدأ مجاناً على باقة {PLANS.starter.name} (عمولة {formatRate(PLANS.starter.commissionRate)} من كل بيع)، ولما شغلك يكبر رقّي باقتك: عمولة أقل، وكوبونات خصم لكورساتك، وظهور كورساتك في الأول بعلامة مميز، وتقارير أولياء أمور تلقائية.
+                                ابدأ مجاناً على باقة {PLANS.starter.name} (عمولة {formatRate(PLANS.starter.commissionRate)}) ورقّي وقت ما تحب.
                             </p>
                         </div>
                         <div className="grid gap-6 pt-3 md:grid-cols-3 max-w-6xl mx-auto">
@@ -192,9 +192,6 @@ export default function TeachPage() {
                                 </PlanCard>
                             ))}
                         </div>
-                        <p className="mt-6 text-center text-sm text-muted-foreground">
-                            كل مدرس جديد بيبدأ على باقة البداية مجاناً، وتقدر ترقّي باقتك في أي وقت من لوحة التحكم. العمولة بتتخصم مرة واحدة من كل بيع، والسحب من محفظتك من غير أي خصم تاني.
-                        </p>
                     </div>
                 </section>
 

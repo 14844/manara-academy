@@ -167,6 +167,8 @@ service cloud.firestore {
             request.resource.data.instructor_id == request.auth.uid &&
             'course_id' in request.resource.data &&
             request.resource.data.course_id != 'all' &&
+            !('is_admin' in request.resource.data) &&
+            (!('usage_count' in request.resource.data) || request.resource.data.usage_count == 0) &&
             get(/databases/$(database)/documents/courses/$(request.resource.data.course_id)).data.instructor_id == request.auth.uid &&
             // Coupons are a paid-plan feature (expiry is enforced at use time by /api/courses/enroll)
             get(/databases/$(database)/documents/profiles_private/$(request.auth.uid)).data.get('plan_id', 'starter') in ['pro', 'center']
@@ -188,7 +190,7 @@ service cloud.firestore {
           request.resource.data.discount_percent is number &&
           request.resource.data.discount_percent >= 1 &&
           request.resource.data.discount_percent <= 100 &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['usage_count'])
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['usage_count', 'is_admin'])
         )
       );
       allow delete: if isAuthenticated() && (

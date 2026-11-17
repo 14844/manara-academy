@@ -17,7 +17,6 @@ export function PlanIntroDialog() {
     const open = !!plan && plan.introSeen === false
 
     const starter = PLANS.starter
-    const keepPer100 = Math.round((1 - starter.commissionRate) * 100)
 
     function close(goToPlans: boolean) {
         markIntroSeen()
@@ -28,14 +27,9 @@ export function PlanIntroDialog() {
         <Dialog open={open} onOpenChange={(o) => !o && close(false)}>
             <DialogContent className="max-h-[90dvh] overflow-y-auto font-arabic sm:max-w-xl" dir="rtl">
                 <DialogHeader className="text-right sm:text-right">
-                    <DialogTitle className="text-xl leading-snug">
-                        أهلاً بيك في المنارة! إنت دلوقتي على باقة {starter.name}
-                    </DialogTitle>
+                    <DialogTitle className="text-xl leading-snug">أهلاً بيك في المنارة!</DialogTitle>
                     <DialogDescription className="leading-relaxed">
-                        باقة {starter.name} مجانية. إحنا بناخد{" "}
-                        <strong className="text-foreground">{formatRate(starter.commissionRate)}</strong> من كل بيع،
-                        يعني من كل 100 ج.م بيدفعها الطالب، بيوصل لمحفظتك{" "}
-                        <strong className="text-foreground">{keepPer100} ج.م</strong>. مفيش أي رسوم تانية.
+                        إنت على باقة {starter.name} — بناخد {formatRate(starter.commissionRate)} من كل بيعة
                     </DialogDescription>
                 </DialogHeader>
 
@@ -52,7 +46,7 @@ export function PlanIntroDialog() {
                                 <span className="font-bold">{p.name}</span>
                                 <span className="text-muted-foreground">
                                     {formatPlanPrice(p.monthlyPrice)}
-                                    {p.monthlyPrice > 0 && " / شهرياً"}
+                                    {p.monthlyPrice > 0 && " / شهر"}
                                 </span>
                             </div>
                             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
@@ -67,10 +61,6 @@ export function PlanIntroDialog() {
                         </li>
                     ))}
                 </ul>
-
-                <p className="text-sm text-muted-foreground">
-                    تقدر ترقّي باقتك في أي وقت من صفحة &quot;باقتي&quot;، والعمولة الجديدة بتتطبق على المبيعات من وقت التفعيل.
-                </p>
 
                 <DialogFooter className="gap-2 sm:gap-2">
                     <Button variant="outline" className="min-h-11 rounded-xl font-bold" onClick={() => close(false)}>

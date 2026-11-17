@@ -67,13 +67,19 @@ export async function POST(request: Request) {
             const couponSnap = await adminDb
                 .collection("coupons")
                 .where("code", "==", cleanCode)
-                .limit(1)
+                .limit(10)
                 .get();
-            if (couponSnap.empty) {
+            // Codes aren't unique across owners: pick the one usable on this course (a platform coupon or
+            // this course instructor's own), so another instructor can't shadow a platform code.
+            const match = couponSnap.docs.find((d) => {
+                const c = d.data();
+                return couponSourceOf(c) === "platform" || c.instructor_id === course.instructor_id;
+            });
+            if (!match) {
                 // Same generic message as an invalid coupon (don't reveal which codes exist)
                 throw new Error("COUPON_INVALID");
             }
-            couponRef = couponSnap.docs[0].ref;
+            couponRef = match.ref;
         }
 
         const instructorId: string = typeof course.instructor_id === "string" ? course.instructor_id : "";

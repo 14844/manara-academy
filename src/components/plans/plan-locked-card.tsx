@@ -25,8 +25,7 @@ export function PlanLockedCard({ feature, title, description, benefits, classNam
                 <div className="min-w-0">
                     <h2 className="text-lg font-bold sm:text-xl">{title}</h2>
                     <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                        {description} الميزة دي متاحة من باقة <strong className="text-foreground">{plan.name}</strong> (وعمولتها{" "}
-                        {formatRate(plan.commissionRate)} بس).
+                        متاحة من باقة <strong className="text-foreground">{plan.name}</strong> (عمولة {formatRate(plan.commissionRate)}).
                     </p>
                 </div>
             </div>

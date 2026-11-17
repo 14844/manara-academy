@@ -42,7 +42,10 @@ export function couponSourceOf(
     coupon: { instructor_id?: unknown; is_admin?: unknown } | null | undefined,
 ): CouponSource {
     if (!coupon) return null
-    if (coupon.is_admin === true || coupon.instructor_id === "admin" || !coupon.instructor_id) return "platform"
+    // A coupon owned by a real instructor uid is ALWAYS the instructor's (is_admin is ignored then:
+    // otherwise an instructor could flag their own coupon as platform-funded).
+    if (coupon.instructor_id === "admin" || !coupon.instructor_id) return "platform"
+    if (coupon.is_admin === true && typeof coupon.instructor_id !== "string") return "platform"
     return "instructor"
 }
 

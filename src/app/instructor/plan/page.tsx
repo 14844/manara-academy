@@ -106,7 +106,6 @@ export default function InstructorPlanPage() {
         <div className="space-y-8 font-arabic">
             <div className="flex flex-col gap-1">
                 <h1 className="text-2xl sm:text-3xl font-bold">باقتي</h1>
-                <p className="text-muted-foreground">باقتك الحالية، العمولة اللي بتتخصم من كل بيع، وإيه اللي بتفتحه كل باقة.</p>
             </div>
 
             {/* Current plan */}
@@ -121,9 +120,7 @@ export default function InstructorPlanPage() {
                                 <p className="text-xs font-bold text-muted-foreground">باقتك الحالية</p>
                                 <h2 className="text-xl font-bold">{currentPlan.name}</h2>
                                 <p className="mt-1 text-sm">
-                                    المنصة بتاخد{" "}
-                                    <span className="font-bold text-primary">{formatRate(data.commissionRate)}</span> من كل بيع،
-                                    والباقي بيتحط في محفظتك فوراً.
+                                    عمولة <span className="font-bold text-primary">{formatRate(data.commissionRate)}</span>
                                 </p>
                                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                                     {PLAN_FEATURES.map((f) => {
@@ -153,8 +150,7 @@ export default function InstructorPlanPage() {
                         <div className="mt-4 flex items-start gap-3 rounded-xl border border-orange-500/30 bg-orange-500/10 p-3 text-sm text-orange-700 dark:text-orange-300">
                             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                             <p>
-                                اشتراكك في الباقة المدفوعة انتهى بتاريخ {formatDate(data.expiresAt)}، وحالياً بتتحسب عليك عمولة
-                                باقة {PLANS.starter.name} ({formatRate(PLANS.starter.commissionRate)}). جدّد اشتراكك عشان ترجع للعمولة الأقل.
+                                اشتراكك انتهى — رجعت للعمولة {formatRate(PLANS.starter.commissionRate)}. جدّد عشان ترجع للأقل.
                             </p>
                         </div>
                     )}
@@ -170,8 +166,7 @@ export default function InstructorPlanPage() {
                             طلبك لباقة {pendingPlan?.name ?? pending.requested_plan_id} ({monthsLabel(pending.months)}) قيد المراجعة
                         </p>
                         <p className="text-muted-foreground">
-                            المبلغ: {Number(pending.amount || 0).toLocaleString("ar-EG")} ج.م — اتبعت في {formatDate(pending.created_at)}.
-                            فريق المنارة هيتواصل معاك للدفع، أو المبلغ هيتخصم من محفظتك عند الموافقة.
+                            المبلغ: {Number(pending.amount || 0).toLocaleString("ar-EG")} ج.م — هنتواصل معاك للدفع.
                         </p>
                     </div>
                 </div>
@@ -183,20 +178,13 @@ export default function InstructorPlanPage() {
                 <PlanComparison currentPlanId={currentPlan.id} nextPlanId={nextPlan?.id ?? null} />
             </section>
 
-            {/* How it works */}
             <div className="flex items-start gap-3 rounded-2xl border bg-muted/40 p-4 text-sm text-muted-foreground">
                 <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
                 <p>
-                    بعد ما تطلب باقة مدفوعة، فريق المنارة هيتواصل معاك عشان الدفع، أو المبلغ بيتخصم من رصيد{" "}
-                    <Link href="/instructor/withdrawals" className="font-bold text-primary hover:underline underline-offset-4">
-                        محفظتك
-                    </Link>{" "}
-                    لما الطلب يتوافق عليه. العمولة الجديدة بتتطبق على المبيعات من وقت التفعيل، والمبيعات القديمة بتفضل بعمولة الباقة
-                    اللي اتباعت عليها — تقدر تشوف ده بالتفصيل في{" "}
+                    العمولة الجديدة بتسري من وقت التفعيل —{" "}
                     <Link href="/instructor/earnings" className="font-bold text-primary hover:underline underline-offset-4">
                         أرباحي
                     </Link>
-                    .
                 </p>
             </div>
 
@@ -253,7 +241,7 @@ export default function InstructorPlanPage() {
             </div>
             {pending && (
                 <p className="text-center text-sm text-muted-foreground">
-                    مش هتقدر تطلب باقة تانية لحد ما طلبك الحالي يتراجع.
+                    في طلب قيد المراجعة.
                 </p>
             )}
 
@@ -266,8 +254,8 @@ export default function InstructorPlanPage() {
                         </DialogTitle>
                         <DialogDescription>
                             {confirmIsFree
-                                ? `هيتم تحويلك فوراً لباقة ${confirmPlan?.name ?? ""} وعمولتها ${formatRate(confirmPlan?.commissionRate ?? 0)} على كل بيع جديد، وطلابك هيفقدوا مميزات الباقة الحالية.`
-                                : "راجع تفاصيل طلبك قبل الإرسال."}
+                                ? `تحويل فوري — عمولة ${formatRate(confirmPlan?.commissionRate ?? 0)}، وهتفقد مميزات الباقة الحالية.`
+                                : "راجع طلبك قبل الإرسال."}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -295,7 +283,7 @@ export default function InstructorPlanPage() {
                             </div>
                             <div className="flex items-start gap-2 rounded-xl bg-muted/50 p-3 text-muted-foreground">
                                 <Wallet className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                <p>فريق المنارة هيتواصل معاك للدفع، أو المبلغ هيتخصم من محفظتك عند الموافقة على الطلب.</p>
+                                <p>هنتواصل معاك للدفع.</p>
                             </div>
                         </div>
                     )}

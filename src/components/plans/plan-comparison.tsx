@@ -18,8 +18,7 @@ export function PlanComparison({ currentPlanId, nextPlanId }: { currentPlanId?: 
         )
 
     const rows: { label: string; cell: (p: (typeof PLAN_LIST)[number]) => ReactNode }[] = [
-        { label: "عمولة المنصة", cell: (p) => <span className="font-bold">{formatRate(p.commissionRate)}</span> },
-        { label: "بيوصلك من كل 100 ج.م", cell: (p) => `${Math.round((1 - p.commissionRate) * 100)} ج.م` },
+        { label: "العمولة", cell: (p) => <span className="font-bold">{formatRate(p.commissionRate)}</span> },
         ...PLAN_FEATURES.map((f) => ({ label: f.label, cell: (p: (typeof PLAN_LIST)[number]) => yes(p.access[f.key]) })),
         {
             label: "السعر الشهري",
@@ -49,7 +48,7 @@ export function PlanComparison({ currentPlanId, nextPlanId }: { currentPlanId?: 
                                     <span className="block text-[10px] font-medium text-green-600 dark:text-green-400">باقتك</span>
                                 )}
                                 {p.id === nextPlanId && (
-                                    <span className="block text-[10px] font-medium text-primary">الخطوة الجاية</span>
+                                    <span className="block text-[10px] font-medium text-primary">التالية</span>
                                 )}
                             </th>
                         ))}
