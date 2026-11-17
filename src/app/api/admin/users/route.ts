@@ -150,7 +150,8 @@ export async function GET(request: Request) {
  * POST /api/admin/users
  * Account actions on a user:
  *  - update_status / reset_devices  → users.manage_status
- *  - set_verified / set_auto_report → users.verify
+ *  - set_verified                   → users.verify
+ * (Automatic parent reports are no longer an admin toggle: they follow the instructor's plan.)
  * Non-admin staff can never act on admin or staff accounts.
  */
 export async function POST(request: Request) {
@@ -178,7 +179,7 @@ export async function POST(request: Request) {
         let requiredPermission: Permission;
         if (action === "update_status" || action === "reset_devices") {
             requiredPermission = "users.manage_status";
-        } else if (action === "set_verified" || action === "set_auto_report") {
+        } else if (action === "set_verified") {
             requiredPermission = "users.verify";
         } else if (action === "set_role") {
             requiredPermission = "users.manage_roles";
@@ -264,15 +265,14 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: true });
         }
 
-        // set_verified / set_auto_report
+        // set_verified
         if (typeof value !== "boolean") {
             return NextResponse.json({ error: "Missing or invalid value" }, { status: 400 });
         }
 
-        const field = action === "set_verified" ? "is_verified" : "auto_report_unlocked";
         try {
             await adminDb.doc(`profiles/${userId}`).update({
-                [field]: value,
+                is_verified: value,
                 updated_at: now,
             });
         } catch (err: any) {
@@ -283,23 +283,18 @@ export async function POST(request: Request) {
             throw err;
         }
 
-        const isVerify = action === "set_verified";
         await logServerActivity({
-            action: isVerify ? "admin_user_verified_updated" : "admin_user_auto_report_updated",
+            action: "admin_user_verified_updated",
             category: "admin_action",
-            title: isVerify
-                ? (value ? "توثيق حساب مدرس" : "إلغاء توثيق حساب مدرس")
-                : (value ? "تفعيل الجدولة التلقائية للتقارير" : "قفل الجدولة التلقائية للتقارير"),
-            description: isVerify
-                ? `قام المسؤول ${value ? "بتوثيق" : "بإلغاء توثيق"} حساب المستخدم (${userId})`
-                : `قام المسؤول ${value ? "بتفعيل" : "بقفل"} الجدولة التلقائية للتقارير للمستخدم (${userId})`,
+            title: value ? "توثيق حساب مدرس" : "إلغاء توثيق حساب مدرس",
+            description: `قام المسؤول ${value ? "بتوثيق" : "بإلغاء توثيق"} حساب المستخدم (${userId})`,
             status: "success",
             user_id: user.uid,
             user_name: actorName,
             user_email: user.email || "",
             user_role: actorRole,
             target_user_id: userId,
-            metadata: { target_user_id: userId, [field]: value }
+            metadata: { target_user_id: userId, is_verified: value }
         }).catch(() => {});
 
         return NextResponse.json({ success: true });

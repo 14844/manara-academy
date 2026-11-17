@@ -5,18 +5,30 @@ import { virtualLabs } from "@/lib/labs-data"
 import { Navbar } from "@/components/navbar"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { ArrowRight, Maximize2, RotateCcw } from "lucide-react"
+import { ArrowRight, Loader2, Maximize2, RotateCcw } from "lucide-react"
 import { useState, useRef } from "react"
-import { CircuitLab } from "@/components/labs/circuit-lab"
-import { MoleculeLab } from "@/components/labs/molecule-lab"
-import { FunctionLab } from "@/components/labs/function-lab"
-import { ReactionLab } from "@/components/labs/reaction-lab"
+import dynamic from "next/dynamic"
+import { InstructorPreviewBanner, LabLockedState, useLabsAccess } from "@/components/labs/labs-access"
+
+// Lab code is only downloaded once access is confirmed (never rendered for locked viewers).
+const labLoading = () => (
+    <div className="flex-1 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+)
+const CircuitLab = dynamic(() => import("@/components/labs/circuit-lab").then(m => m.CircuitLab), { ssr: false, loading: labLoading })
+const MoleculeLab = dynamic(() => import("@/components/labs/molecule-lab").then(m => m.MoleculeLab), { ssr: false, loading: labLoading })
+const FunctionLab = dynamic(() => import("@/components/labs/function-lab").then(m => m.FunctionLab), { ssr: false, loading: labLoading })
+const ReactionLab = dynamic(() => import("@/components/labs/reaction-lab").then(m => m.ReactionLab), { ssr: false, loading: labLoading })
 
 export default function LabViewerPage() {
     const { id } = useParams()
     const lab = virtualLabs.find(l => l.id === id)
     const [resetKey, setResetKey] = useState(0)
     const containerRef = useRef<HTMLDivElement>(null)
+    const access = useLabsAccess()
+    const isChecking = access === undefined
+    const isAllowed = !!access?.allowed
 
     if (!lab) {
         return (
@@ -68,14 +80,18 @@ export default function LabViewerPage() {
                             <h1 className="text-3xl font-black text-foreground">{lab.title}</h1>
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
-                            <Button variant="outline" className="glass h-11 px-5 rounded-xl font-bold" onClick={handleReset}>
-                                <RotateCcw className="w-4 h-4 ml-2" />
-                                إعادة تشغيل
-                            </Button>
-                            <Button variant="outline" className="glass h-11 px-5 rounded-xl font-bold" onClick={handleFullscreen}>
-                                <Maximize2 className="w-4 h-4 ml-2" />
-                                ملء الشاشة
-                            </Button>
+                            {isAllowed && (
+                                <>
+                                    <Button variant="outline" className="glass h-11 px-5 rounded-xl font-bold" onClick={handleReset}>
+                                        <RotateCcw className="w-4 h-4 ml-2" />
+                                        إعادة تشغيل
+                                    </Button>
+                                    <Button variant="outline" className="glass h-11 px-5 rounded-xl font-bold" onClick={handleFullscreen}>
+                                        <Maximize2 className="w-4 h-4 ml-2" />
+                                        ملء الشاشة
+                                    </Button>
+                                </>
+                            )}
                             <Button className="h-11 px-5 rounded-xl font-bold" asChild>
                                 <Link href="/labs">
                                     <ArrowRight className="w-4 h-4 ml-2" />
@@ -85,19 +101,31 @@ export default function LabViewerPage() {
                         </div>
                     </div>
 
-                    <div 
-                        ref={containerRef} 
-                        className="glass-card border border-white/20 p-1 h-[72vh] min-h-[480px] rounded-[2rem] relative shadow-2xl flex flex-col bg-white/5 overflow-hidden"
-                    >
-                        {lab.id === "circuit-construction-kit" && <CircuitLab key={resetKey} />}
-                        {lab.id === "chemical-reactions" && <ReactionLab key={resetKey} />}
-                        {lab.id === "build-a-molecule" && <MoleculeLab key={resetKey} />}
-                        {lab.id === "function-builder" && <FunctionLab key={resetKey} />}
-                    </div>
-                    
-                    <div className="mt-6 p-4 glass rounded-2xl border border-white/10 text-sm text-muted-foreground leading-relaxed">
-                        <strong>💡 ملاحظة تعليمية:</strong> تم تطوير هذه المحاكاة التفاعلية بالكامل محلياً (Natively) لتمنحك أداءً سريعاً وخفيفاً وتوافقاً كاملاً مع الجوال واللمس. اضغط على "ملء الشاشة" لتجربة غامرة وممتازة، أو "إعادة تشغيل" لإعادة التجربة إلى حالتها الافتراضية.
-                    </div>
+                    {access?.reason === "instructor_preview" && <InstructorPreviewBanner />}
+
+                    {isChecking ? (
+                        <div className="flex-1 flex items-center justify-center min-h-[480px]">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        </div>
+                    ) : !isAllowed ? (
+                        <LabLockedState reason={access ? access.reason : "error"} />
+                    ) : (
+                        <>
+                            <div
+                                ref={containerRef}
+                                className="glass-card border border-white/20 p-1 h-[72vh] min-h-[480px] rounded-[2rem] relative shadow-2xl flex flex-col bg-white/5 overflow-hidden"
+                            >
+                                {lab.id === "circuit-construction-kit" && <CircuitLab key={resetKey} />}
+                                {lab.id === "chemical-reactions" && <ReactionLab key={resetKey} />}
+                                {lab.id === "build-a-molecule" && <MoleculeLab key={resetKey} />}
+                                {lab.id === "function-builder" && <FunctionLab key={resetKey} />}
+                            </div>
+
+                            <div className="mt-6 p-4 glass rounded-2xl border border-white/10 text-sm text-muted-foreground leading-relaxed">
+                                <strong>💡 ملاحظة تعليمية:</strong> تم تطوير هذه المحاكاة التفاعلية بالكامل محلياً (Natively) لتمنحك أداءً سريعاً وخفيفاً وتوافقاً كاملاً مع الجوال واللمس. اضغط على "ملء الشاشة" لتجربة غامرة وممتازة، أو "إعادة تشغيل" لإعادة التجربة إلى حالتها الافتراضية.
+                            </div>
+                        </>
+                    )}
                 </div>
             </main>
         </div>

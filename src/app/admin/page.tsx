@@ -24,6 +24,59 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useAdminRole } from "@/components/admin/admin-role-context"
+import { PLANS, formatRate, isPlanId } from "@/lib/plans"
+
+interface PlanRevenueRow {
+    planId: string
+    rate: number
+    sales: number
+    paid: number
+    grossCommission: number
+    platformNet: number
+    instructorShare: number
+}
+
+interface FinanceSummary {
+    paid: number
+    sales: number
+    platformNet: number
+    platformCouponCost: number
+    instructorShare: number
+    subscriptionsTotal: number
+    subscriptionsCount: number
+    byPlan: PlanRevenueRow[]
+}
+
+function todayYmd(): string {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
+/** All-time finance summary from the per-sale stored split (sum of platform_net, never price × rate). */
+async function fetchFinanceSummary(): Promise<FinanceSummary | null> {
+    try {
+        const res = await fetch(`/api/admin/finance/commissions?from=2020-01-01&to=${todayYmd()}`, { cache: "no-store" })
+        if (!res.ok) return null
+        const json = await res.json()
+        const t = json?.totals ?? {}
+        return {
+            paid: Number(t.paid) || 0,
+            sales: Number(t.sales) || 0,
+            platformNet: Number(t.platformNet) || 0,
+            platformCouponCost: Number(t.platformCouponCost) || 0,
+            instructorShare: Number(t.instructorShare) || 0,
+            subscriptionsTotal: Number(json?.subscriptions?.total) || 0,
+            subscriptionsCount: Number(json?.subscriptions?.count) || 0,
+            byPlan: Array.isArray(json?.byPlan) ? json.byPlan : [],
+        }
+    } catch {
+        return null
+    }
+}
+
+function egp(n: number): string {
+    return `${(Number(n) || 0).toLocaleString("ar-EG", { maximumFractionDigits: 2 })} ج.م`
+}
 
 export default function AdminDashboard() {
     const { can } = useAdminRole()
@@ -33,49 +86,37 @@ export default function AdminDashboard() {
         totalCourses: 0,
         pendingCourses: 0,
         approvedCourses: 0,
-        totalGmv: 0,
-        platformCommission: 0,
         totalStudents: 0,
         totalInstructors: 0,
     })
+    const [finance, setFinance] = useState<FinanceSummary | null>(null)
     const [recentCourses, setRecentCourses] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
 
     useEffect(() => {
         async function fetchAdminStats() {
             try {
-                // Fetch stats concurrently
-                // Enrollments are only used for money figures (GMV) → only query them when the role can see finance
-                const [usersSnap, coursesSnap, enrollmentsSnap] = await Promise.all([
+                // Money figures come only from the commissions API, and only for roles with finance.view
+                const [usersSnap, coursesSnap, financeSummary] = await Promise.all([
                     getDocs(collection(db, "profiles")),
                     getDocs(collection(db, "courses")),
-                    canViewFinance
-                        ? getDocs(collection(db, "enrollments")).catch(() => ({ docs: [] } as any))
-                        : Promise.resolve({ docs: [] } as any),
+                    canViewFinance ? fetchFinanceSummary() : Promise.resolve(null),
                 ])
 
                 const profiles = usersSnap.docs.map((doc: any) => doc.data())
                 const courses = coursesSnap.docs.map((doc: any) => doc.data())
-                const enrollments = enrollmentsSnap.docs.map((doc: any) => doc.data())
 
                 const pending = courses.filter((c: any) => c.status === 'pending').length
                 const approved = courses.filter((c: any) => c.status === 'approved').length
                 const students = profiles.filter((p: any) => p.role === 'student' || !p.role).length
                 const instructors = profiles.filter((p: any) => p.role === 'instructor').length
 
-                // Calculate GMV & 5% Platform Commission
-                let gmv = 0
-                enrollments.forEach((enr: any) => {
-                    gmv += Number(enr.paid_amount || enr.price || 0)
-                })
-
+                setFinance(financeSummary)
                 setStats({
                     totalUsers: usersSnap.size,
                     totalCourses: coursesSnap.size,
                     pendingCourses: pending,
                     approvedCourses: approved,
-                    totalGmv: gmv,
-                    platformCommission: gmv * 0.05,
                     totalStudents: students,
                     totalInstructors: instructors,
                 })
@@ -144,30 +185,34 @@ export default function AdminDashboard() {
                         <div className="space-y-1.5 max-w-xl">
                             <div className="flex items-center gap-2">
                                 <Badge className="bg-emerald-600 text-white font-bold text-xs px-2.5 py-0.5">
-                                    مؤشرات مالية متقدمة (KPIs) 🟢
+                                    المؤشرات المالية (منذ البداية)
                                 </Badge>
-                                <span className="text-xs text-muted-foreground font-mono">5% Fixed Platform Fee</span>
+                                <span className="text-xs text-muted-foreground">
+                                    عمولة حسب الباقة: {formatRate(PLANS.starter.commissionRate)} / {formatRate(PLANS.pro.commissionRate)} / {formatRate(PLANS.center.commissionRate)}
+                                </span>
                             </div>
                             <h3 className="text-xl font-black text-foreground">
-                                هل المنصة تحقق أرباحاً؟ نعم، نموذج العمل يحقق تدفقات نقدية فورية
+                                صافي ربح المنصة من المبيعات + اشتراكات الباقات
                             </h3>
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                تحصل المنصة تلقائياً على 5% من كل عملية بيع كورس، ويتم تسوية أرباح المدرسين بنسبة 95% صافية دون أي التزامات مالية غير مغطاة.
+                                صافي المنصة = مجموع العمولة المسجلة على كل عملية بيع بنسبة باقة المدرس وقتها، بعد خصم تكلفة كوبونات المنصة. إيرادات الاشتراكات معروضة منفصلة.
                             </p>
                         </div>
 
-                        <div className="flex items-center gap-4 w-full lg:w-auto">
-                            <div className="bg-background/80 p-3.5 rounded-xl border flex-1 lg:flex-initial">
-                                <span className="text-[11px] text-muted-foreground block">إجمالي مبيعات المنصة:</span>
-                                <span className="font-mono text-lg font-black text-foreground">
-                                    {stats.totalGmv.toLocaleString()} <span className="text-xs text-muted-foreground font-normal">ج.م</span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:flex items-center gap-3 w-full lg:w-auto">
+                            <div className="bg-background/80 p-3.5 rounded-xl border">
+                                <span className="text-[11px] text-muted-foreground block">المدفوع من الطلاب:</span>
+                                <span className="text-lg font-black text-foreground">{finance ? egp(finance.paid) : "—"}</span>
+                            </div>
+                            <div className="bg-background/80 p-3.5 rounded-xl border">
+                                <span className="text-[11px] text-muted-foreground block">صافي المنصة من المبيعات:</span>
+                                <span className={`text-lg font-black ${finance && finance.platformNet < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                                    {finance ? egp(finance.platformNet) : "—"}
                                 </span>
                             </div>
-                            <div className="bg-background/80 p-3.5 rounded-xl border flex-1 lg:flex-initial">
-                                <span className="text-[11px] text-muted-foreground block">أرباح الإدارة (5%):</span>
-                                <span className="font-mono text-lg font-black text-emerald-600">
-                                    {stats.platformCommission.toLocaleString()} <span className="text-xs text-muted-foreground font-normal">ج.م</span>
-                                </span>
+                            <div className="bg-background/80 p-3.5 rounded-xl border">
+                                <span className="text-[11px] text-muted-foreground block">إيرادات اشتراكات الباقات:</span>
+                                <span className="text-lg font-black text-blue-600">{finance ? egp(finance.subscriptionsTotal) : "—"}</span>
                             </div>
                             <Button asChild size="icon" variant="outline" className="h-12 w-12 shrink-0 rounded-xl hover:bg-primary hover:text-white">
                                 <Link href="/admin/kpis" title="عرض التحليل المالي الكامل">
@@ -176,6 +221,25 @@ export default function AdminDashboard() {
                             </Button>
                         </div>
                     </div>
+
+                    {finance && finance.byPlan.length > 0 && (
+                        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                            {finance.byPlan.map((p) => (
+                                <div key={`${p.planId}-${p.rate}`} className="rounded-xl border bg-background/80 p-3">
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="font-bold">{isPlanId(p.planId) ? PLANS[p.planId].name : p.planId}</span>
+                                        <Badge variant="secondary" className="text-[10px]">{formatRate(Number(p.rate) || 0)}</Badge>
+                                    </div>
+                                    <div className={`mt-1 text-base font-black ${p.platformNet < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                                        {egp(p.platformNet)}
+                                    </div>
+                                    <p className="text-[11px] text-muted-foreground">
+                                        {(Number(p.sales) || 0).toLocaleString("ar-EG")} عملية بيع • مدفوع {egp(p.paid)}
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </CardContent>
             </Card>
             )}
@@ -206,8 +270,8 @@ export default function AdminDashboard() {
                 {canViewFinance && (
                     <StatCard
                         title="حجم التداول (GMV)"
-                        value={`${stats.totalGmv.toLocaleString()} ج.م`}
-                        subtitle={`أرباح المنصة: ${stats.platformCommission.toLocaleString()} ج.م`}
+                        value={finance ? egp(finance.paid) : "—"}
+                        subtitle={finance ? `صافي المنصة: ${egp(finance.platformNet)} • اشتراكات: ${egp(finance.subscriptionsTotal)}` : isLoading ? "جاري التحميل..." : "تعذر تحميل البيانات المالية"}
                         icon={<Coins className="h-5 w-5" />}
                         color="text-purple-600 bg-purple-500/10"
                     />

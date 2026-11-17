@@ -112,7 +112,7 @@ export async function POST(request: Request) {
             active_devices: typeof deviceId === "string" && deviceId.trim()
                 ? [computeDeviceBinding(request, deviceId).boundDeviceId]
                 : [],
-            // New instructors start on the free plan; existing instructors (no plan_id) stay legacy.
+            // Every instructor starts on البداية (starter). A missing plan_id is also read as starter.
             ...(safeRole === "instructor" ? { plan_id: DEFAULT_PLAN_ID, plan_expires_at: null } : {}),
             created_at: now,
             updated_at: now,

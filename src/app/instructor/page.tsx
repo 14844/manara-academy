@@ -18,9 +18,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { deleteDoc, doc } from "firebase/firestore"
-import { getSpecialOfferProgress } from "@/lib/commission-utils"
-import { Progress } from "@/components/ui/progress"
-import { PartyPopper, Sparkles } from "lucide-react"
+import { UpgradeNudge } from "@/components/plans/upgrade-nudge"
+import { last30DaysRange, formatEGP, type EarningsResponse } from "@/components/plans/plan-types"
 
 export default function InstructorDashboard() {
     const [user, setUser] = useState<any>(null)
@@ -40,11 +39,19 @@ export default function InstructorDashboard() {
     }
     const [stats, setStats] = useState({
         totalStudents: 0,
-        totalRevenue: 0,
         avgCompletion: 0
     })
     const [recentEnrollments, setRecentEnrollments] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
+    const [earnings, setEarnings] = useState<EarningsResponse | null>(null)
+
+    useEffect(() => {
+        const { from, to } = last30DaysRange()
+        fetch(`/api/instructor/earnings?from=${from}&to=${to}`, { cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((j) => j && setEarnings(j as EarningsResponse))
+            .catch(() => {})
+    }, [])
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -68,10 +75,6 @@ export default function InstructorDashboard() {
 
                         setStats({
                             totalStudents: allEnrollments.length,
-                            totalRevenue: instructorCourses.reduce((acc, c: any) => {
-                                const count = allEnrollments.filter(e => e.course_id === c.id).length
-                                return acc + (count * (c.price || 0))
-                            }, 0),
                             avgCompletion: allEnrollments.length > 0
                                 ? Math.round(allEnrollments.reduce((acc, e) => acc + (e.progress || 0), 0) / allEnrollments.length)
                                 : 0
@@ -95,12 +98,18 @@ export default function InstructorDashboard() {
     return (
         <div className="space-y-8">
             <div>
-                <h2 className="text-3xl font-bold tracking-tight">أهلاً بك مجدداً، {user?.displayName || "مدربنا"} 👋</h2>
+                <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">أهلاً بك مجدداً، {user?.displayName || "مدربنا"} 👋</h2>
                 <p className="text-muted-foreground">إليك نظرة سريعة على أداء كورساتك لهذا الشهر.</p>
             </div>
-            
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <UpgradeNudge
+                whatIf={earnings?.whatIf}
+                periodLabel="آخر 30 يوم"
+                periodDays={30}
+                hasActivity={(earnings?.summary.sales ?? 0) > 0 || stats.totalStudents > 0}
+            />
+
+            <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
                 <StatCard
                     title="إجمالي الطلاب"
                     value={stats.totalStudents.toString()}
@@ -114,9 +123,9 @@ export default function InstructorDashboard() {
                     icon={<BookOpen className="h-4 w-4 text-muted-foreground" />}
                 />
                 <StatCard
-                    title="إجمالي الأرباح"
-                    value={`${stats.totalRevenue.toLocaleString()} ج.م`}
-                    description="إجمالي مبيعات الكورسات"
+                    title="أرباحك (آخر 30 يوم)"
+                    value={earnings ? formatEGP(earnings.summary.instructorShare) : "—"}
+                    description="نصيبك بعد عمولة المنصة — التفاصيل في أرباحي"
                     icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
                 />
                 <StatCard
@@ -128,7 +137,7 @@ export default function InstructorDashboard() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <Card className="col-span-4">
+                <Card className="min-w-0 md:col-span-2 lg:col-span-4">
                     <CardHeader className="flex flex-row items-center justify-between">
                         <CardTitle>كورساتي</CardTitle>
                         <Button variant="outline" size="sm" asChild>
@@ -185,7 +194,7 @@ export default function InstructorDashboard() {
                         </div>
                     </CardContent>
                 </Card>
-                <Card className="col-span-3">
+                <Card className="min-w-0 md:col-span-2 lg:col-span-3">
                     <CardHeader>
                         <CardTitle>آخر التسجيلات</CardTitle>
                     </CardHeader>

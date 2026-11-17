@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { activityLogRole, logRouteFailure, requirePermission } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
-import { PLANS, isPlanId } from "@/lib/plans";
+import { PLANS, getEffectivePlan, isPlanId } from "@/lib/plans";
 
 function addMonths(base: Date, months: number): Date {
     const d = new Date(base.getTime());
@@ -87,7 +87,8 @@ export async function POST(request: Request) {
             }
 
             const priv = privSnap.exists ? privSnap.data() || {} : {};
-            previousPlanId = isPlanId(priv.plan_id) ? priv.plan_id : null;
+            // Missing / expired plan = starter (there is no legacy plan anymore)
+            previousPlanId = getEffectivePlan(priv, nowDate).planId;
 
             if (isFree) {
                 newExpiresAt = null;

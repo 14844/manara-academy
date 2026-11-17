@@ -46,6 +46,11 @@ import {
 } from "@/components/ui/dialog"
 import { TablePageSkeleton } from "@/components/skeletons"
 
+/** A withdrawal carries no commission (it's taken per sale): the amount paid out is the amount requested. */
+function withdrawalAmount(r: any): number {
+    return Number(r?.net_amount ?? r?.amount ?? 0) || 0
+}
+
 export default function AdminWithdrawalsPage() {
     const { role, roleLabel } = useAdminRole()
     // Role sent with client-side activity logs (the server re-derives it from the session anyway)
@@ -138,7 +143,7 @@ export default function AdminWithdrawalsPage() {
                 action: "withdrawal_rejected",
                 category: "financial",
                 title: "رفض طلب سحب أرباح",
-                description: `رفض ${roleLabel} طلب سحب أرباح بقيمة ${request.net_amount} ج.م للمحاضر "${request.instructor_name || request.instructor_id}" ورد المبلغ لمحفظته. السبب: ${reason || "لم يحدد"}`,
+                description: `رفض ${roleLabel} طلب سحب أرباح بقيمة ${withdrawalAmount(request)} ج.م للمحاضر "${request.instructor_name || request.instructor_id}" ورد المبلغ لمحفظته. السبب: ${reason || "لم يحدد"}`,
                 status: "failed",
                 user_id: currentAdmin?.uid || "admin",
                 user_name: currentAdmin?.displayName || "مسؤول المنصة",
@@ -209,7 +214,7 @@ export default function AdminWithdrawalsPage() {
     )
 
     const pendingCount = requests.filter(r => r.status === 'pending').length
-    const totalPaid = requests.filter(r => r.status === 'paid').reduce((acc, r) => acc + (r.net_amount || 0), 0)
+    const totalPaid = requests.filter(r => r.status === 'paid').reduce((acc, r) => acc + withdrawalAmount(r), 0)
 
     if (isLoading) {
         return <TablePageSkeleton rowCount={8} />
@@ -269,8 +274,7 @@ export default function AdminWithdrawalsPage() {
                                 <tr>
                                     <th className="p-4 font-bold text-sm">المدرس</th>
                                     <th className="p-4 font-bold text-sm">التاريخ</th>
-                                    <th className="p-4 font-bold text-sm">المبلغ الإجمالي</th>
-                                    <th className="p-4 font-bold text-sm">صافي الربح</th>
+                                    <th className="p-4 font-bold text-sm">المبلغ</th>
                                     <th className="p-4 font-bold text-sm text-center">الحالة</th>
                                     <th className="p-4 font-bold text-sm text-center">الإجراءات</th>
                                 </tr>
@@ -278,7 +282,7 @@ export default function AdminWithdrawalsPage() {
                             <tbody className="divide-y">
                                 {filteredRequests.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="p-10 text-center text-muted-foreground italic">
+                                        <td colSpan={5}className="p-10 text-center text-muted-foreground italic">
                                             لا توجد طلبات سحب حالياً
                                         </td>
                                     </tr>
@@ -300,8 +304,7 @@ export default function AdminWithdrawalsPage() {
                                                     year: 'numeric'
                                                 })}
                                             </td>
-                                            <td className="p-4 font-medium">{req.amount.toLocaleString()} ج.م</td>
-                                            <td className="p-4 font-black text-primary">{req.net_amount.toLocaleString()} ج.م</td>
+                                            <td className="p-4 font-black text-primary">{withdrawalAmount(req).toLocaleString()} ج.م</td>
                                             <td className="p-4 text-center">
                                                 {req.status === 'pending' && <Badge className="bg-orange-50 text-orange-600 border-orange-200">معلق</Badge>}
                                                 {req.status === 'paid' && <Badge className="bg-green-50 text-green-600 border-green-200">تم الدفع</Badge>}
@@ -384,18 +387,11 @@ export default function AdminWithdrawalsPage() {
                             </div>
 
                             <div className="mt-6 pt-4 border-t-2 border-zinc-100 space-y-2">
-                                <div className="row">
-                                    <span>المجموع الإجمالي:</span>
-                                    <span>{selectedRequest?.amount?.toLocaleString()} ج.م</span>
-                                </div>
-                                <div className="row text-red-600">
-                                    <span>عمولة المنصة:</span>
-                                    <span>-{selectedRequest?.commission?.toLocaleString()} ج.م</span>
-                                </div>
                                 <div className="total">
-                                    <span>صافي المبلغ المدفوع:</span>
-                                    <span className="text-primary">{selectedRequest?.net_amount?.toLocaleString()} ج.م</span>
+                                    <span>المبلغ المدفوع:</span>
+                                    <span className="text-primary">{withdrawalAmount(selectedRequest).toLocaleString()} ج.م</span>
                                 </div>
+                                <p className="text-xs text-zinc-500 m-0">لا توجد أي عمولة على السحب — عمولة المنصة مخصومة مسبقاً مع كل عملية بيع.</p>
                             </div>
 
                             <div className="footer">

@@ -16,8 +16,12 @@ import {
     ClipboardList,
     Ticket,
     TrendingUp,
-    Crown
+    Crown,
+    Coins
 } from "lucide-react"
+import { InstructorPlanProvider } from "@/components/plans/instructor-plan-context"
+import { PlanIntroDialog } from "@/components/plans/plan-intro-dialog"
+import { PlanChip } from "@/components/plans/plan-chip"
 import { DashboardSkeleton } from "@/components/skeletons"
 import { auth, db } from "@/lib/firebase/config"
 import { onAuthStateChanged } from "firebase/auth"
@@ -44,7 +48,8 @@ const sidebarItems = [
     { name: "تقارير أولياء الأمور", href: "/instructor/reports", icon: BarChart3 },
     { name: "الإحصائيات", href: "/instructor/analytics", icon: TrendingUp },
     { name: "إدارة الكوبونات", href: "/instructor/coupons", icon: Ticket },
-    { name: "المحفظة والأرباح", href: "/instructor/withdrawals", icon: Wallet },
+    { name: "أرباحي", href: "/instructor/earnings", icon: Coins },
+    { name: "المحفظة والسحب", href: "/instructor/withdrawals", icon: Wallet },
     { name: "باقتي", href: "/instructor/plan", icon: Crown },
     { name: "الإعدادات", href: "/instructor/settings", icon: Settings },
 ]
@@ -102,6 +107,7 @@ export default function InstructorLayout({
 
     return (
         <StatusGuard>
+            <InstructorPlanProvider>
             <div className="flex min-h-screen bg-muted/30">
                 {/* Sidebar */}
                 <aside className="hidden w-64 border-l bg-background md:block">
@@ -126,6 +132,9 @@ export default function InstructorLayout({
                                     </Link>
                                 ))}
                             </nav>
+                            <div className="mt-4">
+                                <PlanChip />
+                            </div>
                         </div>
                         <div className="mt-auto border-t p-4">
                             <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" asChild>
@@ -139,7 +148,7 @@ export default function InstructorLayout({
                 </aside>
 
                 {/* Main Content */}
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 min-w-0 flex flex-col">
                     <header className="flex h-16 items-center justify-between border-b bg-background px-6">
                         <div className="flex items-center gap-4">
                             <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
@@ -171,6 +180,9 @@ export default function InstructorLayout({
                                                     </Link>
                                                 ))}
                                             </nav>
+                                            <div className="mt-4">
+                                                <PlanChip onNavigate={() => setIsSheetOpen(false)} />
+                                            </div>
                                         </div>
                                         <div className="mt-auto border-t p-4">
                                             <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" asChild onClick={() => setIsSheetOpen(false)}>
@@ -196,11 +208,13 @@ export default function InstructorLayout({
                             <UserNav />
                         </div>
                     </header>
-                    <main className="flex-1 p-6 md:p-8">
+                    <main className="flex-1 min-w-0 p-4 sm:p-6 md:p-8">
                         {children}
                     </main>
                 </div>
             </div>
+            <PlanIntroDialog />
+            </InstructorPlanProvider>
         </StatusGuard>
     )
 }

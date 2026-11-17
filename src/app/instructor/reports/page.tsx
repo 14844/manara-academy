@@ -56,7 +56,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import Link from "next/link"
-import { useSupportSettings } from "@/hooks/use-support-settings"
+import { cheapestPlanWith } from "@/lib/plans"
 import { AnalyticsSkeleton } from "@/components/skeletons"
 
 const DAYS_OF_WEEK = [
@@ -98,22 +98,14 @@ export default function InstructorReportsPage() {
     const [isScheduleSaving, setIsScheduleSaving] = useState<Record<string, boolean>>({})
     const [pendingScheduledReports, setPendingScheduledReports] = useState<any[]>([])
     const [isPendingLoading, setIsPendingLoading] = useState(false)
-    const [instructorProfile, setInstructorProfile] = useState<any>(null)
-    const { settings: supportSettings } = useSupportSettings()
+    // Automatic scheduling follows the instructor's plan (autoParentReports); null = still loading
+    const [autoReportsAllowed, setAutoReportsAllowed] = useState<boolean | null>(null)
+    const autoReportsPlan = cheapestPlanWith("autoParentReports")
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
             if (currentUser) {
                 setUser(currentUser)
-                // Fetch profile to verify if scheduling is unlocked
-                try {
-                    const profileDoc = await getDoc(doc(db, "profiles", currentUser.uid))
-                    if (profileDoc.exists()) {
-                        setInstructorProfile(profileDoc.data())
-                    }
-                } catch (error) {
-                    console.error("Error fetching instructor profile:", error)
-                }
                 fetchCourses(currentUser.uid)
                 fetchSentReports(currentUser.uid)
                 fetchSchedules(currentUser.uid)
@@ -194,19 +186,23 @@ export default function InstructorReportsPage() {
         }
     }
 
-    // Fetch schedules
+    // Fetch schedules + whether the current plan unlocks automatic scheduling (server-checked)
     async function fetchSchedules(instructorId: string) {
         try {
-            const q = query(collection(db, "report_schedules"), where("instructor_id", "==", instructorId))
-            const snap = await getDocs(q)
+            const res = await fetch("/api/instructor/reports/schedule", { cache: "no-store" })
+            if (!res.ok) throw new Error("schedule fetch failed")
+            const data = await res.json()
+            const allowed = data.autoParentReports === true
+            setAutoReportsAllowed(allowed)
             const map: Record<string, any> = {}
-            snap.docs.forEach(d => {
-                map[d.data().course_id] = { id: d.id, ...d.data() }
+            ;(data.schedules || []).forEach((s: any) => {
+                if (s?.course_id) map[s.course_id] = s
             })
             setSchedules(map)
-            calculatePendingScheduled(map, instructorId)
+            if (allowed) calculatePendingScheduled(map, instructorId)
         } catch (error) {
             console.error("Error fetching schedules:", error)
+            setAutoReportsAllowed(false)
         }
     }
 
@@ -236,32 +232,29 @@ export default function InstructorReportsPage() {
 
     // Toggle and Save schedule settings for a course
     async function handleSaveSchedule(courseId: string, day: string, time: string, enabled: boolean) {
-        if (!user) return
+        if (!user || !autoReportsAllowed) return
         setIsScheduleSaving(prev => ({ ...prev, [courseId]: true }))
         try {
-            const scheduleId = schedules[courseId]?.id || `${courseId}_schedule`
-            const scheduleRef = doc(db, "report_schedules", scheduleId)
-
-            const payload = {
-                id: scheduleId,
-                course_id: courseId,
-                instructor_id: user.uid,
-                day_of_week: day,
-                time: time,
-                enabled: enabled,
-                updated_at: new Date().toISOString()
+            const res = await fetch("/api/instructor/reports/schedule", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ courseId, day, time, enabled }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+                if (data.code === "plan_required") setAutoReportsAllowed(false)
+                throw new Error(data.error || "فشل في حفظ إعدادات الجدولة")
             }
-
-            await setDoc(scheduleRef, payload, { merge: true })
+            const payload = data.schedule
             setSchedules(prev => ({
                 ...prev,
                 [courseId]: payload
             }))
             toast.success("تم حفظ إعدادات الجدولة الزمنية بنجاح!")
             calculatePendingScheduled({ ...schedules, [courseId]: payload }, user.uid)
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error saving schedule:", error)
-            toast.error("فشل في حفظ إعدادات الجدولة")
+            toast.error(error?.message || "فشل في حفظ إعدادات الجدولة")
         } finally {
             setIsScheduleSaving(prev => ({ ...prev, [courseId]: false }))
         }
@@ -627,41 +620,30 @@ export default function InstructorReportsPage() {
 
                 {/* TAB 3: WA.ME AUTOMATIC SCHEDULER */}
                 <TabsContent value="auto-schedule" className="space-y-8 animate-in fade-in duration-300">
-                    {!instructorProfile?.auto_report_unlocked ? (
+                    {autoReportsAllowed === null ? (
+                        <div className="flex py-20 items-center justify-center">
+                            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                        </div>
+                    ) : !autoReportsAllowed ? (
                         <div className="flex flex-col items-center justify-center text-center p-10 md:p-16 border-2 border-dashed border-zinc-200 rounded-3xl bg-white/40 backdrop-blur-md max-w-2xl mx-auto space-y-6 shadow-xl">
-                            <div className="h-20 w-20 rounded-3xl bg-gradient-to-tr from-primary/10 to-primary/20 border border-primary/20 flex items-center justify-center text-primary shadow-inner relative overflow-hidden">
-                                <span className="absolute -top-5 -right-5 h-16 w-16 bg-primary/5 rounded-full blur-xl"></span>
-                                <Settings className="h-10 w-10 animate-pulse text-primary" />
+                            <div className="h-20 w-20 rounded-3xl bg-gradient-to-tr from-primary/10 to-primary/20 border border-primary/20 flex items-center justify-center text-primary shadow-inner">
+                                <Calendar className="h-10 w-10 text-primary" />
                             </div>
                             <div className="space-y-3">
-                                <h3 className="text-2xl font-black text-zinc-800">الجدولة التلقائية للتقرير الأسبوعي 🔒</h3>
+                                <h3 className="text-2xl font-black text-zinc-800 dark:text-zinc-100">التقارير الأسبوعية التلقائية 🔒</h3>
                                 <p className="text-sm font-bold text-muted-foreground leading-relaxed">
-                                    هذه ميزة احترافية تتيح لك جدولة تقارير أداء أسبوعية تلقائية متكاملة لجميع طلابك وإرسالها مجمعة بنقرة زر واحدة عبر واتساب (wa.me) بشكل منظم وبدون تعب.
+                                    حدد يوم ووقت لكل كورس، والنظام يجهّز تقارير كل الطلاب المستحقين أسبوعياً وتبعتها لأولياء الأمور بضغطة واحدة عبر واتساب — من غير ما تفتكر كل أسبوع.
                                 </p>
-                                <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 text-xs font-black text-primary max-w-md mx-auto space-y-2">
-                                    <div className="text-amber-600 font-extrabold text-sm">⚠️ هذه الميزة مغلقة حالياً.</div>
-                                    <div className="text-zinc-600 dark:text-zinc-300 font-bold">
-                                        لتفعيل الميزة على حسابك وبدء استخدام الجدولة التلقائية فوراً، يرجى التواصل مع الإدارة أو الدعم الفني.
-                                    </div>
-                                    <div className="pt-2 border-t border-primary/10 flex flex-col sm:flex-row justify-center items-center gap-1.5 text-[11px] text-zinc-500 font-medium">
-                                        <span>رقم الدعم الفني المعتمد:</span>
-                                        <span className="font-mono font-bold text-primary select-all text-sm">+{supportSettings?.phone || "201017333215"}</span>
-                                    </div>
+                                <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 text-xs font-bold text-zinc-600 dark:text-zinc-300 max-w-md mx-auto">
+                                    الميزة دي متاحة في باقة {autoReportsPlan.name}. التقارير اليدوية متاحة لك دايماً من تبويب &quot;التقارير الحالية&quot;.
                                 </div>
                             </div>
                             <div className="flex flex-col sm:flex-row gap-3 w-full justify-center pt-2">
-                                <Button 
-                                    className="rounded-xl font-bold px-8 h-12 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md shadow-primary/20 gap-2 transition-all hover:scale-[1.02]" 
-                                    asChild
-                                >
-                                    <a 
-                                        href={`https://wa.me/${supportSettings?.phone || "201017333215"}?text=${encodeURIComponent(`السلام عليكم يا هندسة، أنا المعلم ${instructorProfile?.full_name || user?.displayName || ""} وأرغب في تفعيل ميزة الجدولة التلقائية (Auto Report Scheduler) لتقارير الطلاب في حسابي.`)}`} 
-                                        target="_blank" 
-                                        rel="noreferrer"
-                                    >
-                                        <MessageSquare className="h-5 w-5" />
-                                        تواصل مع الدعم للتفعيل 💳
-                                    </a>
+                                <Button className="rounded-xl font-bold px-8 h-12 gap-2 shadow-md shadow-primary/20" asChild>
+                                    <Link href="/instructor/plan">
+                                        <Award className="h-5 w-5" />
+                                        رقّي لباقة {autoReportsPlan.name}
+                                    </Link>
                                 </Button>
                             </div>
                         </div>

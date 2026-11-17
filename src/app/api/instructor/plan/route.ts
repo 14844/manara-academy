@@ -34,12 +34,17 @@ export async function GET(request: Request) {
             }
             : null;
 
+        const priv = privSnap.exists ? privSnap.data() || {} : {};
+
         return NextResponse.json({
             planId: eff.planId,
+            planName: eff.plan.name,
+            commissionRate: eff.commissionRate,
+            access: eff.plan.access,
             expiresAt: eff.expiresAt,
             expired: eff.expired,
-            commissionRate: eff.commissionRate,
             pendingRequest,
+            introSeen: priv.plan_intro_seen_at != null && priv.plan_intro_seen_at !== "",
         });
     } catch (err) {
         console.error("Instructor plan GET error:", err);

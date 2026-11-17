@@ -21,7 +21,7 @@ import {
     Wallet,
     Fingerprint,
     PlusCircle,
-    Calendar
+    Crown
 } from "lucide-react"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
@@ -41,8 +41,15 @@ import { TablePageSkeleton } from "@/components/skeletons"
 import { useAdminRole } from "@/components/admin/admin-role-context"
 import { getRoleLabel, isBackofficeRole, ROLE_LABELS, type UserRole } from "@/lib/permissions"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DEFAULT_PLAN_ID, PLANS, formatRate, isPlanId, type PlanId } from "@/lib/plans"
 
 const ALL_ROLES = Object.keys(ROLE_LABELS) as UserRole[]
+
+interface InstructorPlanInfo {
+    planId: PlanId
+    rate: number
+    expired: boolean
+}
 
 export default function AdminUsersPage() {
     const { role, roleLabel, isAdmin, can } = useAdminRole()
@@ -67,9 +74,37 @@ export default function AdminUsersPage() {
     const [isRecharging, setIsRecharging] = useState(false)
     const [isWithdrawing, setIsWithdrawing] = useState(false)
 
+    // Instructor plan badges (name + rate) — only for roles that can manage plans (the plans API requires it)
+    const canSeePlans = can("plans.manage")
+    const [instructorPlans, setInstructorPlans] = useState<Record<string, InstructorPlanInfo>>({})
+
     useEffect(() => {
         fetchUsers()
     }, [])
+
+    useEffect(() => {
+        if (!canSeePlans) return
+        let cancelled = false
+        fetch("/api/admin/plans", { cache: "no-store" })
+            .then(res => (res.ok ? res.json() : null))
+            .then(json => {
+                if (cancelled || !json || !Array.isArray(json.instructors)) return
+                const map: Record<string, InstructorPlanInfo> = {}
+                for (const i of json.instructors) {
+                    const planId: PlanId = isPlanId(i?.planId) ? i.planId : DEFAULT_PLAN_ID
+                    map[i.id] = {
+                        planId,
+                        rate: typeof i?.commissionRate === "number" ? i.commissionRate : PLANS[planId].commissionRate,
+                        expired: !!i?.expired,
+                    }
+                }
+                setInstructorPlans(map)
+            })
+            .catch(() => {})
+        return () => {
+            cancelled = true
+        }
+    }, [canSeePlans])
 
     async function fetchUsers() {
         setLoading(true)
@@ -313,17 +348,6 @@ export default function AdminUsersPage() {
         }
     }
 
-    const handleToggleAutoReport = async (userId: string, currentStatus: boolean) => {
-        try {
-            await postUserAction({ userId, action: "set_auto_report", value: !currentStatus })
-            setUsers(users.map(u => u.id === userId ? { ...u, auto_report_unlocked: !currentStatus } : u))
-            toast.success(!currentStatus ? "تم تفعيل الجدولة التلقائية للمدرس بنجاح" : "تم قفل الجدولة التلقائية للمدرس")
-        } catch (error) {
-            console.error("Toggle auto report error:", error)
-            toast.error("حدث خطأ أثناء تحديث حالة الجدولة التلقائية")
-        }
-    }
-
     const handleConfirmRoleChange = async () => {
         if (!pendingRoleChange) return
         const { user: target, to } = pendingRoleChange
@@ -362,7 +386,7 @@ export default function AdminUsersPage() {
             onRecharge: allowWallet ? (u: any) => setSelectedUserForRecharge(u) : undefined,
             onWithdraw: allowWallet ? (u: any) => setSelectedUserForWithdraw(u) : undefined,
             onToggleVerify: allowVerify ? handleToggleVerify : undefined,
-            onToggleAutoReport: allowVerify ? handleToggleAutoReport : undefined,
+            planInfo: user.role === "instructor" ? instructorPlans[user.id] : undefined,
             showWallet: canViewWallet,
             showContact: canViewContact,
             // Admin only, never on your own account
@@ -600,7 +624,7 @@ function StatCard({ title, value, icon: Icon, color }: any) {
     )
 }
 
-function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices, onToggleVerify, onToggleAutoReport, onChangeRole, showWallet, showContact }: any) {
+function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDevices, onToggleVerify, onChangeRole, showWallet, showContact, planInfo }: any) {
     const avatarUrl = user.photoURL || user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.full_name || user.id}`
 
     return (
@@ -675,15 +699,18 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDe
                                             التخصص: {user.specialty}
                                             {user.is_verified && <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 text-[10px]">موثق</Badge>}
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <Calendar className="h-3.5 w-3.5 text-purple-500" />
-                                            <span>الجدولة التلقائية:</span>
-                                            {user.auto_report_unlocked ? (
-                                                <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 text-[10px] font-bold">نشطة</Badge>
-                                            ) : (
-                                                <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50 text-[10px] font-bold">مغلقة</Badge>
-                                            )}
-                                        </div>
+                                        {planInfo && (
+                                            <div className="flex items-center gap-2">
+                                                <Crown className="h-3.5 w-3.5 text-purple-500" />
+                                                <span>الباقة:</span>
+                                                <Badge variant="outline" className="text-purple-700 border-purple-200 bg-purple-50 text-[10px] font-bold">
+                                                    {PLANS[planInfo.planId as PlanId].name} · عمولة {formatRate(planInfo.rate)}
+                                                </Badge>
+                                                {planInfo.expired && (
+                                                    <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 text-[10px]">باقة منتهية</Badge>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -719,17 +746,6 @@ function UserCard({ user, onApprove, onReject, onRecharge, onWithdraw, onResetDe
                                     >
                                         <ShieldCheck className="h-4 w-4" />
                                         {user.is_verified ? 'إلغاء التوثيق' : 'توثيق المدرس'}
-                                    </Button>
-                                )}
-                                {onToggleAutoReport && (
-                                    <Button
-                                        variant="outline"
-                                        className={`w-full gap-2 h-9 font-bold ${user.auto_report_unlocked ? 'text-rose-600 border-rose-200 bg-rose-50 hover:bg-rose-100 hover:text-rose-700' : 'text-purple-600 border-purple-200 bg-purple-50 hover:bg-purple-100 hover:text-purple-700'}`}
-                                        size="sm"
-                                        onClick={() => onToggleAutoReport(user.id, !!user.auto_report_unlocked)}
-                                    >
-                                        <Calendar className="h-4 w-4" />
-                                        {user.auto_report_unlocked ? 'قفل الجدولة' : 'تفعيل الجدولة'}
                                     </Button>
                                 )}
                             </>

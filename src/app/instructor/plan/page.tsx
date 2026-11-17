@@ -1,9 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { AlertTriangle, CalendarClock, Clock, Crown, Info, Loader2, RefreshCw, Wallet } from "lucide-react"
+import { AlertTriangle, CalendarClock, Clock, Crown, FlaskConical, Info, Loader2, Mail, RefreshCw, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -16,24 +16,11 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { PlanCard, formatPlanPrice } from "@/components/plans/plan-card"
+import { PlanComparison } from "@/components/plans/plan-comparison"
 import { MonthsSelector, monthsLabel, type PlanMonths } from "@/components/plans/months-selector"
+import { useInstructorPlan } from "@/components/plans/instructor-plan-context"
+import { nextPlanUp } from "@/components/plans/plan-types"
 import { PLANS, PLAN_LIST, formatRate, isPlanId, type Plan, type PlanId } from "@/lib/plans"
-
-interface PendingRequest {
-    id: string
-    requested_plan_id: PlanId
-    months: number
-    amount: number
-    created_at: string
-}
-
-interface MyPlan {
-    planId: PlanId | null
-    expiresAt: string | null
-    expired: boolean
-    commissionRate: number
-    pendingRequest: PendingRequest | null
-}
 
 function formatDate(iso: string | null | undefined): string {
     if (!iso) return "—"
@@ -43,31 +30,10 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 export default function InstructorPlanPage() {
-    const [data, setData] = useState<MyPlan | null>(null)
-    const [isLoading, setIsLoading] = useState(true)
-    const [loadError, setLoadError] = useState<string | null>(null)
+    const { plan: data, isLoading, error: loadError, refresh } = useInstructorPlan()
     const [months, setMonths] = useState<Record<PlanId, PlanMonths>>({ starter: 1, pro: 1, center: 1 })
     const [confirmPlan, setConfirmPlan] = useState<Plan | null>(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
-
-    const fetchPlan = useCallback(async () => {
-        setIsLoading(true)
-        setLoadError(null)
-        try {
-            const res = await fetch("/api/instructor/plan", { cache: "no-store" })
-            const json = await res.json().catch(() => ({}))
-            if (!res.ok) throw new Error(json.error || "تعذر تحميل بيانات باقتك")
-            setData(json as MyPlan)
-        } catch (err: any) {
-            setLoadError(err?.message || "تعذر تحميل بيانات باقتك")
-        } finally {
-            setIsLoading(false)
-        }
-    }, [])
-
-    useEffect(() => {
-        fetchPlan()
-    }, [fetchPlan])
 
     async function submitRequest() {
         if (!confirmPlan) return
@@ -91,7 +57,7 @@ export default function InstructorPlanPage() {
                 toast.success("تم إرسال طلبك، وفريق المنارة هيتواصل معاك قريباً")
             }
             setConfirmPlan(null)
-            fetchPlan()
+            refresh()
         } catch (err: any) {
             toast.error(err?.message || "تعذر إرسال الطلب")
         } finally {
@@ -104,6 +70,7 @@ export default function InstructorPlanPage() {
             <div className="space-y-6">
                 <Skeleton className="h-10 w-48" />
                 <Skeleton className="h-36 w-full rounded-2xl" />
+                <Skeleton className="h-56 w-full rounded-2xl" />
                 <div className="grid gap-6 md:grid-cols-3">
                     {[0, 1, 2].map((i) => <Skeleton key={i} className="h-96 rounded-3xl" />)}
                 </div>
@@ -111,13 +78,13 @@ export default function InstructorPlanPage() {
         )
     }
 
-    if (loadError && !data) {
+    if (!data) {
         return (
             <Card className="border-dashed">
                 <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
                     <AlertTriangle className="h-8 w-8 text-destructive" />
-                    <p className="font-bold">{loadError}</p>
-                    <Button variant="outline" className="min-h-11 gap-2" onClick={fetchPlan}>
+                    <p className="font-bold">{loadError || "تعذر تحميل بيانات باقتك"}</p>
+                    <Button variant="outline" className="min-h-11 gap-2" onClick={() => refresh()}>
                         <RefreshCw className="h-4 w-4" /> إعادة المحاولة
                     </Button>
                 </CardContent>
@@ -125,11 +92,10 @@ export default function InstructorPlanPage() {
         )
     }
 
-    // An expired paid plan falls back to the free plan (server does the same for commission)
-    const effectivePlanId: PlanId | null = data?.expired ? "starter" : data?.planId ?? null
-    const currentPlan = effectivePlanId && isPlanId(effectivePlanId) ? PLANS[effectivePlanId] : null
-    const isLegacy = !!data && data.planId === null
-    const pending = data?.pendingRequest ?? null
+    // The API already resolves an expired paid plan to starter.
+    const currentPlan = isPlanId(data.planId) ? PLANS[data.planId] : PLANS.starter
+    const nextPlan = nextPlanUp(currentPlan.id)
+    const pending = data.pendingRequest
     const pendingPlan = pending && isPlanId(pending.requested_plan_id) ? PLANS[pending.requested_plan_id] : null
 
     const confirmIsFree = confirmPlan?.monthlyPrice === 0
@@ -140,7 +106,7 @@ export default function InstructorPlanPage() {
         <div className="space-y-8 font-arabic">
             <div className="flex flex-col gap-1">
                 <h1 className="text-2xl sm:text-3xl font-bold">باقتي</h1>
-                <p className="text-muted-foreground">اعرف باقتك الحالية والعمولة اللي بتتخصم على مبيعاتك، أو اطلب باقة تانية.</p>
+                <p className="text-muted-foreground">باقتك الحالية، العمولة اللي بتتخصم من كل بيع، وإيه اللي بتفتحه كل باقة.</p>
             </div>
 
             {/* Current plan */}
@@ -153,34 +119,36 @@ export default function InstructorPlanPage() {
                             </div>
                             <div className="min-w-0">
                                 <p className="text-xs font-bold text-muted-foreground">باقتك الحالية</p>
-                                <h2 className="text-xl font-bold">
-                                    {isLegacy
-                                        ? "الباقة الحالية — عمولة 5%"
-                                        : currentPlan?.name ?? "—"}
-                                </h2>
+                                <h2 className="text-xl font-bold">{currentPlan.name}</h2>
                                 <p className="mt-1 text-sm">
-                                    عمولة المنصة على كل اشتراك:{" "}
-                                    <span className="font-bold text-primary">{formatRate(data?.commissionRate ?? 0)}</span>
+                                    المنصة بتاخد{" "}
+                                    <span className="font-bold text-primary">{formatRate(data.commissionRate)}</span> من كل بيع،
+                                    والباقي بيتحط في محفظتك فوراً.
                                 </p>
-                                {isLegacy && (
-                                    <p className="mt-1 text-xs text-muted-foreground">
-                                        إنت على النظام القديم للمدرسين الحاليين، وتقدر تفضل عليه أو تختار باقة من الباقات الجديدة.
-                                    </p>
-                                )}
+                                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                                    <span className="inline-flex items-center gap-1">
+                                        <FlaskConical className="h-3.5 w-3.5" aria-hidden />
+                                        المعامل لطلابك: {data.access.labs ? "متاحة" : "مش متاحة"}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1">
+                                        <Mail className="h-3.5 w-3.5" aria-hidden />
+                                        تقارير أولياء الأمور التلقائية: {data.access.autoParentReports ? "متاحة" : "مش متاحة"}
+                                    </span>
+                                </div>
                             </div>
                         </div>
-                        {!isLegacy && data?.expiresAt && (data.expired || (currentPlan && currentPlan.monthlyPrice > 0)) && (
+                        {data.expiresAt && (data.expired || currentPlan.monthlyPrice > 0) && (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <CalendarClock className="h-4 w-4" />
                                 <span>
-                                    {data?.expired ? "انتهت في" : "تنتهي في"}{" "}
-                                    <span className="font-bold text-foreground">{formatDate(data?.expiresAt)}</span>
+                                    {data.expired ? "انتهت في" : "تنتهي في"}{" "}
+                                    <span className="font-bold text-foreground">{formatDate(data.expiresAt)}</span>
                                 </span>
                             </div>
                         )}
                     </div>
 
-                    {data?.expired && (
+                    {data.expired && (
                         <div className="mt-4 flex items-start gap-3 rounded-xl border border-orange-500/30 bg-orange-500/10 p-3 text-sm text-orange-700 dark:text-orange-300">
                             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                             <p>
@@ -201,12 +169,18 @@ export default function InstructorPlanPage() {
                             طلبك لباقة {pendingPlan?.name ?? pending.requested_plan_id} ({monthsLabel(pending.months)}) قيد المراجعة
                         </p>
                         <p className="text-muted-foreground">
-                            المبلغ: {pending.amount.toLocaleString("ar-EG")} ج.م — اتبعت في {formatDate(pending.created_at)}.
+                            المبلغ: {Number(pending.amount || 0).toLocaleString("ar-EG")} ج.م — اتبعت في {formatDate(pending.created_at)}.
                             فريق المنارة هيتواصل معاك للدفع، أو المبلغ هيتخصم من محفظتك عند الموافقة.
                         </p>
                     </div>
                 </div>
             )}
+
+            {/* Comparison */}
+            <section className="space-y-3">
+                <h2 className="text-lg font-bold">مقارنة الباقات</h2>
+                <PlanComparison currentPlanId={currentPlan.id} nextPlanId={nextPlan?.id ?? null} />
+            </section>
 
             {/* How it works */}
             <div className="flex items-start gap-3 rounded-2xl border bg-muted/40 p-4 text-sm text-muted-foreground">
@@ -216,7 +190,12 @@ export default function InstructorPlanPage() {
                     <Link href="/instructor/withdrawals" className="font-bold text-primary hover:underline underline-offset-4">
                         محفظتك
                     </Link>{" "}
-                    لما الطلب يتوافق عليه. الباقة بتتفعّل وعمولتها بتتطبق على المبيعات من وقت التفعيل.
+                    لما الطلب يتوافق عليه. العمولة الجديدة بتتطبق على المبيعات من وقت التفعيل، والمبيعات القديمة بتفضل بعمولة الباقة
+                    اللي اتباعت عليها — تقدر تشوف ده بالتفصيل في{" "}
+                    <Link href="/instructor/earnings" className="font-bold text-primary hover:underline underline-offset-4">
+                        أرباحي
+                    </Link>
+                    .
                 </p>
             </div>
 
@@ -224,10 +203,17 @@ export default function InstructorPlanPage() {
             <div className="grid gap-6 pt-3 md:grid-cols-3">
                 {PLAN_LIST.map((plan) => {
                     const isFree = plan.monthlyPrice === 0
-                    const isCurrent = effectivePlanId === plan.id
+                    const isCurrent = currentPlan.id === plan.id
+                    const isNext = nextPlan?.id === plan.id
                     const disabled = !!pending || isSubmitting
                     return (
-                        <PlanCard key={plan.id} plan={plan} current={isCurrent}>
+                        <PlanCard
+                            key={plan.id}
+                            plan={plan}
+                            current={isCurrent}
+                            emphasized={isNext}
+                            ribbon={isNext ? "الخطوة الجاية ليك" : null}
+                        >
                             {isFree ? (
                                 <Button
                                     variant="outline"
@@ -235,7 +221,7 @@ export default function InstructorPlanPage() {
                                     disabled={disabled || isCurrent}
                                     onClick={() => setConfirmPlan(plan)}
                                 >
-                                    {isCurrent ? "باقتك الحالية" : "التحويل للباقة المجانية"}
+                                    {isCurrent ? "باقتك الحالية" : `الرجوع لباقة ${plan.name}`}
                                 </Button>
                             ) : (
                                 <div className="space-y-3">
@@ -251,12 +237,12 @@ export default function InstructorPlanPage() {
                                         </span>
                                     </p>
                                     <Button
-                                        variant={plan.highlighted ? "default" : "outline"}
+                                        variant={isNext || isCurrent ? "default" : "outline"}
                                         className="min-h-11 w-full rounded-xl font-bold"
                                         disabled={disabled}
                                         onClick={() => setConfirmPlan(plan)}
                                     >
-                                        {isCurrent ? "تجديد الباقة" : "اطلب الباقة"}
+                                        {isCurrent ? "تجديد الباقة" : `رقّي لباقة ${plan.name}`}
                                     </Button>
                                 </div>
                             )}
@@ -275,11 +261,11 @@ export default function InstructorPlanPage() {
                 <DialogContent className="max-w-md font-arabic">
                     <DialogHeader>
                         <DialogTitle>
-                            {confirmIsFree ? "التحويل للباقة المجانية" : `طلب باقة ${confirmPlan?.name ?? ""}`}
+                            {confirmIsFree ? `الرجوع لباقة ${confirmPlan?.name ?? ""}` : `طلب باقة ${confirmPlan?.name ?? ""}`}
                         </DialogTitle>
                         <DialogDescription>
                             {confirmIsFree
-                                ? `هيتم تحويلك فوراً لباقة ${confirmPlan?.name ?? ""} وعمولتها ${formatRate(confirmPlan?.commissionRate ?? 0)} على كل اشتراك جديد.`
+                                ? `هيتم تحويلك فوراً لباقة ${confirmPlan?.name ?? ""} وعمولتها ${formatRate(confirmPlan?.commissionRate ?? 0)} على كل بيع جديد، وطلابك هيفقدوا مميزات الباقة الحالية.`
                                 : "راجع تفاصيل طلبك قبل الإرسال."}
                         </DialogDescription>
                     </DialogHeader>
@@ -289,6 +275,10 @@ export default function InstructorPlanPage() {
                             <div className="flex justify-between gap-4 border-b pb-2">
                                 <span className="text-muted-foreground">الباقة</span>
                                 <span className="font-bold">{confirmPlan.name}</span>
+                            </div>
+                            <div className="flex justify-between gap-4 border-b pb-2">
+                                <span className="text-muted-foreground">العمولة الجديدة</span>
+                                <span className="font-bold">{formatRate(confirmPlan.commissionRate)} من كل بيع</span>
                             </div>
                             <div className="flex justify-between gap-4 border-b pb-2">
                                 <span className="text-muted-foreground">المدة</span>
@@ -307,12 +297,6 @@ export default function InstructorPlanPage() {
                                 <p>فريق المنارة هيتواصل معاك للدفع، أو المبلغ هيتخصم من محفظتك عند الموافقة على الطلب.</p>
                             </div>
                         </div>
-                    )}
-                    {confirmIsFree && isLegacy && (
-                        <p className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-3 text-sm text-orange-700 dark:text-orange-300">
-                            تنبيه: إنت حالياً على عمولة 5%، والتحويل للباقة المجانية هيخلي العمولة{" "}
-                            {formatRate(PLANS.starter.commissionRate)}، ومش هتقدر ترجع للنظام القديم.
-                        </p>
                     )}
 
                     <DialogFooter className="gap-2 sm:gap-2">

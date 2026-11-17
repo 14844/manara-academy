@@ -64,8 +64,9 @@ export async function POST(request: Request) {
             metadata: {
                 request_id: requestId,
                 net_amount: netAmount,
-                gross_amount: reqData.amount,
-                commission: reqData.commission,
+                amount: reqData.amount ?? netAmount,
+                // commission is taken at sale time; older requests may still carry a stored value
+                commission: Number(reqData.commission || 0),
                 instructor_id: reqData.instructor_id,
             },
         });

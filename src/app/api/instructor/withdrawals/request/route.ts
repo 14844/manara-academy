@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { getActiveServerAuth, logRouteFailure } from "@/lib/server-auth";
 import { adminDb } from "@/lib/firebase/admin";
 import { logServerActivity } from "@/lib/server-activity-logger";
-import { LEGACY_COMMISSION_RATE, getEffectivePlan } from "@/lib/plans";
 
 export async function POST(request: Request) {
     const user = await getActiveServerAuth(request);
@@ -16,19 +15,16 @@ export async function POST(request: Request) {
     try {
         const body = await request.json();
         const rawAmount = body.net_amount ?? body.amount;
-        const netAmount = Number(rawAmount);
+        const parsedAmount = Number(rawAmount);
+        const netAmount = Math.round(parsedAmount * 100) / 100;
 
-        if (!Number.isFinite(netAmount) || netAmount <= 0) {
+        if (!Number.isFinite(parsedAmount) || netAmount <= 0) {
             return NextResponse.json({ error: "المبلغ المطلوب سحبه غير صالح" }, { status: 400 });
         }
 
-        // The wallet already holds NET earnings (commission was taken at sale time), and only
-        // netAmount is deducted below. gross/commission are informational fields that back-compute
-        // the sales value behind this payout, using the instructor's effective plan rate
-        // (legacy instructors with no plan keep the old 5% => net / 0.95, exactly as before).
-        let grossAmount = netAmount;
-        let commission = 0;
-        let commissionRate = LEGACY_COMMISSION_RATE;
+        // The platform commission is taken at sale time (see /api/courses/enroll), so the wallet
+        // already holds the instructor's NET earnings. A withdrawal is just that net amount:
+        // no gross-up and no commission here.
 
         const profileRef = adminDb.collection("profiles").doc(user.uid);
         const profilePrivateRef = adminDb.collection("profiles_private").doc(user.uid);
@@ -67,12 +63,6 @@ export async function POST(request: Request) {
 
             const currentBalance = Number(privSnap.data()?.wallet_balance ?? 0);
 
-            commissionRate = getEffectivePlan(privSnap.exists ? privSnap.data() : null).commissionRate;
-            grossAmount = commissionRate < 1
-                ? Math.round((netAmount / (1 - commissionRate)) * 100) / 100
-                : netAmount;
-            commission = Math.round((grossAmount - netAmount) * 100) / 100;
-
             if (currentBalance < 0) {
                 throw new Error(`NEGATIVE_BALANCE:${currentBalance}`);
             }
@@ -83,7 +73,7 @@ export async function POST(request: Request) {
 
             // Deduct immediately from wallet inside transaction
             t.set(profilePrivateRef, {
-                wallet_balance: currentBalance - netAmount,
+                wallet_balance: Math.round((currentBalance - netAmount) * 100) / 100,
                 last_withdrawal_request_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             }, { merge: true });
@@ -92,9 +82,9 @@ export async function POST(request: Request) {
             t.set(withdrawalRef, {
                 instructor_id: user.uid,
                 instructor_name: user.profile?.full_name || user.email || "محاضر",
-                amount: grossAmount,
-                commission: commission,
-                commission_rate: commissionRate,
+                // Commission was already taken on each sale: amount == net_amount, commission 0
+                amount: netAmount,
+                commission: 0,
                 net_amount: netAmount,
                 status: "pending",
                 requested_at: new Date().toISOString(),
@@ -116,8 +106,7 @@ export async function POST(request: Request) {
             amount: netAmount,
             metadata: {
                 request_id: withdrawalRef.id,
-                gross_amount: grossAmount,
-                commission: commission,
+                amount: netAmount,
                 net_amount: netAmount,
             },
         });

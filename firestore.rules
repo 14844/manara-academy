@@ -339,20 +339,8 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         resource.data.instructor_id == request.auth.uid || isAdmin()
       );
-      allow create: if isAuthenticated() && (
-        isAdmin() || (
-          isInstructor() &&
-          request.resource.data.instructor_id == request.auth.uid &&
-          get(/databases/$(database)/documents/courses/$(request.resource.data.course_id)).data.instructor_id == request.auth.uid
-        )
-      );
-      allow update: if isAuthenticated() && (
-        isAdmin() || (
-          resource.data.instructor_id == request.auth.uid &&
-          request.resource.data.instructor_id == resource.data.instructor_id &&
-          request.resource.data.course_id == resource.data.course_id
-        )
-      );
+      // Writes only via /api/instructor/reports/schedule (enforces plan + course ownership)
+      allow create, update: if isAdmin();
       allow delete: if isAuthenticated() && (
         resource.data.instructor_id == request.auth.uid || isAdmin()
       );

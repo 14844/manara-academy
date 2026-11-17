@@ -37,6 +37,7 @@ export async function GET(request: Request) {
                 full_name: pub.full_name || "",
                 email: priv.email || pub.email || "",
                 planId: eff.planId,
+                planName: eff.plan.name,
                 expiresAt: eff.expiresAt,
                 expired: eff.expired,
                 commissionRate: eff.commissionRate,

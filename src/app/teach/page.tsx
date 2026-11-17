@@ -4,7 +4,7 @@ import { Navbar } from "@/components/navbar"
 import { Button } from "@/components/ui/button"
 import { SupportInfo } from "@/components/support-info"
 import { PlanCard } from "@/components/plans/plan-card"
-import { PLAN_LIST } from "@/lib/plans"
+import { PLAN_LIST, PLANS, formatRate } from "@/lib/plans"
 import {
     ArrowLeft,
     BarChart,
@@ -169,12 +169,16 @@ export default function TeachPage() {
                         <div className="mb-10 sm:mb-14 text-center">
                             <h2 className="text-2xl font-bold tracking-tight sm:text-4xl text-primary mb-4">الباقات</h2>
                             <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto">
-                                ابدأ مجاناً، ولما طلابك يزيدوا رقّي باقتك وقلّل العمولة اللي بتدفعها على كل اشتراك.
+                                ابدأ مجاناً على باقة {PLANS.starter.name} (عمولة {formatRate(PLANS.starter.commissionRate)} من كل بيع)، ولما شغلك يكبر رقّي باقتك: عمولة أقل، ومعامل افتراضية لطلابك، وتقارير أولياء أمور تلقائية.
                             </p>
                         </div>
                         <div className="grid gap-6 pt-3 md:grid-cols-3 max-w-6xl mx-auto">
                             {PLAN_LIST.map((plan) => (
-                                <PlanCard key={plan.id} plan={plan}>
+                                <PlanCard
+                                    key={plan.id}
+                                    plan={plan}
+                                    ribbon={plan.id === "starter" ? "باقتك عند التسجيل" : undefined}
+                                >
                                     <Button
                                         size="lg"
                                         variant={plan.highlighted ? "default" : "outline"}
@@ -189,7 +193,7 @@ export default function TeachPage() {
                             ))}
                         </div>
                         <p className="mt-6 text-center text-sm text-muted-foreground">
-                            كل مدرس جديد بيبدأ على باقة البداية، وتقدر تغيّر باقتك في أي وقت من لوحة التحكم.
+                            كل مدرس جديد بيبدأ على باقة البداية مجاناً، وتقدر ترقّي باقتك في أي وقت من لوحة التحكم. العمولة بتتخصم مرة واحدة من كل بيع، والسحب من محفظتك من غير أي خصم تاني.
                         </p>
                     </div>
                 </section>

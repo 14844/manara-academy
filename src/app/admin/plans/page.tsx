@@ -12,6 +12,7 @@ import {
     RefreshCw,
     Search,
     Users,
+    Wallet,
     XCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -33,7 +34,7 @@ import {
 import { TablePageSkeleton } from "@/components/skeletons"
 import { useAdminRole } from "@/components/admin/admin-role-context"
 import { MonthsSelector, monthsLabel, type PlanMonths } from "@/components/plans/months-selector"
-import { LEGACY_COMMISSION_RATE, PLANS, PLAN_LIST, formatRate, isPlanId, type PlanId } from "@/lib/plans"
+import { DEFAULT_PLAN_ID, PLANS, PLAN_LIST, formatRate, isPlanId, type PlanId } from "@/lib/plans"
 import { cn } from "@/lib/utils"
 
 type RequestStatus = "pending" | "approved" | "rejected"
@@ -43,7 +44,7 @@ interface PlanRequest {
     instructor_id: string
     instructor_name: string
     instructor_email: string
-    current_plan_id: PlanId | null
+    current_plan_id: PlanId | null | undefined
     requested_plan_id: PlanId
     months: number
     amount: number
@@ -58,15 +59,24 @@ interface InstructorPlanRow {
     id: string
     full_name: string
     email: string
-    planId: PlanId | null
+    planId: PlanId
     expiresAt: string | null
     expired: boolean
     commissionRate: number
 }
 
+interface SubscriptionsSummary {
+    total: number
+    count: number
+}
+
+/** Missing/unknown plan id => starter (البداية). There is no legacy plan. */
+function resolvePlanId(id: unknown): PlanId {
+    return isPlanId(id) ? id : DEFAULT_PLAN_ID
+}
+
 function planName(id: PlanId | null | undefined): string {
-    if (!id) return `الباقة الحالية (${formatRate(LEGACY_COMMISSION_RATE)})`
-    return isPlanId(id) ? PLANS[id].name : String(id)
+    return PLANS[resolvePlanId(id)].name
 }
 
 function formatDate(iso: string | null | undefined): string {
@@ -86,9 +96,51 @@ function StatusBadge({ status }: { status: RequestStatus }) {
     return <Badge variant="destructive">مرفوض</Badge>
 }
 
+type SubsPeriod = "month" | "year" | "all"
+
+const SUBS_PERIOD_LABEL: Record<SubsPeriod, string> = {
+    month: "هذا الشهر",
+    year: "هذه السنة",
+    all: "كل الوقت",
+}
+
+function ymd(d: Date): string {
+    const m = String(d.getMonth() + 1).padStart(2, "0")
+    const day = String(d.getDate()).padStart(2, "0")
+    return `${d.getFullYear()}-${m}-${day}`
+}
+
+function subsRange(period: SubsPeriod): { from: string; to: string } {
+    const now = new Date()
+    const to = ymd(now)
+    if (period === "month") return { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to }
+    if (period === "year") return { from: ymd(new Date(now.getFullYear(), 0, 1)), to }
+    return { from: "2020-01-01", to }
+}
+
+function AccessBadge({ on, label }: { on: boolean; label: string }) {
+    return (
+        <Badge
+            variant="outline"
+            className={cn(
+                "gap-1 font-medium",
+                on ? "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400" : "text-muted-foreground opacity-70",
+            )}
+        >
+            {on ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+            {label}
+        </Badge>
+    )
+}
+
 export default function AdminPlansPage() {
     const { can } = useAdminRole()
     const canManage = can("plans.manage")
+    const canViewFinance = can("finance.view")
+
+    const [subsPeriod, setSubsPeriod] = useState<SubsPeriod>("month")
+    const [subs, setSubs] = useState<SubscriptionsSummary | null>(null)
+    const [subsLoading, setSubsLoading] = useState(false)
 
     const [requests, setRequests] = useState<PlanRequest[]>([])
     const [instructors, setInstructors] = useState<InstructorPlanRow[]>([])
@@ -130,6 +182,33 @@ export default function AdminPlansPage() {
         fetchData(true)
     }, [fetchData])
 
+    useEffect(() => {
+        if (!canViewFinance) return
+        let cancelled = false
+        const { from, to } = subsRange(subsPeriod)
+        setSubsLoading(true)
+        fetch(`/api/admin/finance/commissions?from=${from}&to=${to}`, { cache: "no-store" })
+            .then(async (res) => {
+                const json = await res.json().catch(() => ({}))
+                if (!res.ok) throw new Error(json.error || "تعذر تحميل إيرادات الاشتراكات")
+                if (cancelled) return
+                const s = json?.subscriptions
+                setSubs({ total: Number(s?.total) || 0, count: Number(s?.count) || 0 })
+            })
+            .catch((err: any) => {
+                if (!cancelled) {
+                    setSubs(null)
+                    toast.error(err?.message || "تعذر تحميل إيرادات الاشتراكات")
+                }
+            })
+            .finally(() => {
+                if (!cancelled) setSubsLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [canViewFinance, subsPeriod])
+
     const pendingRequests = useMemo(
         () => requests.filter((r) => r.status === "pending").sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at)),
         [requests],
@@ -150,8 +229,8 @@ export default function AdminPlansPage() {
     }, [instructors, search])
 
     const planCounts = useMemo(() => {
-        const counts: Record<string, number> = { legacy: 0, starter: 0, pro: 0, center: 0 }
-        for (const i of instructors) counts[i.planId ?? "legacy"] = (counts[i.planId ?? "legacy"] ?? 0) + 1
+        const counts: Record<PlanId, number> = { starter: 0, pro: 0, center: 0 }
+        for (const i of instructors) counts[resolvePlanId(i.planId)] += 1
         return counts
     }, [instructors])
 
@@ -227,7 +306,8 @@ export default function AdminPlansPage() {
 
     function openAssign(row: InstructorPlanRow) {
         setAssignFor(row)
-        setAssignPlan(row.planId && !row.expired ? row.planId : "pro")
+        const current = resolvePlanId(row.planId)
+        setAssignPlan(!row.expired && current !== DEFAULT_PLAN_ID ? current : "pro")
         setAssignMonths(1)
         setAssignCharge(false)
     }
@@ -257,7 +337,7 @@ export default function AdminPlansPage() {
             )}
 
             {/* Stats */}
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Card className="shadow-sm">
                     <CardHeader className="p-4 pb-2">
                         <CardTitle className="flex items-center justify-between text-xs text-muted-foreground">
@@ -268,18 +348,71 @@ export default function AdminPlansPage() {
                         <div className="text-2xl font-black text-orange-600">{pendingRequests.length}</div>
                     </CardContent>
                 </Card>
-                {[
-                    { key: "legacy", label: "الباقة القديمة (5%)" },
-                    ...PLAN_LIST.map((p) => ({ key: p.id, label: p.name })),
-                ].map((s) => (
-                    <Card key={s.key} className="shadow-sm">
+                {canViewFinance && (
+                    <Card className="shadow-sm">
                         <CardHeader className="p-4 pb-2">
-                            <CardTitle className="flex items-center justify-between text-xs text-muted-foreground">
-                                {s.label} <Crown className="h-3.5 w-3.5 text-primary" />
+                            <CardTitle className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1.5">
+                                    <Wallet className="h-3.5 w-3.5 text-green-600" /> إيرادات اشتراكات الباقات
+                                </span>
+                                <div className="flex gap-1" role="group" aria-label="فترة إيرادات الاشتراكات">
+                                    {(Object.keys(SUBS_PERIOD_LABEL) as SubsPeriod[]).map((p) => (
+                                        <button
+                                            key={p}
+                                            type="button"
+                                            onClick={() => setSubsPeriod(p)}
+                                            aria-pressed={subsPeriod === p}
+                                            className={cn(
+                                                "rounded-md border px-2 py-0.5 text-[11px] transition-colors",
+                                                subsPeriod === p ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted",
+                                            )}
+                                        >
+                                            {SUBS_PERIOD_LABEL[p]}
+                                        </button>
+                                    ))}
+                                </div>
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-4 pt-0">
-                            <div className="text-2xl font-black">{planCounts[s.key] ?? 0}</div>
+                            {subsLoading ? (
+                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            ) : (
+                                <>
+                                    <div className="text-2xl font-black text-green-600">{money(subs?.total)}</div>
+                                    <p className="text-xs text-muted-foreground">{(subs?.count ?? 0).toLocaleString("ar-EG")} اشتراك مدفوع</p>
+                                </>
+                            )}
+                        </CardContent>
+                    </Card>
+                )}
+            </div>
+
+            {/* Plans: rate, access and instructor count */}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {PLAN_LIST.map((p) => (
+                    <Card key={p.id} className={cn("shadow-sm", p.highlighted && "border-primary/40")}>
+                        <CardHeader className="p-4 pb-2">
+                            <CardTitle className="flex items-center justify-between text-base">
+                                <span className="flex items-center gap-1.5">
+                                    <Crown className="h-4 w-4 text-primary" /> {p.name}
+                                </span>
+                                <Badge variant="secondary" className="font-bold">عمولة {formatRate(p.commissionRate)}</Badge>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3 p-4 pt-0 text-sm">
+                            <div className="flex items-end justify-between">
+                                <div>
+                                    <div className="text-2xl font-black">{planCounts[p.id].toLocaleString("ar-EG")}</div>
+                                    <p className="text-xs text-muted-foreground">مدرس على الباقة</p>
+                                </div>
+                                <p className="text-xs font-bold text-muted-foreground">
+                                    {p.monthlyPrice > 0 ? `${money(p.monthlyPrice)} / شهر` : "مجانية"}
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                <AccessBadge on={p.access.labs} label="المعامل الافتراضية" />
+                                <AccessBadge on={p.access.autoParentReports} label="تقارير أولياء الأمور تلقائياً" />
+                            </div>
                         </CardContent>
                     </Card>
                 ))}

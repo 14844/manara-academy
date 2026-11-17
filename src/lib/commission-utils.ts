@@ -1,33 +1,58 @@
 /**
- * Calculates the platform commission and net payout for an instructor.
+ * Commission helpers for UI pages (kept for existing callers).
  *
- * New sales store the exact split (platform_commission / instructor_share / commission_rate)
- * on the enrollment / order / transaction, based on the instructor's plan (see src/lib/plans.ts).
- * Older records without a stored split fall back to the legacy flat rate (5%).
+ * Every sale stores its exact split at sale time (sale_* fields, see src/lib/sales.ts), using the
+ * instructor's plan at that moment (src/lib/plans.ts). These helpers read, in order:
+ *   1. the canonical sale_* fields,
+ *   2. older stored fields (commission_rate / platform_commission / instructor_share),
+ *   3. computeSaleSplit() at the given rate (default: the starter plan rate).
+ *
+ * Note: with a platform-funded coupon the instructor is paid on the list price, so
+ * commissionAmount + netAmount can exceed the amount the student paid.
  */
 
-import { LEGACY_COMMISSION_RATE } from "./plans";
+import { DEFAULT_PLAN_ID, PLANS } from "./plans";
+import { readSaleRecord } from "./sales";
 
-export const BASE_RATE = LEGACY_COMMISSION_RATE;
+/** Fallback rate for records that never stored a split: the starter plan rate. */
+export const BASE_RATE = PLANS[DEFAULT_PLAN_ID].commissionRate;
 
 export interface CommissionResult {
+    /** commission at the plan rate as it applies to the instructor (gross commission) */
     commissionAmount: number;
+    /** what the instructor earned (instructor share) */
     netAmount: number;
     rate: number;
+    /** what the platform actually kept (can be negative with a platform coupon) */
+    platformNet: number;
 }
 
 export interface StoredCommission {
     commission_rate?: number | null;
     platform_commission?: number | null;
+    instructor_share?: number | null;
+    original_price?: number | null;
+    coupon_used?: string | null;
+    sale_plan_id?: string | null;
+    sale_commission_rate?: number | null;
+    sale_list_price?: number | null;
+    sale_discount?: number | null;
+    sale_paid?: number | null;
+    sale_gross_commission?: number | null;
+    sale_instructor_share?: number | null;
+    sale_platform_net?: number | null;
+    sale_platform_coupon_cost?: number | null;
+    coupon_code?: string | null;
+    coupon_source?: string | null;
+    [key: string]: unknown;
 }
 
 /**
- * Calculates the commission for a single enrollment.
- * @param amount The total amount paid by the student (after any coupon discounts).
- * @param instructorId The Firebase UID of the instructor.
- * @param rate Optional commission rate (0..1). Defaults to the legacy rate.
- * @param stored Optional split stored on the enrollment; a stored platform_commission wins,
- *               then a stored commission_rate, then `rate`.
+ * Commission for a single enrollment.
+ * @param amount The amount paid by the student (after any coupon discount).
+ * @param instructorId The Firebase UID of the instructor (unused; kept for API compatibility).
+ * @param rate Rate (0..1) used only when nothing is stored. Defaults to the starter rate.
+ * @param stored The enrollment / transaction doc; stored values win over `amount`/`rate`.
  */
 export function calculateEnrollmentCommission(
     amount: number,
@@ -35,33 +60,29 @@ export function calculateEnrollmentCommission(
     rate: number = BASE_RATE,
     stored?: StoredCommission | null,
 ): CommissionResult {
-    const storedCommission = stored?.platform_commission;
-    const storedRate = stored?.commission_rate;
-    let effectiveRate = rate;
-    if (typeof storedRate === "number" && Number.isFinite(storedRate) && storedRate >= 0 && storedRate <= 1) {
-        effectiveRate = storedRate;
-    }
-
-    let commissionAmount: number;
-    if (typeof storedCommission === "number" && Number.isFinite(storedCommission)) {
-        commissionAmount = storedCommission;
-        if (!(typeof storedRate === "number") && amount > 0) {
-            effectiveRate = storedCommission / amount;
-        }
-    } else {
-        commissionAmount = amount * effectiveRate;
-    }
-    const netAmount = amount - commissionAmount;
-
+    void instructorId;
+    const hasStoredRate =
+        stored != null &&
+        (typeof stored.sale_commission_rate === "number" ||
+            typeof stored.commission_rate === "number" ||
+            typeof stored.platform_commission === "number");
+    const safeRate = Number.isFinite(rate) && rate >= 0 && rate <= 1 ? rate : BASE_RATE;
+    const sale = readSaleRecord({
+        ...(stored || {}),
+        // explicit amount is the fallback for the paid price
+        paid_amount: stored?.paid_amount ?? amount,
+        ...(hasStoredRate ? {} : { commission_rate: safeRate }),
+    });
     return {
-        commissionAmount,
-        netAmount,
-        rate: effectiveRate,
+        commissionAmount: sale.grossCommission,
+        netAmount: sale.instructorShare,
+        rate: sale.rate,
+        platformNet: sale.platformNet,
     };
 }
 
 /**
- * Calculates the total commission for a list of enrollments for a specific instructor.
+ * Total commission for a list of enrollments of one instructor.
  */
 export function calculateTotalCommission(
     enrollments: ({ paid_amount: number } & StoredCommission)[],
@@ -81,12 +102,17 @@ export function calculateTotalCommission(
         totalNet += result.netAmount;
     });
 
-    return { totalCommission, totalNet };
+    return {
+        totalCommission: Math.round(totalCommission * 100) / 100,
+        totalNet: Math.round(totalNet * 100) / 100,
+    };
 }
 
 /**
  * Returns null as special offers are currently disabled per user request.
  */
 export function getSpecialOfferProgress(instructorId: string, totalStudents: number) {
+    void instructorId;
+    void totalStudents;
     return null;
 }

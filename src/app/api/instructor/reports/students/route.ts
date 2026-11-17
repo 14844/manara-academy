@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getServerAuth } from "@/lib/server-auth";
+import { createPlanAccessCache, instructorHasAccess } from "@/lib/plan-access";
 
 /**
  * GET /api/instructor/reports/students?courseId=<courseId>&includePending=true
@@ -143,9 +144,20 @@ export async function GET(request: Request) {
                 : adminDb.collection("report_schedules").where("instructor_id", "==", user.uid);
             
             const schedSnap = await schedQuery.get();
-            const activeSchedules = schedSnap.docs
-                .map((d) => ({ id: d.id, ...d.data() }))
+            const dueSchedules = schedSnap.docs
+                .map((d) => ({ id: d.id, ...d.data() }) as any)
                 .filter((s: any) => s.enabled && s.day_of_week === todayDay);
+            // Automatic schedules only run for instructors whose CURRENT plan has autoParentReports.
+            // Schedules of other instructors are skipped (never deleted) so they resume after an upgrade.
+            const planCache = createPlanAccessCache();
+            const planOk = await Promise.all(
+                dueSchedules.map((s: any) =>
+                    typeof s.instructor_id === "string" && s.instructor_id
+                        ? instructorHasAccess(s.instructor_id, "autoParentReports", planCache)
+                        : Promise.resolve(false)
+                )
+            );
+            const activeSchedules = dueSchedules.filter((_: any, i: number) => planOk[i]);
 
             if (activeSchedules.length > 0) {
                 // Fetch reports sent this week

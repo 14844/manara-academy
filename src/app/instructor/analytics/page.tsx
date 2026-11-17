@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react"
 import { auth, db } from "@/lib/firebase/config"
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore"
-import { calculateEnrollmentCommission } from "@/lib/commission-utils"
 import { escapeHtml } from "@/lib/escape-html"
+import { PLAN_LIST, formatRate } from "@/lib/plans"
 import { onAuthStateChanged } from "firebase/auth"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import {
@@ -75,16 +75,19 @@ export default function InstructorAnalyticsPage() {
                 }) as any[]
 
             // 3. Process Stats
+            // Money comes ONLY from the split stored on each sale (never recomputed from a flat rate).
             let totalCommission = 0
             let totalNet = 0
-            
             enrollments.forEach((enr: any) => {
-                const { commissionAmount, netAmount } = calculateEnrollmentCommission(
-                    Number(enr.paid_amount) || 0,
-                    instructorId
-                )
-                totalCommission += commissionAmount
-                totalNet += netAmount
+                const paid = Number(enr.paid_amount) || 0
+                const storedShare = enr.sale_instructor_share ?? enr.instructor_share
+                const storedCommission = enr.sale_commission ?? enr.platform_commission
+                if (typeof storedShare === "number" && Number.isFinite(storedShare)) {
+                    totalNet += storedShare
+                    totalCommission += typeof storedCommission === "number" && Number.isFinite(storedCommission)
+                        ? storedCommission
+                        : Math.max(0, paid - storedShare)
+                }
             })
 
             const grossRevenue = enrollments.reduce((acc, e: any) => acc + (Number(e.paid_amount) || 0), 0)
@@ -179,7 +182,7 @@ export default function InstructorAnalyticsPage() {
                             <div class="stat-value">${escapeHtml(stats.totalStudents)}</div>
                         </div>
                         <div class="stat-box" style="flex: 1;">
-                            <div class="stat-label">صافي الأرباح</div>
+                            <div class="stat-label">نصيبك بعد العمولة</div>
                             <div class="stat-value">${stats.netRevenue.toLocaleString()} ج.م</div>
                         </div>
                     </div>
@@ -228,7 +231,7 @@ export default function InstructorAnalyticsPage() {
         <div className="space-y-8 font-arabic animate-in fade-in duration-500">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-black italic">لوحة التميز المالي والأداء 📈</h1>
+                    <h1 className="text-2xl sm:text-3xl font-black italic">لوحة التميز المالي والأداء 📈</h1>
                     <p className="text-muted-foreground mt-1 italic">شفافية كاملة لأرباحك وتفاعل طلابك خطوة بخطوة</p>
                 </div>
                 <Button variant="outline" className="gap-2 font-bold bg-white" onClick={handlePrint}>
@@ -246,23 +249,23 @@ export default function InstructorAnalyticsPage() {
                     icon={<Users className="h-5 w-5" />}
                 />
                 <AnalyticsCard
-                    title="إجمالي الأرباح (Gross)"
+                    title="دفعه الطلاب"
                     value={`${stats.totalRevenue.toLocaleString()} ج.م`}
-                    trend={"قبل الخصومات"}
+                    trend={"بعد الكوبونات"}
                     color="bg-green-50 text-green-600"
                     icon={<DollarSign className="h-5 w-5" />}
                 />
                 <AnalyticsCard
-                    title="عمولة المنصة (5%)"
+                    title="عمولة المنصة"
                     value={`${stats.platformCommission.toLocaleString()} ج.م`}
-                    trend={"ثابتة لكافة الكورسات"}
+                    trend={"حسب باقتك وقت كل بيع"}
                     color="bg-red-50 text-red-600"
                     icon={<TrendingUp className="h-5 w-5" />}
                 />
                 <AnalyticsCard
-                    title="صافي أرباحك ✨"
+                    title="نصيبك"
                     value={`${stats.netRevenue.toLocaleString()} ج.م`}
-                    trend={"جاهزة للسحب"}
+                    trend={"اتحط في محفظتك وقت البيع"}
                     color="bg-orange-50 text-orange-600"
                     icon={<Award className="h-5 w-5" />}
                 />
@@ -395,7 +398,10 @@ export default function InstructorAnalyticsPage() {
                             </div>
                             <div className="space-y-0.5">
                                 <p className="text-xs font-bold">نظام العمولات</p>
-                                <p className="text-[10px] text-muted-foreground font-medium">العمولة الحالية 5% ثابتة لجميع المحاضرين والطلاب (95% صافي أرباح للمعلم).</p>
+                                <p className="text-[10px] text-muted-foreground font-medium">
+                                    العمولة بتتحسب على كل بيع حسب باقتك وقتها ({PLAN_LIST.map((p) => `${p.name} ${formatRate(p.commissionRate)}`).join(" • ")}). التفاصيل في{" "}
+                                    <a href="/instructor/earnings" className="font-bold text-primary underline-offset-4 hover:underline">أرباحي</a>.
+                                </p>
                             </div>
                         </CardContent>
                     </Card>

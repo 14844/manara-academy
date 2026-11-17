@@ -87,6 +87,12 @@ export async function POST(request: Request) {
             error: err,
             metadata: { request_id: logRequestId },
         });
+        if (err?.message === "REQUEST_NOT_FOUND") {
+            return NextResponse.json({ error: "الطلب غير موجود" }, { status: 404 });
+        }
+        if (err?.message === "REQUEST_NOT_PENDING") {
+            return NextResponse.json({ error: "الطلب ليس في حالة قيد الانتظار" }, { status: 400 });
+        }
         return NextResponse.json({ error: "فشل رفض الطلب" }, { status: 500 });
     }
 }

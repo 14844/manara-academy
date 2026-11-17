@@ -42,6 +42,20 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { couponSourceOf } from "@/lib/sales"
+
+function CouponSourceBadge({ coupon }: { coupon: any }) {
+    const source = couponSourceOf(coupon)
+    return source === "platform" ? (
+        <Badge variant="outline" className="text-[10px] border-blue-300 bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+            كوبون المنصة
+        </Badge>
+    ) : (
+        <Badge variant="outline" className="text-[10px] border-purple-300 bg-purple-50 text-purple-700 dark:bg-purple-500/10 dark:text-purple-300">
+            كوبون مدرس{coupon.instructor_name ? `: ${coupon.instructor_name}` : ""}
+        </Badge>
+    )
+}
 
 export default function AdminCouponsPage() {
     const [coupons, setCoupons] = useState<any[]>([])
@@ -170,7 +184,7 @@ export default function AdminCouponsPage() {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="space-y-1">
                         <h1 className="text-4xl font-black tracking-tight text-primary">إدارة الكوبونات</h1>
-                        <p className="text-muted-foreground font-medium">أنشئ أكواد خصم مئوية لكورسات المنصة</p>
+                        <p className="text-muted-foreground font-medium">أنشئ أكواد خصم مئوية لكورسات المنصة (كوبونات المنصة)</p>
                     </div>
                     <div className="h-14 w-14 bg-primary/10 rounded-2xl flex items-center justify-center text-primary shadow-inner">
                         <Ticket className="h-8 w-8" />
@@ -184,10 +198,15 @@ export default function AdminCouponsPage() {
                             <CardHeader className="bg-primary/5 border-b border-primary/10">
                                 <div className="flex items-center gap-2">
                                     <Plus className="h-5 w-5 text-primary" />
-                                    <CardTitle className="text-xl font-bold">إنشاء كوبون جديد</CardTitle>
+                                    <CardTitle className="text-xl font-bold">إنشاء كوبون منصة جديد</CardTitle>
                                 </div>
                             </CardHeader>
                             <CardContent className="pt-6">
+                                <div className="mb-5 rounded-xl border border-blue-300 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">
+                                    <p className="font-bold">كوبون منصة</p>
+                                    <p className="mt-1 leading-relaxed">الخصم على حساب المنصة، المدرس بياخد نصيبه كامل.</p>
+                                    <p className="mt-1 text-xs opacity-80">يعني الخصم بيتخصم من عمولة المنصة (ممكن صافي المنصة على البيعة يبقى بالسالب). كوبونات المدرسين اللي بيعملوها بنفسهم بتقلل المبلغ اللي بتتحسب منه العمولة.</p>
+                                </div>
                                 <form onSubmit={handleAddCoupon} className="space-y-5">
                                     <div className="space-y-2">
                                         <Label htmlFor="code" className="font-bold">كود الخصم</Label>
@@ -312,11 +331,12 @@ export default function AdminCouponsPage() {
                                                         <span className="text-primary font-black text-lg">{coupon.discount_percent}%</span>
                                                     </div>
                                                     <div className="space-y-1">
-                                                        <div className="flex items-center gap-2">
+                                                        <div className="flex flex-wrap items-center gap-2">
                                                             <h3 className="text-lg font-black tracking-widest font-mono text-primary">{coupon.code}</h3>
                                                             <Badge variant={coupon.active ? "default" : "secondary"} className="text-[10px]">
                                                                 {coupon.active ? "نشط" : "معطل"}
                                                             </Badge>
+                                                            <CouponSourceBadge coupon={coupon} />
                                                         </div>
                                                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                                                             <div className="flex items-center gap-1">

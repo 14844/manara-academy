@@ -16,7 +16,6 @@ import {
     runTransaction,
     increment
 } from "firebase/firestore"
-import { calculateTotalCommission } from "@/lib/commission-utils"
 import { onAuthStateChanged } from "firebase/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -52,7 +51,7 @@ export default function InstructorWithdrawalsPage() {
     const [user, setUser] = useState<any>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isSubmitting, setIsSubmitting] = useState(false)
-    const [balance, setBalance] = useState({ gross: 0, commission: 0, net: 0 })
+    const [balance, setBalance] = useState({ net: 0 })
     const [requests, setRequests] = useState<any[]>([])
     const [showRequestModal, setShowRequestModal] = useState(false)
     const [selectedRequest, setSelectedRequest] = useState<any>(null)
@@ -101,11 +100,8 @@ export default function InstructorWithdrawalsPage() {
             // We use the net balance directly from instructor's profile wallet
             const currentNet = profileData.wallet_balance || 0
             
-            setBalance({
-                gross: currentNet / 0.95, // Estimate gross based on 5% platform commission
-                commission: (currentNet / 0.95) * 0.05,
-                net: currentNet
-            })
+            // The wallet already holds your share: commission was taken per sale (see /instructor/earnings).
+            setBalance({ net: Number(currentNet) || 0 })
 
             // Note: We can also fetch from the 'transactions' collection for exact history
             // but for immediate UI fix, using wallet_balance is most accurate to the actual money.
@@ -173,11 +169,7 @@ export default function InstructorWithdrawalsPage() {
             const res = await fetch("/api/instructor/withdrawals/request", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    amount: balance.gross,
-                    commission: balance.commission,
-                    net_amount: netAmount,
-                }),
+                body: JSON.stringify({ net_amount: netAmount }),
             })
 
             const data = await res.json().catch(() => ({}))
@@ -194,7 +186,7 @@ export default function InstructorWithdrawalsPage() {
                 action: "withdrawal_requested",
                 category: "financial",
                 title: "طلب سحب أرباح محاضر",
-                description: `قام المحاضر بطلب سحب أرباح بقيمة ${netAmount} ج.م (صافي بعد عمولة ${balance.commission} ج.م)`,
+                description: `قام المحاضر بطلب سحب ${netAmount} ج.م من رصيد محفظته`,
                 status: "pending",
                 user_id: instructorId,
                 user_name: user.displayName || "محاضر",
@@ -202,8 +194,6 @@ export default function InstructorWithdrawalsPage() {
                 user_role: "instructor",
                 amount: netAmount,
                 metadata: {
-                    gross_amount: balance.gross,
-                    commission: balance.commission,
                     net_amount: netAmount,
                     withdrawal_id: data.requestId || "pending_req",
                 }
@@ -248,7 +238,7 @@ export default function InstructorWithdrawalsPage() {
     }
 
     return (
-        <div className="container py-10 space-y-8 font-arabic rtl">
+        <div className="space-y-8 font-arabic rtl">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                     <Button variant="outline" size="icon" asChild>
@@ -257,8 +247,8 @@ export default function InstructorWithdrawalsPage() {
                         </Link>
                     </Button>
                     <div>
-                        <h1 className="text-3xl font-bold">المحفظة والأرباح</h1>
-                        <p className="text-muted-foreground">إدارة طلبات سحب الأرباح والتقارير المالية</p>
+                        <h1 className="text-2xl sm:text-3xl font-bold">المحفظة والسحب</h1>
+                        <p className="text-muted-foreground">رصيدك جاهز للسحب — العمولة اتخصمت وقت كل بيع</p>
                     </div>
                 </div>
             </div>
@@ -283,16 +273,15 @@ export default function InstructorWithdrawalsPage() {
                 </div>
                 <div className="space-y-1 text-xs">
                     <h4 className="font-bold text-foreground text-sm flex items-center gap-2">
-                        <span>نظام احتساب وتوزيع الأرباح (شفافية كاملة 100%)</span>
-                        <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-300 font-bold">
-                            صافي أرباحك 95%
-                        </Badge>
+                        <span>إزاي فلوسك بتوصلك</span>
                         <Badge variant="secondary" className="text-[10px] font-bold">
                             السحب أسبوعياً ⏱️
                         </Badge>
                     </h4>
                     <p className="text-muted-foreground leading-relaxed">
-                        يتم إيداع حصتك الصافية (<strong className="text-foreground">95%</strong> من قيمة كل اشتراك) تلقائياً في رصيدك لحظة التحاق أي طالب واشتراكه من خلال <strong className="text-foreground">رصيد محفظته</strong>. يُسمح بتقديم طلب سحب الأرباح <strong className="text-foreground">مرة واحدة كل 7 أيام (أسبوعياً)</strong> لضمان استقرار المعاملات المالية وحماية المنصة والمحاضر.
+                        مع كل بيع، عمولة المنصة (حسب باقتك وقتها) بتتخصم مرة واحدة، ونصيبك بيتحط في رصيدك فوراً — تفاصيل كل بيع في{" "}
+                        <Link href="/instructor/earnings" className="font-bold text-primary underline-offset-4 hover:underline">أرباحي</Link>.
+                        السحب بيكون من رصيد المحفظة زي ما هو <strong className="text-foreground">من غير أي خصم إضافي</strong>، ومسموح بطلب سحب <strong className="text-foreground">مرة كل 7 أيام</strong>.
                     </p>
                 </div>
             </div>
@@ -304,7 +293,7 @@ export default function InstructorWithdrawalsPage() {
                     </div>
                     <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium opacity-80 uppercase tracking-wider">
-                            {balance.net < 0 ? "الرصيد المستحق (مدين)" : "صافي الربح المتاح"}
+                            {balance.net < 0 ? "الرصيد المستحق (مدين)" : "رصيد المحفظة المتاح للسحب"}
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -343,16 +332,11 @@ export default function InstructorWithdrawalsPage() {
                                         </DialogDescription>
                                     </DialogHeader>
                                     <div className="space-y-4 py-4">
-                                        <div className="flex justify-between p-3 bg-muted rounded-lg">
-                                            <span>إجمالي المبيعات الجديدة:</span>
-                                            <span className="font-bold">{balance.gross.toLocaleString()} ج.م</span>
-                                        </div>
-                                        <div className="flex justify-between p-3 bg-red-50 text-red-700 rounded-lg">
-                                            <span>عمولة المنصة (5%):</span>
-                                            <span className="font-bold">-{balance.commission.toLocaleString()} ج.م</span>
-                                        </div>
+                                        <p className="text-sm text-muted-foreground">
+                                            هيتسحب رصيد محفظتك بالكامل. العمولة اتخصمت بالفعل وقت كل بيع، فمفيش أي خصم تاني على السحب.
+                                        </p>
                                         <div className="flex justify-between p-4 bg-primary/10 text-primary border-2 border-primary/20 rounded-xl">
-                                            <span className="font-bold">المبلغ الصافي للسحب:</span>
+                                            <span className="font-bold">المبلغ اللي هيتحول لك:</span>
                                             <span className="text-2xl font-black">{balance.net.toLocaleString()} ج.م</span>
                                         </div>
                                     </div>
@@ -377,21 +361,16 @@ export default function InstructorWithdrawalsPage() {
                     <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-bold text-muted-foreground flex items-center gap-2">
                             <DollarSign className="h-4 w-4 text-primary" />
-                            إحصائيات إجمالية
+                            مبيعاتك وعمولتها
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex justify-between items-center text-sm">
-                            <span className="text-muted-foreground">إجمالي المبيعات:</span>
-                            <span className="font-bold">{balance.gross.toLocaleString()} ج.م</span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm">
-                            <span className="text-muted-foreground">العمولة المستقطعة:</span>
-                            <span className="font-bold text-red-600">{balance.commission.toLocaleString()} ج.م</span>
-                        </div>
-                        <div className="pt-4 border-t">
-                            <Badge variant="outline" className="text-[10px] w-full justify-center py-1 bg-emerald-50 text-emerald-700 border-emerald-200">العمولة مخفضة 5% فقط (صافي أرباح 95%)</Badge>
-                        </div>
+                    <CardContent className="space-y-4 text-sm">
+                        <p className="text-muted-foreground leading-relaxed">
+                            كل بيع بيظهر بالتفصيل: الطالب دفع كام، المنصة أخدت كام حسب باقتك، ونصيبك كام.
+                        </p>
+                        <Button variant="outline" className="min-h-11 w-full font-bold" asChild>
+                            <Link href="/instructor/earnings">شوف أرباحي بالتفصيل</Link>
+                        </Button>
                     </CardContent>
                 </Card>
 
@@ -429,13 +408,12 @@ export default function InstructorWithdrawalsPage() {
                     <CardDescription>متابعة كافة طلبات السحب والحالات الخاصة بها</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="rounded-xl border">
+                    <div className="rounded-xl border overflow-x-auto">
                         <table className="w-full text-right text-sm">
                             <thead className="bg-muted/50 border-b">
                                 <tr>
                                     <th className="p-4 font-bold">التاريخ</th>
-                                    <th className="p-4 font-bold">المبلغ الإجمالي</th>
-                                    <th className="p-4 font-bold">الصافي</th>
+                                    <th className="p-4 font-bold">المبلغ</th>
                                     <th className="p-4 font-bold">الحالة</th>
                                     <th className="p-4 font-bold">الإجراءات</th>
                                 </tr>
@@ -443,7 +421,7 @@ export default function InstructorWithdrawalsPage() {
                             <tbody className="divide-y text-zinc-600">
                                 {requests.length === 0 ? (
                                     <tr>
-                                        <td colSpan={5} className="p-8 text-center text-muted-foreground italic">
+                                        <td colSpan={4} className="p-8 text-center text-muted-foreground italic">
                                             لا توجد طلبات سحب سابقة
                                         </td>
                                     </tr>
@@ -457,8 +435,7 @@ export default function InstructorWithdrawalsPage() {
                                                     day: 'numeric'
                                                 })}
                                             </td>
-                                            <td className="p-4">{req.amount.toLocaleString()} ج.م</td>
-                                            <td className="p-4 font-bold text-zinc-900">{req.net_amount.toLocaleString()} ج.م</td>
+                                            <td className="p-4 font-bold text-foreground whitespace-nowrap">{Number(req.net_amount ?? req.amount ?? 0).toLocaleString()} ج.م</td>
                                             <td className="p-4">
                                                 {req.status === 'pending' && <Badge className="bg-orange-500/10 text-orange-600 border-orange-200">قيد المراجعة</Badge>}
                                                 {req.status === 'paid' && <Badge className="bg-green-500/10 text-green-600 border-green-200">تم الدفع</Badge>}
@@ -519,16 +496,8 @@ export default function InstructorWithdrawalsPage() {
                             </div>
 
                             <div className="mt-6 pt-4 border-t-2 border-zinc-100 space-y-2">
-                                <div className="row">
-                                    <span>المجموع الإجمالي للمبيعات:</span>
-                                    <span>{selectedRequest?.amount?.toLocaleString()} ج.م</span>
-                                </div>
-                                <div className="row text-red-600">
-                                    <span>عمولة المنصة:</span>
-                                    <span>-{selectedRequest?.commission?.toLocaleString()} ج.م</span>
-                                </div>
                                 <div className="total">
-                                    <span>صافي المبلغ المستحق:</span>
+                                    <span>المبلغ المسحوب من المحفظة:</span>
                                     <span className="text-primary">{selectedRequest?.net_amount?.toLocaleString()} ج.م</span>
                                 </div>
                             </div>

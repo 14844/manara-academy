@@ -46,6 +46,73 @@ import {
 import { toast } from "sonner"
 import Link from "next/link"
 import { useAdminRole } from "@/components/admin/admin-role-context"
+import { PLANS, formatRate, isPlanId } from "@/lib/plans"
+
+/* ---- GET /api/admin/finance/commissions ---- */
+interface CommissionAmounts {
+    sales: number
+    paid: number
+    grossCommission: number
+    platformNet: number
+    instructorShare: number
+}
+interface CommissionsData {
+    totals: CommissionAmounts & { platformCouponCost: number }
+    byPlan: (CommissionAmounts & { planId: string; rate: number })[]
+    subscriptions: { total: number; count: number }
+}
+
+const EMPTY_COMMISSIONS: CommissionsData = {
+    totals: { sales: 0, paid: 0, grossCommission: 0, platformCouponCost: 0, platformNet: 0, instructorShare: 0 },
+    byPlan: [],
+    subscriptions: { total: 0, count: 0 },
+}
+
+function ymd(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
+/** Same windows the enrollment filter uses (rolling 30/90/365 days, or everything). */
+function rangeFor(timeRange: string): { from: string; to: string } {
+    const now = new Date()
+    const days = timeRange === "month" ? 30 : timeRange === "quarter" ? 90 : timeRange === "year" ? 365 : 0
+    const from = days ? ymd(new Date(now.getTime() - days * 24 * 60 * 60 * 1000)) : "2020-01-01"
+    return { from, to: ymd(now) }
+}
+
+async function fetchCommissions(from: string, to: string): Promise<CommissionsData | null> {
+    try {
+        const res = await fetch(`/api/admin/finance/commissions?from=${from}&to=${to}`, { cache: "no-store" })
+        if (!res.ok) return null
+        const json = await res.json()
+        const t = json?.totals ?? {}
+        const n = (v: unknown) => Number(v) || 0
+        return {
+            totals: {
+                sales: n(t.sales), paid: n(t.paid), grossCommission: n(t.grossCommission),
+                platformCouponCost: n(t.platformCouponCost), platformNet: n(t.platformNet), instructorShare: n(t.instructorShare),
+            },
+            byPlan: Array.isArray(json?.byPlan)
+                ? json.byPlan.map((p: any) => ({
+                    planId: String(p.planId), rate: n(p.rate), sales: n(p.sales), paid: n(p.paid),
+                    grossCommission: n(p.grossCommission), platformNet: n(p.platformNet), instructorShare: n(p.instructorShare),
+                }))
+                : [],
+            subscriptions: { total: n(json?.subscriptions?.total), count: n(json?.subscriptions?.count) },
+        }
+    } catch {
+        return null
+    }
+}
+
+function planLabel(planId: string): string {
+    return isPlanId(planId) ? PLANS[planId].name : planId
+}
+
+/** Paid amount of one enrollment: stored sale split first, then older fields. */
+function enrollmentPaid(enr: any): number {
+    return Number(enr.sale_paid ?? enr.paid_amount ?? enr.price ?? 0) || 0
+}
 
 export default function AdminKpisPage() {
     const { can } = useAdminRole()
@@ -58,20 +125,57 @@ export default function AdminKpisPage() {
     const [timeRange, setTimeRange] = useState("all") // "month", "quarter", "year", "all"
 
     // Raw data
-    const [transactions, setTransactions] = useState<any[]>([])
     const [enrollments, setEnrollments] = useState<any[]>([])
     const [withdrawalRequests, setWithdrawalRequests] = useState<any[]>([])
     const [walletRequests, setWalletRequests] = useState<any[]>([])
     const [profiles, setProfiles] = useState<any[]>([])
     const [courses, setCourses] = useState<any[]>([])
+    // Finance numbers (finance.view only): per-sale stored split, aggregated server-side
+    const [commissions, setCommissions] = useState<CommissionsData>(EMPTY_COMMISSIONS)
+    const [monthlyFinance, setMonthlyFinance] = useState<(CommissionsData | null)[]>([])
+    const [financeError, setFinanceError] = useState(false)
 
     useEffect(() => {
         fetchKpiData()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    useEffect(() => {
+        if (!canViewFinance) return
+        let cancelled = false
+        const { from, to } = rangeFor(timeRange)
+        fetchCommissions(from, to).then((data) => {
+            if (cancelled) return
+            setCommissions(data ?? EMPTY_COMMISSIONS)
+            setFinanceError(!data)
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [canViewFinance, timeRange])
+
+    /** Last 6 calendar months, one commissions call each (for the monthly trend chart). */
+    async function fetchMonthlyFinance() {
+        if (!canViewFinance) return
+        const now = new Date()
+        const calls = []
+        for (let i = 5; i >= 0; i--) {
+            const start = new Date(now.getFullYear(), now.getMonth() - i, 1)
+            const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0)
+            calls.push(fetchCommissions(ymd(start), ymd(end)))
+        }
+        setMonthlyFinance(await Promise.all(calls))
+    }
 
     async function fetchKpiData() {
         setIsRefreshing(true)
         try {
+            if (canViewFinance) {
+                const { from, to } = rangeFor(timeRange)
+                const [current] = await Promise.all([fetchCommissions(from, to), fetchMonthlyFinance()])
+                setCommissions(current ?? EMPTY_COMMISSIONS)
+                setFinanceError(!current)
+            }
             // Each query is independent: a denied/failed one resolves to [] and never breaks the others.
             const fetchList = async (name: string, enabled: boolean): Promise<any[]> => {
                 if (!enabled) return []
@@ -85,8 +189,7 @@ export default function AdminKpisPage() {
             }
 
             // Money collections are only queried for roles that can see finance
-            const [txList, enrList, withList, walList, profList, coursesList] = await Promise.all([
-                fetchList("transactions", canViewFinance),
+            const [enrList, withList, walList, profList, coursesList] = await Promise.all([
                 fetchList("enrollments", canReadEnrollments),
                 fetchList("withdrawal_requests", canViewFinance),
                 fetchList("wallet_requests", canViewFinance),
@@ -94,7 +197,6 @@ export default function AdminKpisPage() {
                 fetchList("courses", true),
             ])
 
-            setTransactions(txList)
             setEnrollments(enrList)
             setWithdrawalRequests(withList)
             setWalletRequests(walList)
@@ -138,26 +240,18 @@ export default function AdminKpisPage() {
         })
 
         // GMV (Gross Merchandise Value - Total Course Sales)
-        let totalGmv = 0
-        let totalPlatformCommission = 0
-        let totalInstructorEarnings = 0
-
-        filteredEnrollments.forEach(enr => {
-            const price = Number(enr.paid_amount || enr.price || 0)
-            totalGmv += price
-            totalPlatformCommission += price * 0.05 // 5%
-            totalInstructorEarnings += price * 0.95 // 95%
-        })
-
-        // Also check transactions collection for any direct enrollment_payout logs
-        transactions.forEach(tx => {
-            if (tx.type === "enrollment_payout" && (!filteredEnrollments.length)) {
-                const amt = Number(tx.amount || 0)
-                totalGmv += amt
-                totalPlatformCommission += (tx.platform_commission || amt * 0.05)
-                totalInstructorEarnings += (tx.instructor_share || amt * 0.95)
-            }
-        })
+        // Finance totals come from the commissions API (sum of the per-sale stored split:
+        // platform_net / instructor_share at the plan rate of each sale) — never price × a fixed rate.
+        const t = commissions.totals
+        const totalGmv = canViewFinance ? t.paid : filteredEnrollments.reduce((s, e) => s + enrollmentPaid(e), 0)
+        const totalPlatformNet = t.platformNet
+        const totalGrossCommission = t.grossCommission
+        const totalPlatformCouponCost = t.platformCouponCost
+        const totalInstructorEarnings = t.instructorShare
+        const subscriptionRevenue = commissions.subscriptions.total
+        const subscriptionCount = commissions.subscriptions.count
+        const salesCount = canViewFinance ? t.sales : filteredEnrollments.length
+        const revenueByPlan = commissions.byPlan
 
         // Total Recharged Money into Platform Wallets (Approved Manual)
         let totalRechargedAmount = 0
@@ -199,13 +293,14 @@ export default function AdminKpisPage() {
         // Typically around 1.5% - 2.5% or fixed monthly estimate ~250 EGP
         const estimatedHostingCosts = Math.max(150, totalGmv * 0.015)
         
-        // P&L: Net Profit = Platform Commission (5%) - Estimated Costs
-        const netProfit = totalPlatformCommission - estimatedHostingCosts
+        // P&L: Net Profit = platform net from sales + plan subscriptions - Estimated Costs
+        const platformRevenue = totalPlatformNet + subscriptionRevenue
+        const netProfit = platformRevenue - estimatedHostingCosts
         const isProfitable = netProfit >= 0
         const profitMargin = totalGmv > 0 ? ((netProfit / totalGmv) * 100) : 0
 
         // Average Order Value (AOV)
-        const aov = filteredEnrollments.length > 0 ? Math.round(totalGmv / filteredEnrollments.length) : 0
+        const aov = salesCount > 0 ? Math.round(totalGmv / salesCount) : 0
 
         // Wallet Utilization Rate: How much of recharged money was actually spent on courses
         const walletUtilization = totalRechargedAmount > 0 
@@ -213,7 +308,7 @@ export default function AdminKpisPage() {
             : 0
 
         // Course Breakdown (Top 5 Performing Courses)
-        const courseSalesMap: Record<string, { title: string; count: number; revenue: number; instructor: string }> = {}
+        const courseSalesMap: Record<string, { title: string; count: number; revenue: number; platformNet: number; instructor: string }> = {}
         filteredEnrollments.forEach(enr => {
             const cId = enr.course_id || "unknown"
             if (!courseSalesMap[cId]) {
@@ -221,11 +316,16 @@ export default function AdminKpisPage() {
                     title: enr.course_title || "كورس بدون عنوان",
                     count: 0,
                     revenue: 0,
+                    platformNet: 0,
                     instructor: enr.instructor_name || "محاضر",
                 }
             }
             courseSalesMap[cId].count++
-            courseSalesMap[cId].revenue += Number(enr.paid_amount || enr.price || 0)
+            if (canViewFinance) {
+                courseSalesMap[cId].revenue += enrollmentPaid(enr)
+                // stored per sale at the plan rate of that sale
+                courseSalesMap[cId].platformNet += Number(enr.sale_platform_net) || 0
+            }
         })
 
         const topCourses = Object.values(courseSalesMap)
@@ -248,29 +348,34 @@ export default function AdminKpisPage() {
             const y = d.getFullYear()
             const label = `${monthNames[mIdx]}`
 
-            let monthGmv = 0
             let monthEnrollments = 0
 
             enrollments.forEach(enr => {
                 const enrDate = new Date(enr.enrolled_at || enr.created_at || 0)
                 if (enrDate.getMonth() === mIdx && enrDate.getFullYear() === y) {
-                    monthGmv += Number(enr.paid_amount || enr.price || 0)
                     monthEnrollments++
                 }
             })
 
+            const mf = monthlyFinance[5 - i]
             monthlyData.push({
                 month: label,
-                gmv: monthGmv,
-                commission: monthGmv * 0.05,
+                gmv: Math.round(mf?.totals.paid ?? 0),
+                commission: Math.round(mf?.totals.platformNet ?? 0),
                 enrollments: monthEnrollments,
             })
         }
 
         return {
             totalGmv,
-            totalPlatformCommission,
+            totalPlatformNet,
+            totalGrossCommission,
+            totalPlatformCouponCost,
             totalInstructorEarnings,
+            subscriptionRevenue,
+            subscriptionCount,
+            platformRevenue,
+            revenueByPlan,
             totalRechargedAmount,
             totalWithdrawalsPaid,
             totalWithdrawalsPending,
@@ -284,6 +389,7 @@ export default function AdminKpisPage() {
             aov,
             walletUtilization,
             enrollmentCount: filteredEnrollments.length,
+            salesCount,
             studentCount,
             instructorCount,
             totalCourses: courses.length,
@@ -291,7 +397,7 @@ export default function AdminKpisPage() {
             topCoursesByCount,
             monthlyData,
         }
-    }, [enrollments, transactions, walletRequests, withdrawalRequests, profiles, courses, timeRange])
+    }, [enrollments, walletRequests, withdrawalRequests, profiles, courses, timeRange, commissions, monthlyFinance, canViewFinance])
 
     // Dynamic AI & Financial Advisory Insights
     const advisoryInsights = useMemo(() => {
@@ -302,8 +408,8 @@ export default function AdminKpisPage() {
             insights.push({
                 type: "positive",
                 title: "المنصة في نطاق الربحية الإيجابية (Profitable)",
-                desc: `عمولة المنصة (${metrics.totalPlatformCommission.toLocaleString()} ج.م) تغطي بالكامل تكاليف التشغيل التقديرية (${metrics.estimatedHostingCosts.toLocaleString()} ج.م) مع فائض صافي قدره ${metrics.netProfit.toLocaleString()} ج.م.`,
-                action: "الحفاظ على معدل العمولة 5% مع التركيز على مضاعفة عدد الطلاب النشطين لرفع العائد الإجمالي.",
+                desc: `إيراد المنصة (صافي المبيعات ${metrics.totalPlatformNet.toLocaleString()} ج.م + اشتراكات الباقات ${metrics.subscriptionRevenue.toLocaleString()} ج.م) يغطي تكاليف التشغيل التقديرية (${metrics.estimatedHostingCosts.toLocaleString()} ج.م) مع فائض صافي قدره ${metrics.netProfit.toLocaleString()} ج.م.`,
+                action: "شجّع المدرسين النشطين على الترقية لباقات المحترف والنخبة (اشتراك شهري ثابت) مع التركيز على زيادة عدد الطلاب النشطين.",
             })
         } else if (metrics.totalGmv === 0) {
             insights.push({
@@ -519,20 +625,24 @@ export default function AdminKpisPage() {
 
                         <div class="kpi-grid">
                             <div class="kpi-card">
-                                <div class="val" style="color: #2563eb;">${(metrics.totalGmv || 0).toLocaleString()} ج.م</div>
+                                <div class="val" style="color: #2563eb;">${escapeHtml((metrics.totalGmv || 0).toLocaleString())} ج.م</div>
                                 <div class="lbl">إجمالي حجم التداول (GMV)</div>
                             </div>
                             <div class="kpi-card">
-                                <div class="val" style="color: #16a34a;">${(metrics.totalPlatformCommission || 0).toLocaleString()} ج.م</div>
-                                <div class="lbl">صافي أرباح إدارة المنصة (5%)</div>
+                                <div class="val" style="color: #16a34a;">${escapeHtml((metrics.totalPlatformNet || 0).toLocaleString())} ج.م</div>
+                                <div class="lbl">صافي المنصة من المبيعات (بعد كوبونات المنصة)</div>
                             </div>
                             <div class="kpi-card">
-                                <div class="val" style="color: #7c3aed;">${(metrics.totalInstructorEarnings || 0).toLocaleString()} ج.م</div>
-                                <div class="lbl">مستحقات المحاضرين (95%)</div>
+                                <div class="val" style="color: #7c3aed;">${escapeHtml((metrics.totalInstructorEarnings || 0).toLocaleString())} ج.م</div>
+                                <div class="lbl">مستحقات المحاضرين</div>
                             </div>
                             <div class="kpi-card">
-                                <div class="val">${escapeHtml(metrics.enrollmentCount || 0)}</div>
-                                <div class="lbl">إجمالي اشتراكات الطلاب</div>
+                                <div class="val" style="color: #0891b2;">${escapeHtml((metrics.subscriptionRevenue || 0).toLocaleString())} ج.م</div>
+                                <div class="lbl">إيرادات اشتراكات الباقات (${escapeHtml(metrics.subscriptionCount || 0)})</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="val">${escapeHtml(metrics.salesCount || 0)}</div>
+                                <div class="lbl">عدد عمليات البيع</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="val" style="color: #ea580c;">${(metrics.totalWithdrawalsPaid || 0).toLocaleString()} ج.م</div>
@@ -544,6 +654,24 @@ export default function AdminKpisPage() {
                             </div>
                         </div>
 
+                        <div class="section-title">الإيراد حسب الباقة</div>
+                        <table>
+                            <thead>
+                                <tr><th>الباقة</th><th>العمولة</th><th>المبيعات</th><th>المدفوع</th><th>صافي المنصة</th><th>نصيب المدرسين</th></tr>
+                            </thead>
+                            <tbody>
+                                ${(metrics.revenueByPlan || []).length === 0 ? `<tr><td colspan="6" style="text-align:center; color:#64748b;">—</td></tr>` : metrics.revenueByPlan.map((p) => `
+                                    <tr>
+                                        <td style="font-weight: 800;">${escapeHtml(planLabel(p.planId))}</td>
+                                        <td>${escapeHtml(formatRate(p.rate))}</td>
+                                        <td>${escapeHtml(p.sales)}</td>
+                                        <td>${escapeHtml(p.paid.toLocaleString())} ج.م</td>
+                                        <td style="color:#16a34a; font-weight:800;">${escapeHtml(p.platformNet.toLocaleString())} ج.م</td>
+                                        <td>${escapeHtml(p.instructorShare.toLocaleString())} ج.م</td>
+                                    </tr>`).join('')}
+                            </tbody>
+                        </table>
+
                         <div class="section-title">الكورسات الأعلى مبيعاً وتدفقاً مالياً بالفترة</div>
                         <table>
                             <thead>
@@ -552,7 +680,7 @@ export default function AdminKpisPage() {
                                     <th>المحاضر</th>
                                     <th>المبيعات</th>
                                     <th>إجمالي الإيرادات</th>
-                                    <th>حصة المنصة (5%)</th>
+                                    <th>صافي المنصة</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -564,9 +692,9 @@ export default function AdminKpisPage() {
                                     <tr>
                                         <td style="font-weight: 800;">${escapeHtml(c.title)}</td>
                                         <td>${escapeHtml(c.instructor || 'مدرس المادة')}</td>
-                                        <td>${escapeHtml(c.enrollments)} طالب</td>
-                                        <td style="color: #2563eb; font-weight: 800;">${(c.revenue || 0).toLocaleString()} ج.م</td>
-                                        <td style="color: #16a34a; font-weight: 800;">${Math.round((c.revenue || 0) * 0.05).toLocaleString()} ج.م</td>
+                                        <td>${escapeHtml(c.count)} طالب</td>
+                                        <td style="color: #2563eb; font-weight: 800;">${escapeHtml((c.revenue || 0).toLocaleString())} ج.م</td>
+                                        <td style="color: #16a34a; font-weight: 800;">${escapeHtml(Math.round(c.platformNet || 0).toLocaleString())} ج.م</td>
                                     </tr>
                                 `).join('')}
                             </tbody>
@@ -611,7 +739,7 @@ export default function AdminKpisPage() {
                     </h1>
                     <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
                         {canViewFinance
-                            ? "تحليل بياني وتفصيلي متكامل لحجم التداول، صافي أرباح إدارة المنصة (5%)، التدفقات النقدية، وتقييم الربحية والخسارة."
+                            ? "تحليل حجم التداول، صافي إيراد المنصة (عمولة كل عملية بيع بنسبة باقة المدرس وقتها) واشتراكات الباقات، والتدفقات النقدية."
                             : "متابعة أعداد الاشتراكات، نمو الطلاب والمعلمين، والكورسات الأكثر إقبالاً."}
                     </p>
                 </div>
@@ -685,27 +813,33 @@ export default function AdminKpisPage() {
                             </h2>
                             <p className="text-xs text-muted-foreground leading-relaxed">
                                 {metrics.isProfitable 
-                                    ? "إيرادات عمولة المنصة الثابتة (5%) تفوق المصاريف التشغيلية المباشرة، مما يضع نموذج العمل في مرحلة استدامة ونمو مستمر."
+                                    ? "صافي المنصة من المبيعات (بعد تكلفة كوبونات المنصة) + إيرادات اشتراكات الباقات يفوق المصاريف التشغيلية التقديرية."
                                     : "المنصة في مرحلة الانطلاق، وتستعد لاستقبال التدفقات النقدية مع تزايد اشتراكات الطلاب."}
                             </p>
                         </div>
 
                         {/* Quick Balance Breakdown */}
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full lg:w-auto">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full lg:w-auto">
                             <div className="bg-background/80 backdrop-blur p-3.5 rounded-xl border">
-                                <span className="text-[11px] text-muted-foreground block">إجمالي المبيعات (GMV):</span>
+                                <span className="text-[11px] text-muted-foreground block">المدفوع من الطلاب (GMV):</span>
                                 <span className="font-mono text-lg font-black text-foreground">
                                     {metrics.totalGmv.toLocaleString()} <span className="text-xs text-muted-foreground">ج.م</span>
                                 </span>
                             </div>
                             <div className="bg-background/80 backdrop-blur p-3.5 rounded-xl border">
-                                <span className="text-[11px] text-muted-foreground block">عمولة الإدارة (5%):</span>
-                                <span className="font-mono text-lg font-black text-emerald-600">
-                                    {metrics.totalPlatformCommission.toLocaleString()} <span className="text-xs text-muted-foreground">ج.م</span>
+                                <span className="text-[11px] text-muted-foreground block">صافي المنصة من المبيعات:</span>
+                                <span className={`font-mono text-lg font-black ${metrics.totalPlatformNet < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                                    {metrics.totalPlatformNet.toLocaleString()} <span className="text-xs text-muted-foreground">ج.م</span>
                                 </span>
                             </div>
-                            <div className="bg-background/80 backdrop-blur p-3.5 rounded-xl border col-span-2 sm:col-span-1">
-                                <span className="text-[11px] text-muted-foreground block">مستحقات المدرسين (95%):</span>
+                            <div className="bg-background/80 backdrop-blur p-3.5 rounded-xl border">
+                                <span className="text-[11px] text-muted-foreground block">اشتراكات الباقات:</span>
+                                <span className="font-mono text-lg font-black text-cyan-600">
+                                    {metrics.subscriptionRevenue.toLocaleString()} <span className="text-xs text-muted-foreground">ج.م</span>
+                                </span>
+                            </div>
+                            <div className="bg-background/80 backdrop-blur p-3.5 rounded-xl border">
+                                <span className="text-[11px] text-muted-foreground block">مستحقات المدرسين:</span>
                                 <span className="font-mono text-lg font-black text-purple-600">
                                     {metrics.totalInstructorEarnings.toLocaleString()} <span className="text-xs text-muted-foreground">ج.م</span>
                                 </span>
@@ -768,7 +902,7 @@ export default function AdminKpisPage() {
                         </div>
                         <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                             <Receipt className="w-3 h-3 text-primary" />
-                            <span>من خلال {metrics.enrollmentCount} عملية التحاق</span>
+                            <span>من خلال {metrics.salesCount} عملية بيع</span>
                         </p>
                     </CardContent>
                 </Card>
@@ -776,7 +910,7 @@ export default function AdminKpisPage() {
                 <Card className="border-border/60 shadow-sm hover:shadow-md transition-shadow">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-xs font-bold text-muted-foreground uppercase">
-                            أرباح الإدارة الصافية (5%)
+                            إيراد المنصة (صافي + اشتراكات)
                         </CardTitle>
                         <div className="p-2 bg-emerald-500/10 text-emerald-600 rounded-lg">
                             <DollarSign className="h-4 w-4" />
@@ -784,12 +918,15 @@ export default function AdminKpisPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-black text-emerald-600">
-                            {metrics.totalPlatformCommission.toLocaleString()} <span className="text-xs font-bold text-muted-foreground">ج.م</span>
+                            {metrics.platformRevenue.toLocaleString()} <span className="text-xs font-bold text-muted-foreground">ج.م</span>
                         </div>
-                        <p className="text-xs text-emerald-700/80 mt-1 flex items-center gap-1">
+                        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                             <TrendingUp className="w-3 h-3" />
-                            <span>مضمونة ومخصومة تلقائياً</span>
+                            <span>
+                                عمولة {metrics.totalGrossCommission.toLocaleString()} − كوبونات المنصة {metrics.totalPlatformCouponCost.toLocaleString()} + اشتراكات {metrics.subscriptionRevenue.toLocaleString()}
+                            </span>
                         </p>
+                        {financeError && <p className="text-[11px] text-red-600 mt-1">تعذر تحميل بيانات العمولات</p>}
                     </CardContent>
                 </Card>
 
@@ -846,7 +983,7 @@ export default function AdminKpisPage() {
                                 </CardTitle>
                                 <CardDescription className="text-xs mt-1">
                                     {canViewFinance
-                                        ? "مقارنة حجم التداول الكلي (GMV) وعمولة المنصة خلال آخر 6 أشهر"
+                                        ? "مقارنة المدفوع من الطلاب (GMV) وصافي المنصة خلال آخر 6 أشهر"
                                         : "عدد عمليات الالتحاق بالكورسات خلال آخر 6 أشهر"}
                                 </CardDescription>
                             </div>
@@ -871,7 +1008,7 @@ export default function AdminKpisPage() {
                                             {canViewFinance ? (
                                                 <>
                                                     <div>مبيعات: {item.gmv} ج.م</div>
-                                                    <div className="text-emerald-400">عمولة: {item.commission} ج.م</div>
+                                                    <div className="text-emerald-400">صافي المنصة: {item.commission} ج.م</div>
                                                 </>
                                             ) : (
                                                 <div>اشتراكات: {item.enrollments}</div>
@@ -888,8 +1025,13 @@ export default function AdminKpisPage() {
                                             style={{ height: `${heightPercent}%` }}
                                             className="w-full max-w-[48px] rounded-t-lg bg-gradient-to-t from-primary/80 to-primary group-hover:from-emerald-500 group-hover:to-teal-400 transition-all duration-300 shadow-sm relative overflow-hidden"
                                         >
-                                            {/* Sub-bar for 5% commission indicator */}
-                                            {canViewFinance && <div className="absolute bottom-0 inset-x-0 h-[15%] bg-emerald-300/40" />}
+                                            {/* Sub-bar: platform net share of that month's sales */}
+                                            {canViewFinance && item.gmv > 0 && item.commission > 0 && (
+                                                <div
+                                                    className="absolute bottom-0 inset-x-0 bg-emerald-300/60"
+                                                    style={{ height: `${Math.min(100, Math.round((item.commission / item.gmv) * 100))}%` }}
+                                                />
+                                            )}
                                         </div>
 
                                         {/* Month label */}
@@ -911,7 +1053,7 @@ export default function AdminKpisPage() {
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <div className="w-3 h-3 rounded-sm bg-emerald-500" />
-                                        <span>أرباح المنصة (5%)</span>
+                                        <span>صافي المنصة</span>
                                     </div>
                                 </>
                             ) : (
@@ -930,82 +1072,60 @@ export default function AdminKpisPage() {
                     <CardHeader className="pb-3 border-b">
                         <CardTitle className="text-base font-bold flex items-center gap-2">
                             <PieChart className="w-5 h-5 text-purple-600" />
-                            <span>توزيع الإيرادات والعمولات</span>
+                            <span>الإيراد حسب الباقة</span>
                         </CardTitle>
                         <CardDescription className="text-xs">
-                            نسبة الأرباح بين المعلمين والمنصة
+                            كل عملية بيع محسوبة بنسبة باقة المدرس وقت البيع
                         </CardDescription>
                     </CardHeader>
-                    <CardContent className="pt-6 space-y-6">
-                        {/* Circular Progress Ring Visual */}
-                        <div className="flex flex-col items-center justify-center relative py-2">
-                            <div className="relative w-40 h-40 flex items-center justify-center">
-                                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-                                    {/* Instructor 95% Circle */}
-                                    <path
-                                        className="text-purple-100"
-                                        strokeWidth="3.8"
-                                        stroke="currentColor"
-                                        fill="none"
-                                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                    />
-                                    {/* Instructor 95% stroke */}
-                                    <path
-                                        className="text-purple-600 transition-all duration-1000"
-                                        strokeDasharray="95, 100"
-                                        strokeWidth="3.8"
-                                        strokeLinecap="round"
-                                        stroke="currentColor"
-                                        fill="none"
-                                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                    />
-                                    {/* Platform 5% stroke */}
-                                    <path
-                                        className="text-emerald-500 transition-all duration-1000"
-                                        strokeDasharray="5, 100"
-                                        strokeDashoffset="-95"
-                                        strokeWidth="4.2"
-                                        strokeLinecap="round"
-                                        stroke="currentColor"
-                                        fill="none"
-                                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                    />
-                                </svg>
-                                <div className="absolute flex flex-col items-center text-center">
-                                    <span className="text-2xl font-black text-foreground">5%</span>
-                                    <span className="text-[10px] font-bold text-emerald-600">عمولة المنصة</span>
-                                </div>
-                            </div>
-                        </div>
+                    <CardContent className="pt-6 space-y-4">
+                        {metrics.revenueByPlan.length === 0 ? (
+                            <p className="py-8 text-center text-xs text-muted-foreground">لا توجد مبيعات في هذه الفترة</p>
+                        ) : (
+                            metrics.revenueByPlan.map((p) => {
+                                const share = metrics.totalGmv > 0 ? Math.round((p.paid / metrics.totalGmv) * 100) : 0
+                                return (
+                                    <div key={`${p.planId}-${p.rate}`}>
+                                        <div className="flex justify-between text-xs font-bold mb-1">
+                                            <span className="flex items-center gap-1.5">
+                                                <span>{planLabel(p.planId)}</span>
+                                                <Badge variant="outline" className="text-[10px]">{formatRate(p.rate)}</Badge>
+                                            </span>
+                                            <span className={`font-mono ${p.platformNet < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                                                {p.platformNet.toLocaleString()} ج.م
+                                            </span>
+                                        </div>
+                                        <Progress value={share} className="h-2 bg-emerald-100 [&>div]:bg-emerald-500" />
+                                        <p className="mt-1 text-[10px] text-muted-foreground">
+                                            {p.sales} عملية • مدفوع {p.paid.toLocaleString()} ج.م • للمدرسين {p.instructorShare.toLocaleString()} ج.م
+                                        </p>
+                                    </div>
+                                )
+                            })
+                        )}
 
-                        {/* Breakdown Bars */}
-                        <div className="space-y-3">
-                            <div>
-                                <div className="flex justify-between text-xs font-bold mb-1">
-                                    <span className="flex items-center gap-1.5 text-purple-700">
-                                        <div className="w-2.5 h-2.5 rounded-full bg-purple-600" />
-                                        <span>أرباح المعلمين (95%)</span>
-                                    </span>
-                                    <span className="font-mono">{metrics.totalInstructorEarnings.toLocaleString()} ج.م</span>
-                                </div>
-                                <Progress value={95} className="h-2 bg-purple-100 [&>div]:bg-purple-600" />
+                        <div className="space-y-1.5 border-t pt-3 text-xs">
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">إجمالي العمولة</span>
+                                <span className="font-mono font-bold">{metrics.totalGrossCommission.toLocaleString()} ج.م</span>
                             </div>
-
-                            <div>
-                                <div className="flex justify-between text-xs font-bold mb-1">
-                                    <span className="flex items-center gap-1.5 text-emerald-700">
-                                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                                        <span>أرباح إدارة المنصة (5%)</span>
-                                    </span>
-                                    <span className="font-mono">{metrics.totalPlatformCommission.toLocaleString()} ج.م</span>
-                                </div>
-                                <Progress value={5} className="h-2 bg-emerald-100 [&>div]:bg-emerald-500" />
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">تكلفة كوبونات المنصة</span>
+                                <span className="font-mono font-bold text-red-600">-{metrics.totalPlatformCouponCost.toLocaleString()} ج.م</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">صافي المنصة من المبيعات</span>
+                                <span className="font-mono font-bold text-emerald-600">{metrics.totalPlatformNet.toLocaleString()} ج.م</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">اشتراكات الباقات ({metrics.subscriptionCount})</span>
+                                <span className="font-mono font-bold text-cyan-600">{metrics.subscriptionRevenue.toLocaleString()} ج.م</span>
                             </div>
                         </div>
                     </CardContent>
                     <CardFooter className="bg-muted/20 border-t py-3 text-[11px] text-muted-foreground flex justify-between">
-                        <span>العمولة تطبق آلياً على كل عملية بيع</span>
-                        <Badge variant="outline" className="text-[10px]">نظام العمولات الموحد</Badge>
+                        <span>البداية {formatRate(PLANS.starter.commissionRate)} • المحترف {formatRate(PLANS.pro.commissionRate)} • النخبة {formatRate(PLANS.center.commissionRate)}</span>
+                        <Badge variant="outline" className="text-[10px]">عمولة حسب الباقة</Badge>
                     </CardFooter>
                 </Card>
                 )}
@@ -1110,7 +1230,7 @@ export default function AdminKpisPage() {
                                         {canViewFinance ? (
                                             <div className="text-left font-mono">
                                                 <span className="font-bold text-sm text-emerald-600 block">{c.revenue.toLocaleString()} ج.م</span>
-                                                <span className="text-[10px] text-muted-foreground">عمولة المنصة: {(c.revenue * 0.05).toFixed(1)} ج.م</span>
+                                                <span className="text-[10px] text-muted-foreground">صافي المنصة: {c.platformNet.toLocaleString(undefined, { maximumFractionDigits: 1 })} ج.م</span>
                                             </div>
                                         ) : (
                                             <div className="text-left font-mono">

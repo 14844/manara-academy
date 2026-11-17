@@ -3,7 +3,8 @@ import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { getActiveServerAuth, logRouteFailure } from "@/lib/server-auth";
 import { logServerActivity } from "@/lib/server-activity-logger";
-import { formatRate, getEffectivePlan, splitSale } from "@/lib/plans";
+import { PLANS, computeSaleSplit, formatRate, getEffectivePlan, type CouponSource, type PlanId } from "@/lib/plans";
+import { couponSourceOf, saleFields } from "@/lib/sales";
 import { checkRateLimitAsync } from "@/lib/rate-limiter";
 
 export async function POST(request: Request) {
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
         logCourseId = typeof courseId === "string" ? courseId.slice(0, 128) : "";
         logCoupon = typeof couponCode === "string" ? couponCode.slice(0, 64) : "";
 
-        if (!courseId) {
+        if (!courseId || typeof courseId !== "string" || courseId.includes("/")) {
             return NextResponse.json({ error: "معرّف الكورس مطلوب" }, { status: 400 });
         }
 
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
         if (course.status !== "approved" || course.is_published === false) {
             return NextResponse.json({ error: "الكورس غير متاح للاشتراك حالياً" }, { status: 400 });
         }
-        const coursePrice = Number(course.price || 0);
+        const coursePrice = Math.max(0, Number(course.price || 0) || 0);
 
         // Prevent instructor from enrolling in their own course
         if (course.instructor_id === user.uid) {
@@ -75,7 +76,8 @@ export async function POST(request: Request) {
             couponRef = couponSnap.docs[0].ref;
         }
 
-        const instructorPrivateRef = course.instructor_id ? adminDb.collection("profiles_private").doc(course.instructor_id) : null;
+        const instructorId: string = typeof course.instructor_id === "string" ? course.instructor_id : "";
+        const instructorPrivateRef = instructorId ? adminDb.collection("profiles_private").doc(instructorId) : null;
         const txLogRef = adminDb.collection("transactions").doc();
 
         // Run atomic transaction on server
@@ -85,13 +87,12 @@ export async function POST(request: Request) {
                 throw new Error("ALREADY_ENROLLED");
             }
 
-            const [studentSnap, studentPrivateSnap, instructorPrivateSnap] = await Promise.all([
+            const [studentSnap, studentPrivateSnap, instructorPrivateSnap, cSnap] = await Promise.all([
                 t.get(studentRef),
                 t.get(studentPrivateRef),
                 instructorPrivateRef ? t.get(instructorPrivateRef) : Promise.resolve(null),
+                couponRef ? t.get(couponRef) : Promise.resolve(null),
             ]);
-            // Commission follows the instructor's current plan (legacy instructors keep LEGACY rate)
-            const commissionRate = getEffectivePlan(instructorPrivateSnap?.exists ? instructorPrivateSnap.data() : null).commissionRate;
             if (!studentSnap.exists) {
                 throw new Error("STUDENT_NOT_FOUND");
             }
@@ -99,14 +100,17 @@ export async function POST(request: Request) {
             const studentPrivateData = studentPrivateSnap.exists ? studentPrivateSnap.data()! : {};
             const currentBalance = Number(studentPrivateData.wallet_balance ?? 0);
 
+            // The plan active for the instructor right now decides the commission of this sale
+            const eff = getEffectivePlan(instructorPrivateSnap?.exists ? instructorPrivateSnap.data() : null);
+            const planId: PlanId = eff.planId;
+
             // Validate coupon inside transaction (TOCTOU-safe)
             let appliedCoupon: any = null;
-            let finalPrice = coursePrice;
-            let split = { platformCommission: 0, instructorShare: 0 };
+            let couponSource: CouponSource = null;
+            let discountAmount = 0;
 
             if (couponRef) {
-                const cSnap = await t.get(couponRef);
-                if (!cSnap.exists) {
+                if (!cSnap || !cSnap.exists) {
                     throw new Error("COUPON_INVALID");
                 }
                 const cData = cSnap.data()!;
@@ -116,11 +120,12 @@ export async function POST(request: Request) {
                 const maxUses = cData.max_uses ?? cData.usage_limit ?? null;
                 const isExhausted = maxUses !== null && (cData.usage_count || 0) >= maxUses;
                 const isCourseMatch = cData.course_id === "all" || !cData.course_id || cData.course_id === courseId;
-                
-                // Coupon must belong to course instructor unless created by admin
-                const isAdminCoupon = cData.is_admin === true || cData.instructor_id === "admin" || (cData.course_id === "all" && !cData.instructor_id);
-                const isInstructorMatch = isAdminCoupon || (cData.instructor_id === course.instructor_id);
-                
+
+                // Platform coupon (admin/marketing: no instructor_id, "admin" or is_admin) works on any course;
+                // an instructor coupon only on that instructor's own courses.
+                const source = couponSourceOf(cData);
+                const isInstructorMatch = source === "platform" || (!!instructorId && cData.instructor_id === instructorId);
+
                 const discountPercent = Number(cData.discount_percent);
                 const isDiscountValid = !isNaN(discountPercent) && discountPercent >= 0 && discountPercent <= 100;
                 const isActive = cData.active !== false && cData.is_active !== false;
@@ -129,50 +134,74 @@ export async function POST(request: Request) {
                     throw new Error("COUPON_INVALID");
                 }
                 appliedCoupon = { id: cSnap.id, ...cData };
-                const discount = (coursePrice * discountPercent) / 100;
-                finalPrice = Math.max(0, coursePrice - discount);
+                couponSource = source;
+                discountAmount = (coursePrice * discountPercent) / 100;
             }
+
+            // The ONE split of this sale
+            let split = computeSaleSplit({
+                listPrice: coursePrice,
+                discountAmount,
+                couponSource,
+                commissionRate: eff.commissionRate,
+            });
+            if (!instructorPrivateRef) {
+                // No instructor to pay: the platform keeps everything the student paid
+                split = {
+                    ...split,
+                    commissionRate: 1,
+                    grossCommission: split.paidAmount,
+                    instructorShare: 0,
+                    platformNet: split.paidAmount,
+                    platformCouponCost: 0,
+                };
+            }
+            const couponCodeUsed: string | null = appliedCoupon?.code || null;
+            const sale = saleFields({ planId, split, couponCode: couponCodeUsed, couponSource });
+            const finalPrice = split.paidAmount;
+            const nowIso = new Date().toISOString();
 
             if (finalPrice > 0) {
                 if (currentBalance < finalPrice) {
                     throw new Error(`INSUFFICIENT_BALANCE:${finalPrice}:${currentBalance}`);
                 }
-
                 // Deduct from student's private profile
                 t.set(studentPrivateRef, {
-                    wallet_balance: currentBalance - finalPrice,
-                    updated_at: new Date().toISOString(),
+                    wallet_balance: Math.round((currentBalance - finalPrice) * 100) / 100,
+                    updated_at: nowIso,
                 }, { merge: true });
+            }
 
-                // Add instructor share (after plan commission) to instructor (only if instructor profile exists)
-                if (instructorPrivateRef) {
-                    split = splitSale(finalPrice, commissionRate);
-                    const instructorEarnings = split.instructorShare;
-                    const platformCommission = split.platformCommission;
+            // Credit the instructor with exactly the instructor share of this sale
+            // (a platform coupon can make this > 0 even when the student paid 0)
+            if (instructorPrivateRef && split.instructorShare > 0) {
+                t.set(instructorPrivateRef, {
+                    wallet_balance: FieldValue.increment(split.instructorShare),
+                    updated_at: nowIso,
+                }, { merge: true });
+            }
 
-                    t.set(instructorPrivateRef, {
-                        wallet_balance: FieldValue.increment(instructorEarnings),
-                        updated_at: new Date().toISOString(),
-                    }, { merge: true });
-
-                    // Audit log
-                    t.create(txLogRef, {
-                        type: "enrollment_payout",
-                        payment_method: "wallet",
-                        amount: finalPrice,
-                        instructor_id: course.instructor_id,
-                        instructor_share: instructorEarnings,
-                        platform_commission: platformCommission,
-                        commission_rate: commissionRate,
-                        student_id: user.uid,
-                        student_name: studentData.full_name || user.email,
-                        course_id: courseId,
-                        course_title: course.title,
-                        coupon_used: appliedCoupon?.code || null,
-                        status: "completed",
-                        created_at: new Date().toISOString(),
-                    });
-                }
+            const movedMoney = finalPrice > 0 || split.instructorShare > 0;
+            if (movedMoney) {
+                // Audit log of the sale
+                t.create(txLogRef, {
+                    type: "enrollment_payout",
+                    payment_method: "wallet",
+                    amount: split.paidAmount,
+                    instructor_id: instructorId || null,
+                    instructor_share: split.instructorShare,
+                    platform_commission: split.platformNet,
+                    commission_rate: split.commissionRate,
+                    ...sale,
+                    enrollment_id: enrollmentId,
+                    student_id: user.uid,
+                    student_name: studentData.full_name || user.email,
+                    course_id: courseId,
+                    course_title: course.title,
+                    coupon_used: couponCodeUsed,
+                    status: "completed",
+                    created_at: nowIso,
+                });
             }
 
             // Create enrollment
@@ -183,19 +212,19 @@ export async function POST(request: Request) {
                 student_unique_id: studentPrivateData.student_id || studentData.student_id || "N/A",
                 course_id: courseId,
                 course_title: course.title,
-                instructor_id: course.instructor_id || "",
+                instructor_id: instructorId,
                 instructor_name: course.instructor_name || "",
-                enrolled_at: new Date().toISOString(),
+                enrolled_at: nowIso,
                 progress: 0,
                 status: "active",
-                paid_amount: finalPrice,
-                original_price: coursePrice,
-                coupon_used: appliedCoupon?.code || null,
-                ...(finalPrice > 0 && instructorPrivateRef ? {
-                    commission_rate: commissionRate,
-                    platform_commission: split.platformCommission,
-                    instructor_share: split.instructorShare,
-                } : {}),
+                paid_amount: split.paidAmount,
+                original_price: split.listPrice,
+                coupon_used: couponCodeUsed,
+                commission_rate: split.commissionRate,
+                platform_commission: split.platformNet,
+                instructor_share: split.instructorShare,
+                ...sale,
+                ...(movedMoney ? { transaction_id: txLogRef.id } : {}),
             });
 
             // Increment coupon usage inside transaction
@@ -206,18 +235,25 @@ export async function POST(request: Request) {
             // Increment students_count
             t.update(courseRef, { students_count: FieldValue.increment(1), total_sales: FieldValue.increment(1) });
 
-            return { finalPrice, appliedCoupon, commissionRate, split };
+            return { finalPrice, appliedCoupon, couponSource, planId, split, movedMoney };
         });
+
+        const { split, planId, couponSource } = result;
+        const planName = PLANS[planId].name;
+        const couponCodeUsed: string | null = result.appliedCoupon?.code || null;
+        const couponLabel = couponCodeUsed
+            ? ` (كوبون ${couponSource === "platform" ? "المنصة" : "المدرس"}: ${couponCodeUsed}، خصم ${split.discountAmount} ج.م)`
+            : "";
 
         // 1. Log student course purchase
         const studentName = user.profile?.full_name || user.email || "طالب";
         const instructorName = course.instructor_name || "محاضر";
-        
+
         await logServerActivity({
             action: "course_enrolled",
             category: result.finalPrice > 0 ? "financial" : "course",
             title: result.finalPrice > 0 ? `شراء كورس (${course.title})` : `اشتراك مجاني (${course.title})`,
-            description: `اشترك الطالب "${studentName}" في كورس "${course.title}" للمدرس "${instructorName}" بقيمة ${result.finalPrice} ج.م${result.appliedCoupon?.code ? ` (تم تطبيق كوبون: ${result.appliedCoupon.code})` : ''}`,
+            description: `اشترك الطالب "${studentName}" في كورس "${course.title}" للمدرس "${instructorName}" بقيمة ${result.finalPrice} ج.م${split.listPrice !== result.finalPrice ? ` بدلاً من ${split.listPrice} ج.م` : ""}${couponLabel}`,
             status: "success",
             user_id: user.uid,
             user_name: studentName,
@@ -227,42 +263,55 @@ export async function POST(request: Request) {
             metadata: {
                 course_id: courseId,
                 course_title: course.title,
-                instructor_id: course.instructor_id,
+                instructor_id: instructorId,
                 instructor_name: instructorName,
                 paid_amount: result.finalPrice,
-                original_price: coursePrice,
-                coupon_used: result.appliedCoupon?.code || null,
+                original_price: split.listPrice,
+                discount: split.discountAmount,
+                coupon_used: couponCodeUsed,
+                coupon_source: couponCodeUsed ? couponSource : null,
             },
         });
 
-        // 2. Log instructor payout if price > 0
-        if (result.finalPrice > 0 && course.instructor_id) {
-            const instructorEarnings = result.split.instructorShare;
-            const platformCommission = result.split.platformCommission;
-            const ratePct = formatRate(result.commissionRate);
-            const sharePct = formatRate(1 - result.commissionRate);
+        // 2. Log instructor payout when the instructor earned something
+        if (instructorId && split.instructorShare > 0) {
+            const ratePct = formatRate(split.commissionRate);
+            const base = couponSource === "platform" ? split.listPrice : split.paidAmount;
+            const couponNote = couponCodeUsed
+                ? couponSource === "platform"
+                    ? ` كوبون المنصة "${couponCodeUsed}" (خصم ${split.discountAmount} ج.م) تتحمله المنصة، والمدرس يُحاسب على السعر الكامل ${split.listPrice} ج.م. صافي المنصة: ${split.platformNet} ج.م.`
+                    : ` كوبون المدرس "${couponCodeUsed}" (خصم ${split.discountAmount} ج.م)، والعمولة على السعر بعد الخصم.`
+                : "";
 
             await logServerActivity({
                 action: "instructor_payout",
                 category: "financial",
                 title: `تحويل أرباح لمحفظة المدرس (${instructorName})`,
-                description: `تم تحويل مبلغ ${instructorEarnings} ج.م (نسبة ${sharePct}) لمحفظة المدرس "${instructorName}" نظير اشتراك الطالب "${studentName}" في كورس "${course.title}". عمولة المنصة ${ratePct}: ${platformCommission} ج.م.`,
+                description: `تم تحويل ${split.instructorShare} ج.م لمحفظة المدرس "${instructorName}" نظير اشتراك الطالب "${studentName}" في كورس "${course.title}". باقة "${planName}": عمولة المنصة ${ratePct} من ${base} ج.م = ${split.grossCommission} ج.م. المدفوع من الطالب: ${split.paidAmount} ج.م.${couponNote}`,
                 status: "success",
-                user_id: course.instructor_id,
+                user_id: instructorId,
                 user_name: instructorName,
                 user_role: "instructor",
                 target_user_id: user.uid,
                 target_user_name: studentName,
-                amount: instructorEarnings,
+                amount: split.instructorShare,
                 metadata: {
                     course_id: courseId,
                     course_title: course.title,
                     student_id: user.uid,
                     student_name: studentName,
-                    total_amount: result.finalPrice,
-                    instructor_earnings: instructorEarnings,
-                    platform_commission: platformCommission,
-                    commission_rate: result.commissionRate,
+                    enrollment_id: enrollmentId,
+                    sale_plan_id: planId,
+                    sale_commission_rate: split.commissionRate,
+                    sale_list_price: split.listPrice,
+                    sale_discount: split.discountAmount,
+                    sale_paid: split.paidAmount,
+                    sale_gross_commission: split.grossCommission,
+                    sale_instructor_share: split.instructorShare,
+                    sale_platform_net: split.platformNet,
+                    sale_platform_coupon_cost: split.platformCouponCost,
+                    coupon_code: couponCodeUsed,
+                    coupon_source: couponCodeUsed ? couponSource : null,
                 },
             });
         }
@@ -287,7 +336,7 @@ export async function POST(request: Request) {
         if (err.message === "COUPON_INVALID") {
             return NextResponse.json({ error: "الكوبون غير صالح أو منتهي الصلاحية" }, { status: 400 });
         }
-        if (err.message === "COUPON_NOT_FOUND" || err.message === "INSTRUCTOR_NOT_FOUND") {
+        if (err.message === "STUDENT_NOT_FOUND" || err.message === "COUPON_NOT_FOUND" || err.message === "INSTRUCTOR_NOT_FOUND") {
             return NextResponse.json({ error: "خطأ في البيانات، تواصل مع الدعم" }, { status: 400 });
         }
         console.error("Course enroll error:", err);
