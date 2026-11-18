@@ -1,7 +1,8 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import {
     BarChart3,
     BookOpen,
@@ -11,8 +12,22 @@ import {
     PlusCircle,
     GraduationCap,
     LogOut,
-    Wallet
+    Wallet,
+    ClipboardList,
+    Ticket,
+    TrendingUp,
+    Crown,
+    Coins
 } from "lucide-react"
+import { InstructorPlanProvider } from "@/components/plans/instructor-plan-context"
+import { PlanIntroDialog } from "@/components/plans/plan-intro-dialog"
+import { PlanChip } from "@/components/plans/plan-chip"
+import { DashboardSkeleton } from "@/components/skeletons"
+import { auth, db } from "@/lib/firebase/config"
+import { onAuthStateChanged } from "firebase/auth"
+import { doc, getDoc } from "firebase/firestore"
+import { toast } from "sonner"
+import { isBackofficeRole } from "@/lib/permissions"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { UserNav } from "../../components/user-nav"
@@ -29,8 +44,13 @@ const sidebarItems = [
     { name: "لوحة التحكم", href: "/instructor", icon: LayoutDashboard },
     { name: "كورساتي", href: "/instructor/courses", icon: BookOpen },
     { name: "الطلاب", href: "/instructor/students", icon: Users },
-    { name: "الإحصائيات", href: "/instructor/analytics", icon: BarChart3 },
-    { name: "المحفظة والأرباح", href: "/instructor/withdrawals", icon: Wallet },
+    { name: "تصحيح الإجابات", href: "/instructor/grading", icon: ClipboardList },
+    { name: "تقارير أولياء الأمور", href: "/instructor/reports", icon: BarChart3 },
+    { name: "الإحصائيات", href: "/instructor/analytics", icon: TrendingUp },
+    { name: "إدارة الكوبونات", href: "/instructor/coupons", icon: Ticket },
+    { name: "أرباحي", href: "/instructor/earnings", icon: Coins },
+    { name: "المحفظة والسحب", href: "/instructor/withdrawals", icon: Wallet },
+    { name: "باقتي", href: "/instructor/plan", icon: Crown },
     { name: "الإعدادات", href: "/instructor/settings", icon: Settings },
 ]
 
@@ -41,10 +61,53 @@ export default function InstructorLayout({
 }: {
     children: React.ReactNode
 }) {
+    const router = useRouter()
     const pathname = usePathname()
+    const [isLoading, setIsLoading] = useState(true)
+    const [isInstructor, setIsInstructor] = useState(false)
+    const [isSheetOpen, setIsSheetOpen] = useState(false)
+
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            if (!user) {
+                router.push("/login")
+                return
+            }
+
+            // Verify instructor role in Firestore
+            const docRef = doc(db, "profiles", user.uid)
+            const docSnap = await getDoc(docRef)
+
+            if (docSnap.exists() && docSnap.data().role === 'instructor') {
+                setIsInstructor(true)
+            } else {
+                toast.error("عذراً، لا تمتلك صلاحيات الوصول لهذه الصفحة")
+                const role = docSnap.exists() ? docSnap.data().role : ''
+                if (isBackofficeRole(role)) {
+                    router.push("/admin")
+                } else {
+                    router.push("/dashboard")
+                }
+            }
+            setIsLoading(false)
+        })
+
+        return () => unsubscribe()
+    }, [router])
+
+    if (isLoading) {
+        return (
+            <div className="flex min-h-screen bg-muted/30 font-arabic">
+                <DashboardSkeleton />
+            </div>
+        )
+    }
+
+    if (!isInstructor) return null
 
     return (
         <StatusGuard>
+            <InstructorPlanProvider>
             <div className="flex min-h-screen bg-muted/30">
                 {/* Sidebar */}
                 <aside className="hidden w-64 border-l bg-background md:block">
@@ -69,6 +132,9 @@ export default function InstructorLayout({
                                     </Link>
                                 ))}
                             </nav>
+                            <div className="mt-4">
+                                <PlanChip />
+                            </div>
                         </div>
                         <div className="mt-auto border-t p-4">
                             <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" asChild>
@@ -82,10 +148,10 @@ export default function InstructorLayout({
                 </aside>
 
                 {/* Main Content */}
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 min-w-0 flex flex-col">
                     <header className="flex h-16 items-center justify-between border-b bg-background px-6">
                         <div className="flex items-center gap-4">
-                            <Sheet>
+                            <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
                                 <SheetTrigger asChild>
                                     <Button variant="ghost" size="icon" className="md:hidden">
                                         <Menu className="h-5 w-5" />
@@ -105,6 +171,7 @@ export default function InstructorLayout({
                                                     <Link
                                                         key={item.href}
                                                         href={item.href}
+                                                        onClick={() => setIsSheetOpen(false)}
                                                         className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-muted ${pathname === item.href ? "bg-muted text-primary" : "text-muted-foreground"
                                                             }`}
                                                     >
@@ -113,9 +180,12 @@ export default function InstructorLayout({
                                                     </Link>
                                                 ))}
                                             </nav>
+                                            <div className="mt-4">
+                                                <PlanChip onNavigate={() => setIsSheetOpen(false)} />
+                                            </div>
                                         </div>
                                         <div className="mt-auto border-t p-4">
-                                            <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" asChild>
+                                            <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" asChild onClick={() => setIsSheetOpen(false)}>
                                                 <Link href="/logout">
                                                     <LogOut className="h-4 w-4" />
                                                     تسجيل الخروج
@@ -138,11 +208,13 @@ export default function InstructorLayout({
                             <UserNav />
                         </div>
                     </header>
-                    <main className="flex-1 p-6 md:p-8">
+                    <main className="flex-1 min-w-0 p-4 sm:p-6 md:p-8">
                         {children}
                     </main>
                 </div>
             </div>
+            <PlanIntroDialog />
+            </InstructorPlanProvider>
         </StatusGuard>
     )
 }

@@ -2,7 +2,19 @@
 
 import { useState, useEffect, useRef } from "react"
 import { db } from "@/lib/firebase/config"
-import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, orderBy, getDoc } from "firebase/firestore"
+import { 
+    collection, 
+    query, 
+    where, 
+    getDocs, 
+    doc, 
+    updateDoc, 
+    serverTimestamp, 
+    orderBy, 
+    getDoc,
+    runTransaction,
+    increment
+} from "firebase/firestore"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -20,6 +32,9 @@ import {
     Download
 } from "lucide-react"
 import { toast } from "sonner"
+import { auth } from "@/lib/firebase/config"
+import { logActivity, type ActivityLogInput } from "@/lib/activity-logger"
+import { useAdminRole } from "@/components/admin/admin-role-context"
 import { Input } from "@/components/ui/input"
 import {
     Dialog,
@@ -29,8 +44,17 @@ import {
     DialogFooter,
     DialogDescription
 } from "@/components/ui/dialog"
+import { TablePageSkeleton } from "@/components/skeletons"
+
+/** A withdrawal carries no commission (it's taken per sale): the amount paid out is the amount requested. */
+function withdrawalAmount(r: any): number {
+    return Number(r?.net_amount ?? r?.amount ?? 0) || 0
+}
 
 export default function AdminWithdrawalsPage() {
+    const { role, roleLabel } = useAdminRole()
+    // Role sent with client-side activity logs (the server re-derives it from the session anyway)
+    const logRole = (role || "admin") as ActivityLogInput["user_role"]
     const [requests, setRequests] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [searchTerm, setSearchTerm] = useState("")
@@ -61,46 +85,82 @@ export default function AdminWithdrawalsPage() {
     }
 
     const handleApprove = async (request: any) => {
+        if (request.status !== "pending") {
+            toast.error("لا يمكن تأكيد الدفع لطلب ليس في حالة قيد الانتظار (pending)")
+            return
+        }
+
         if (!confirm("هل أنت متأكد من الموافقة على تحويل هذا المبلغ؟")) return
 
         setIsProcessing(true)
         try {
-            const reqRef = doc(db, "withdrawal_requests", request.id)
-            await updateDoc(reqRef, {
-                status: "paid",
-                paid_at: new Date().toISOString()
+            const res = await fetch("/api/admin/withdrawals/approve", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ requestId: request.id }),
             })
+
+            const data = await res.json()
+            if (!res.ok) {
+                throw new Error(data.error || "فشل اعتماد الطلب")
+            }
 
             toast.success("تم تأكيد الدفع بنجاح")
             setSelectedRequest({ ...request, status: "paid", paid_at: new Date().toISOString() })
             setShowReceipt(true)
             fetchWithdrawals()
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error approving withdrawal:", error)
-            toast.error("حدث خطأ أثناء معالجة الطلب")
+            toast.error(error.message || "حدث خطأ أثناء معالجة الطلب")
         } finally {
             setIsProcessing(false)
         }
     }
 
-    const handleReject = async (requestId: string) => {
+    const handleReject = async (request: any) => {
         const reason = prompt("يرجى ذكر سبب الرفض:")
         if (reason === null) return
 
         setIsProcessing(true)
         try {
-            const reqRef = doc(db, "withdrawal_requests", requestId)
-            await updateDoc(reqRef, {
-                status: "rejected",
-                rejection_reason: reason,
-                rejected_at: new Date().toISOString()
+            const res = await fetch("/api/admin/withdrawals/reject", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    requestId: request.id,
+                    reason,
+                }),
             })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "فشل رفض الطلب")
 
-            toast.info("تم رفض الطلب")
+            toast.info("تم رفض الطلب ورد المبلغ لمحفظة المحاضر بنجاح")
             fetchWithdrawals()
+
+            // Log activity
+            const currentAdmin = auth.currentUser;
+            logActivity({
+                action: "withdrawal_rejected",
+                category: "financial",
+                title: "رفض طلب سحب أرباح",
+                description: `رفض ${roleLabel} طلب سحب أرباح بقيمة ${withdrawalAmount(request)} ج.م للمحاضر "${request.instructor_name || request.instructor_id}" ورد المبلغ لمحفظته. السبب: ${reason || "لم يحدد"}`,
+                status: "failed",
+                user_id: currentAdmin?.uid || "admin",
+                user_name: currentAdmin?.displayName || "مسؤول المنصة",
+                user_email: currentAdmin?.email || "",
+                user_role: logRole,
+                target_user_id: request.instructor_id,
+                target_user_name: request.instructor_name,
+                amount: request.net_amount,
+                metadata: {
+                    withdrawal_id: request.id,
+                    refunded_amount: request.net_amount,
+                    rejection_reason: reason,
+                }
+            }).catch(() => {})
         } catch (error) {
             console.error("Error rejecting withdrawal:", error)
-            toast.error("حدث خطأ أثناء معالجة الطلب")
+            toast.error("حدث خطأ أثناء معالجة الطلب ورد المبلغ")
         } finally {
             setIsProcessing(false)
         }
@@ -154,14 +214,10 @@ export default function AdminWithdrawalsPage() {
     )
 
     const pendingCount = requests.filter(r => r.status === 'pending').length
-    const totalPaid = requests.filter(r => r.status === 'paid').reduce((acc, r) => acc + (r.net_amount || 0), 0)
+    const totalPaid = requests.filter(r => r.status === 'paid').reduce((acc, r) => acc + withdrawalAmount(r), 0)
 
     if (isLoading) {
-        return (
-            <div className="flex min-h-screen items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <TablePageSkeleton rowCount={8} />
     }
 
     return (
@@ -218,8 +274,7 @@ export default function AdminWithdrawalsPage() {
                                 <tr>
                                     <th className="p-4 font-bold text-sm">المدرس</th>
                                     <th className="p-4 font-bold text-sm">التاريخ</th>
-                                    <th className="p-4 font-bold text-sm">المبلغ الإجمالي</th>
-                                    <th className="p-4 font-bold text-sm">صافي الربح</th>
+                                    <th className="p-4 font-bold text-sm">المبلغ</th>
                                     <th className="p-4 font-bold text-sm text-center">الحالة</th>
                                     <th className="p-4 font-bold text-sm text-center">الإجراءات</th>
                                 </tr>
@@ -227,7 +282,7 @@ export default function AdminWithdrawalsPage() {
                             <tbody className="divide-y">
                                 {filteredRequests.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="p-10 text-center text-muted-foreground italic">
+                                        <td colSpan={5}className="p-10 text-center text-muted-foreground italic">
                                             لا توجد طلبات سحب حالياً
                                         </td>
                                     </tr>
@@ -249,8 +304,7 @@ export default function AdminWithdrawalsPage() {
                                                     year: 'numeric'
                                                 })}
                                             </td>
-                                            <td className="p-4 font-medium">{req.amount.toLocaleString()} ج.م</td>
-                                            <td className="p-4 font-black text-primary">{req.net_amount.toLocaleString()} ج.م</td>
+                                            <td className="p-4 font-black text-primary">{withdrawalAmount(req).toLocaleString()} ج.م</td>
                                             <td className="p-4 text-center">
                                                 {req.status === 'pending' && <Badge className="bg-orange-50 text-orange-600 border-orange-200">معلق</Badge>}
                                                 {req.status === 'paid' && <Badge className="bg-green-50 text-green-600 border-green-200">تم الدفع</Badge>}
@@ -272,7 +326,7 @@ export default function AdminWithdrawalsPage() {
                                                                 size="sm"
                                                                 variant="destructive"
                                                                 className="h-8 gap-1"
-                                                                onClick={() => handleReject(req.id)}
+                                                                onClick={() => handleReject(req)}
                                                                 disabled={isProcessing}
                                                             >
                                                                 <XCircle className="h-3.5 w-3.5" /> رفض
@@ -333,18 +387,11 @@ export default function AdminWithdrawalsPage() {
                             </div>
 
                             <div className="mt-6 pt-4 border-t-2 border-zinc-100 space-y-2">
-                                <div className="row">
-                                    <span>المجموع الإجمالي:</span>
-                                    <span>{selectedRequest?.amount?.toLocaleString()} ج.م</span>
-                                </div>
-                                <div className="row text-red-600">
-                                    <span>عمولة المنصة (20%):</span>
-                                    <span>-{selectedRequest?.commission?.toLocaleString()} ج.م</span>
-                                </div>
                                 <div className="total">
-                                    <span>صافي المبلغ المدفوع:</span>
-                                    <span className="text-primary">{selectedRequest?.net_amount?.toLocaleString()} ج.م</span>
+                                    <span>المبلغ المدفوع:</span>
+                                    <span className="text-primary">{withdrawalAmount(selectedRequest).toLocaleString()} ج.م</span>
                                 </div>
+                                <p className="text-xs text-zinc-500 m-0">لا توجد أي عمولة على السحب — عمولة المنصة مخصومة مسبقاً مع كل عملية بيع.</p>
                             </div>
 
                             <div className="footer">

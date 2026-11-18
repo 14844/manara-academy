@@ -1,10 +1,11 @@
 "use client"
 
 import { useState, useRef } from "react"
-import { Upload, X, CheckCircle2, Loader2, AlertTriangle } from "lucide-react"
+import { Upload, X, CheckCircle2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { toast } from "sonner"
+import * as tus from "tus-js-client"
 
 interface FileUploaderProps {
     onUploadComplete: (url: string) => void
@@ -13,15 +14,17 @@ interface FileUploaderProps {
     validateDimensions?: { width: number; height: number }
     label?: string
     folder?: string
+    courseId?: string
 }
 
 export function FileUploader({
     onUploadComplete,
     accept = "video/*,image/*",
-    maxSizeMB = 500,
+    maxSizeMB = 5120,
     validateDimensions,
     label = "رفع ملف",
-    folder = "general"
+    folder = "general",
+    courseId
 }: FileUploaderProps) {
     console.log("FileUploader initialized for Bunny.net. Path:", folder)
     const [file, setFile] = useState<File | null>(null)
@@ -73,7 +76,7 @@ export function FileUploader({
         setProgress(0)
     }
 
-    const startUpload = () => {
+    const startUpload = async () => {
         if (!file) {
             toast.error("يرجى اختيار ملف أولاً")
             return
@@ -82,50 +85,124 @@ export function FileUploader({
         setIsUploading(true)
         setProgress(0)
 
-        const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
-        const fileName = `${Date.now()}_${sanitizedName}`
+        try {
+            const isVideo = file.type.startsWith('video/')
+            const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
+            const fileName = `${Date.now()}_${sanitizedName}`
 
-        const xhr = new XMLHttpRequest()
-
-        // Use searchParams to pass metadata to the API route
-        const uploadUrl = `/api/upload/bunny?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(folder)}`
-
-        xhr.open('PUT', uploadUrl, true)
-        xhr.setRequestHeader('Content-Type', file.type)
-
-        xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-                const percentComplete = (event.loaded / event.total) * 100
-                setProgress(percentComplete)
+            // Map folder properly for Supabase structure
+            let targetFolder = folder
+            if (isVideo) {
+                targetFolder = "videos"
+            } else if (folder === "general" || folder === "attachments" || folder === "course_files") {
+                targetFolder = "files"
             }
-        }
 
-        xhr.onload = () => {
-            setIsUploading(false)
-            if (xhr.status >= 200 && xhr.status < 300) {
-                try {
-                    const response = JSON.parse(xhr.responseText)
-                    if (response.success) {
-                        setIsComplete(true)
-                        onUploadComplete(response.url)
-                        toast.success("تم الرفع بنجاح إلى Bunny.net")
-                    } else {
-                        toast.error(`فشل الرفع: ${response.error}`)
-                    }
-                } catch (e) {
-                    toast.error("خطأ في قراءة استجابة السيرفر")
+            // For files > 4MB (especially videos), use direct-to-Supabase upload
+            // to bypass Vercel's 4.5MB body size limit
+            const useDirectUpload = file.size > 4 * 1024 * 1024
+
+            if (useDirectUpload) {
+                // Step 1: Get signed upload URL from our API
+                const signedRes = await fetch('/api/upload/signed-url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        fileName,
+                        folder: targetFolder,
+                        courseId: courseId || null,
+                        contentType: file.type,
+                        fileSize: file.size,
+                    }),
+                })
+
+                const signedData = await signedRes.json()
+                if (!signedRes.ok || !signedData.success) {
+                    throw new Error(signedData.error || "فشل إنشاء رابط الرفع")
                 }
+
+                // Step 2: Upload directly to Supabase Storage using the signed URL
+                const xhr = new XMLHttpRequest()
+                xhr.open('PUT', signedData.signedUrl, true)
+                xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        const pct = Math.round((event.loaded / event.total) * 100)
+                        setProgress(pct)
+                    }
+                }
+
+                xhr.onload = () => {
+                    setIsUploading(false)
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        setIsComplete(true)
+                        onUploadComplete(signedData.finalUrl)
+                        toast.success(isVideo ? "تم رفع الفيديو بنجاح 🎬" : "تم رفع الملف بنجاح 📁")
+                    } else {
+                        console.error("Direct upload failed:", xhr.status, xhr.responseText)
+                        toast.error(`فشل الرفع المباشر: ${xhr.status}`)
+                    }
+                }
+
+                xhr.onerror = () => {
+                    setIsUploading(false)
+                    toast.error("خطأ في الاتصال أثناء الرفع المباشر")
+                }
+
+                xhr.send(file)
             } else {
-                toast.error(`فشل الرفع: خطأ ${xhr.status}`)
+                // Small files: use the original server-side upload route
+                const courseParam = courseId ? `&courseId=${encodeURIComponent(courseId)}` : ''
+                const uploadUrl = `/api/upload/supabase?fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(targetFolder)}${courseParam}`
+
+                const xhr = new XMLHttpRequest()
+                xhr.open('POST', uploadUrl, true)
+                xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        const pct = Math.round((event.loaded / event.total) * 100)
+                        setProgress(pct)
+                    }
+                }
+
+                xhr.onload = () => {
+                    setIsUploading(false)
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            const response = JSON.parse(xhr.responseText)
+                            if (response.success && response.url) {
+                                setIsComplete(true)
+                                onUploadComplete(response.url)
+                                toast.success(isVideo ? "تم رفع الفيديو بنجاح 🎬" : "تم رفع الملف بنجاح 📁")
+                            } else {
+                                toast.error(response.error || "فشل معالجة رد الرفع")
+                            }
+                        } catch (e) {
+                            toast.error("خطأ في معالجة رد السيرفر")
+                        }
+                    } else {
+                        try {
+                            const err = JSON.parse(xhr.responseText)
+                            toast.error(err.error || `فشل الرفع: ${xhr.status}`)
+                        } catch {
+                            toast.error(`فشل الرفع: ${xhr.status}`)
+                        }
+                    }
+                }
+
+                xhr.onerror = () => {
+                    setIsUploading(false)
+                    toast.error("خطأ في الاتصال بالسيرفر أثناء الرفع")
+                }
+
+                xhr.send(file)
             }
-        }
-
-        xhr.onerror = () => {
+        } catch (err: any) {
             setIsUploading(false)
-            toast.error("حدث خطأ في الاتصال أثناء الرفع")
+            toast.error(err.message || "حدث خطأ غير متوقع")
         }
-
-        xhr.send(file)
     }
 
     return (
@@ -138,7 +215,7 @@ export function FileUploader({
                     <Upload className="h-8 w-8 text-muted-foreground mb-2" />
                     <p className="text-sm font-bold">{label}</p>
                     <p className="text-[10px] text-muted-foreground mt-1">
-                        {accept.includes('video') ? "MP4, MOV (بحد أقصى ٥٠٠ ميجابايت)" : "JPG, PNG (بحد أقصى ٥ ميجابايت)"}
+                        {accept.includes('video') ? "MP4, MOV (بحد أقصى ٥ جيجابايت)" : "JPG, PNG (بحد أقصى ٥ ميجابايت)"}
                     </p>
                     <input
                         type="file"

@@ -9,7 +9,14 @@ export async function middleware(request: NextRequest) {
     // However, Edge Functions (middleware) cannot run firebase-admin easily without polyfills.
     // So we'll trust the session cookie for basic protection and handle role logic in the page/layout.
 
-    if (!session && (path.startsWith('/dashboard') || path.startsWith('/instructor') || path.startsWith('/admin') || path.startsWith('/pending-approval'))) {
+    // Labs are members-only (lead magnet): send visitors to login, then back to the lab they wanted.
+    if (!session && path.startsWith('/labs')) {
+        const url = new URL('/login', request.url)
+        url.searchParams.set('next', path)
+        return NextResponse.redirect(url)
+    }
+
+    if (!session && (path.startsWith('/dashboard') || path.startsWith('/instructor') || path.startsWith('/admin') || path.startsWith('/student') || path.startsWith('/learn') || path.startsWith('/pending-approval'))) {
         return NextResponse.redirect(new URL('/login', request.url))
     }
 
@@ -29,6 +36,6 @@ export const config = {
          * - favicon.ico (favicon file)
          * Feel free to modify this pattern to include more paths.
          */
-        '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+        '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|html|txt|xml)$).*)',
     ],
 }

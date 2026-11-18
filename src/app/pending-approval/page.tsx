@@ -2,7 +2,7 @@
 
 import { Navbar } from "@/components/navbar"
 import { Button } from "@/components/ui/button"
-import { ShieldCheck, Clock, LogOut } from "lucide-react"
+import { ShieldCheck, Clock, LogOut, FlaskConical } from "lucide-react"
 import Link from "next/link"
 import { signOut } from "firebase/auth"
 import { auth } from "@/lib/firebase/config"
@@ -28,9 +28,9 @@ export default function PendingApprovalPage() {
                     </div>
 
                     <div className="space-y-4">
-                        <h1 className="text-3xl font-black text-foreground">حسابك قيد المراجعة</h1>
+                        <h1 className="text-3xl font-black text-foreground">أهلاً بيك في المنارة 👋</h1>
                         <p className="text-muted-foreground leading-relaxed">
-                            شكراً لانضمامك لأكاديمية المنارة! حسابك الآن بانتظار تفعيل الإدارة. سيتم إشعارك فور تفعيل الحساب لتتمكن من الوصول لكورساتك ومميزات المنصة.
+                            حسابك اتعمل! لحد ما الإدارة تفعّل باقي مميزات المنصة، تقدر تدخل المعامل الافتراضية وتجرّب كل التجارب دلوقتي.
                         </p>
                     </div>
 
@@ -44,6 +44,9 @@ export default function PendingApprovalPage() {
                     </div>
 
                     <div className="flex flex-col gap-3">
+                        <Button size="lg" className="w-full gap-2 font-bold" asChild>
+                            <Link href="/labs"><FlaskConical className="h-5 w-5" />ادخل المعامل الافتراضية</Link>
+                        </Button>
                         <Button variant="outline" className="w-full gap-2" onClick={handleSignOut}>
                             <LogOut className="h-4 w-4" />
                             تسجيل الخروج والعودة لاحقاً

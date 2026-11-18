@@ -1,0 +1,309 @@
+"use client"
+
+import { useState } from "react"
+import Link from "next/link"
+import { toast } from "sonner"
+import { AlertTriangle, CalendarClock, Clock, Crown, Info, Loader2, RefreshCw, Wallet } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
+import { FEATURE_ICONS, PlanCard, formatPlanPrice } from "@/components/plans/plan-card"
+import { PlanComparison } from "@/components/plans/plan-comparison"
+import { MonthsSelector, monthsLabel, type PlanMonths } from "@/components/plans/months-selector"
+import { useInstructorPlan } from "@/components/plans/instructor-plan-context"
+import { PLAN_FEATURES, nextPlanUp } from "@/components/plans/plan-types"
+import { PLANS, PLAN_LIST, formatRate, isPlanId, type Plan, type PlanId } from "@/lib/plans"
+
+function formatDate(iso: string | null | undefined): string {
+    if (!iso) return "—"
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return "—"
+    return d.toLocaleDateString("ar-EG", { day: "numeric", month: "long", year: "numeric" })
+}
+
+export default function InstructorPlanPage() {
+    const { plan: data, isLoading, error: loadError, refresh } = useInstructorPlan()
+    const [months, setMonths] = useState<Record<PlanId, PlanMonths>>({ starter: 1, pro: 1, center: 1 })
+    const [confirmPlan, setConfirmPlan] = useState<Plan | null>(null)
+    const [isSubmitting, setIsSubmitting] = useState(false)
+
+    async function submitRequest() {
+        if (!confirmPlan) return
+        const plan = confirmPlan
+        const isFree = plan.monthlyPrice === 0
+        setIsSubmitting(true)
+        try {
+            const res = await fetch("/api/instructor/plan/request", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ planId: plan.id, months: isFree ? 1 : months[plan.id] }),
+            })
+            const json = await res.json().catch(() => ({}))
+            if (res.status === 409) {
+                throw new Error(json.error || "عندك طلب باقة قيد المراجعة بالفعل")
+            }
+            if (!res.ok) throw new Error(json.error || "تعذر إرسال الطلب")
+            if (json.applied) {
+                toast.success(`تم تحويلك لباقة ${plan.name}`)
+            } else {
+                toast.success("تم إرسال طلبك، وفريق المنارة هيتواصل معاك قريباً")
+            }
+            setConfirmPlan(null)
+            refresh()
+        } catch (err: any) {
+            toast.error(err?.message || "تعذر إرسال الطلب")
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
+
+    if (isLoading && !data) {
+        return (
+            <div className="space-y-6">
+                <Skeleton className="h-10 w-48" />
+                <Skeleton className="h-36 w-full rounded-2xl" />
+                <Skeleton className="h-56 w-full rounded-2xl" />
+                <div className="grid gap-6 md:grid-cols-3">
+                    {[0, 1, 2].map((i) => <Skeleton key={i} className="h-96 rounded-3xl" />)}
+                </div>
+            </div>
+        )
+    }
+
+    if (!data) {
+        return (
+            <Card className="border-dashed">
+                <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
+                    <AlertTriangle className="h-8 w-8 text-destructive" />
+                    <p className="font-bold">{loadError || "تعذر تحميل بيانات باقتك"}</p>
+                    <Button variant="outline" className="min-h-11 gap-2" onClick={() => refresh()}>
+                        <RefreshCw className="h-4 w-4" /> إعادة المحاولة
+                    </Button>
+                </CardContent>
+            </Card>
+        )
+    }
+
+    // The API already resolves an expired paid plan to starter.
+    const currentPlan = isPlanId(data.planId) ? PLANS[data.planId] : PLANS.starter
+    const nextPlan = nextPlanUp(currentPlan.id)
+    const pending = data.pendingRequest
+    const pendingPlan = pending && isPlanId(pending.requested_plan_id) ? PLANS[pending.requested_plan_id] : null
+
+    const confirmIsFree = confirmPlan?.monthlyPrice === 0
+    const confirmMonths = confirmPlan ? months[confirmPlan.id] : 1
+    const confirmTotal = confirmPlan ? confirmPlan.monthlyPrice * confirmMonths : 0
+
+    return (
+        <div className="space-y-8 font-arabic">
+            <div className="flex flex-col gap-1">
+                <h1 className="text-2xl sm:text-3xl font-bold">باقتي</h1>
+            </div>
+
+            {/* Current plan */}
+            <Card className="overflow-hidden">
+                <CardContent className="p-5 sm:p-6">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-4">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+                                <Crown className="h-6 w-6 text-primary" />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-xs font-bold text-muted-foreground">باقتك الحالية</p>
+                                <h2 className="text-xl font-bold">{currentPlan.name}</h2>
+                                <p className="mt-1 text-sm">
+                                    عمولة <span className="font-bold text-primary">{formatRate(data.commissionRate)}</span>
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                                    {PLAN_FEATURES.map((f) => {
+                                        const Icon = FEATURE_ICONS[f.key]
+                                        return (
+                                            <span key={f.key} className="inline-flex items-center gap-1">
+                                                <Icon className="h-3.5 w-3.5" aria-hidden />
+                                                {f.label}: {data.access[f.key] ? "متاحة" : "مش متاحة"}
+                                            </span>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                        {data.expiresAt && (data.expired || currentPlan.monthlyPrice > 0) && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <CalendarClock className="h-4 w-4" />
+                                <span>
+                                    {data.expired ? "انتهت في" : "تنتهي في"}{" "}
+                                    <span className="font-bold text-foreground">{formatDate(data.expiresAt)}</span>
+                                </span>
+                            </div>
+                        )}
+                    </div>
+
+                    {data.expired && (
+                        <div className="mt-4 flex items-start gap-3 rounded-xl border border-orange-500/30 bg-orange-500/10 p-3 text-sm text-orange-700 dark:text-orange-300">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <p>
+                                اشتراكك انتهى — رجعت للعمولة {formatRate(PLANS.starter.commissionRate)}. جدّد عشان ترجع للأقل.
+                            </p>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            {/* Pending request */}
+            {pending && (
+                <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4 text-sm">
+                    <Clock className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                    <div className="space-y-1">
+                        <p className="font-bold">
+                            طلبك لباقة {pendingPlan?.name ?? pending.requested_plan_id} ({monthsLabel(pending.months)}) قيد المراجعة
+                        </p>
+                        <p className="text-muted-foreground">
+                            المبلغ: {Number(pending.amount || 0).toLocaleString("ar-EG")} ج.م — هنتواصل معاك للدفع.
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Comparison */}
+            <section className="space-y-3">
+                <h2 className="text-lg font-bold">مقارنة الباقات</h2>
+                <PlanComparison currentPlanId={currentPlan.id} nextPlanId={nextPlan?.id ?? null} />
+            </section>
+
+            <div className="flex items-start gap-3 rounded-2xl border bg-muted/40 p-4 text-sm text-muted-foreground">
+                <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                <p>
+                    العمولة الجديدة بتسري من وقت التفعيل —{" "}
+                    <Link href="/instructor/earnings" className="font-bold text-primary hover:underline underline-offset-4">
+                        أرباحي
+                    </Link>
+                </p>
+            </div>
+
+            {/* Plans */}
+            <div className="grid gap-6 pt-3 md:grid-cols-3">
+                {PLAN_LIST.map((plan) => {
+                    const isFree = plan.monthlyPrice === 0
+                    const isCurrent = currentPlan.id === plan.id
+                    const isNext = nextPlan?.id === plan.id
+                    const disabled = !!pending || isSubmitting
+                    return (
+                        <PlanCard
+                            key={plan.id}
+                            plan={plan}
+                            current={isCurrent}
+                            emphasized={isNext}
+                            ribbon={isNext ? "الخطوة الجاية ليك" : null}
+                        >
+                            {isFree ? (
+                                <Button
+                                    variant="outline"
+                                    className="min-h-11 w-full rounded-xl font-bold"
+                                    disabled={disabled || isCurrent}
+                                    onClick={() => setConfirmPlan(plan)}
+                                >
+                                    {isCurrent ? "باقتك الحالية" : `الرجوع لباقة ${plan.name}`}
+                                </Button>
+                            ) : (
+                                <div className="space-y-3">
+                                    <MonthsSelector
+                                        value={months[plan.id]}
+                                        onChange={(m) => setMonths((prev) => ({ ...prev, [plan.id]: m }))}
+                                        disabled={disabled}
+                                    />
+                                    <p className="text-center text-sm text-muted-foreground">
+                                        الإجمالي:{" "}
+                                        <span className="font-bold text-foreground">
+                                            {(plan.monthlyPrice * months[plan.id]).toLocaleString("ar-EG")} ج.م
+                                        </span>
+                                    </p>
+                                    <Button
+                                        variant={isNext || isCurrent ? "default" : "outline"}
+                                        className="min-h-11 w-full rounded-xl font-bold"
+                                        disabled={disabled}
+                                        onClick={() => setConfirmPlan(plan)}
+                                    >
+                                        {isCurrent ? "تجديد الباقة" : `رقّي لباقة ${plan.name}`}
+                                    </Button>
+                                </div>
+                            )}
+                        </PlanCard>
+                    )
+                })}
+            </div>
+            {pending && (
+                <p className="text-center text-sm text-muted-foreground">
+                    في طلب قيد المراجعة.
+                </p>
+            )}
+
+            {/* Confirm dialog */}
+            <Dialog open={!!confirmPlan} onOpenChange={(open) => !open && !isSubmitting && setConfirmPlan(null)}>
+                <DialogContent className="max-w-md font-arabic">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {confirmIsFree ? `الرجوع لباقة ${confirmPlan?.name ?? ""}` : `طلب باقة ${confirmPlan?.name ?? ""}`}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {confirmIsFree
+                                ? `تحويل فوري — عمولة ${formatRate(confirmPlan?.commissionRate ?? 0)}، وهتفقد مميزات الباقة الحالية.`
+                                : "راجع طلبك قبل الإرسال."}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {confirmPlan && !confirmIsFree && (
+                        <div className="space-y-3 text-sm">
+                            <div className="flex justify-between gap-4 border-b pb-2">
+                                <span className="text-muted-foreground">الباقة</span>
+                                <span className="font-bold">{confirmPlan.name}</span>
+                            </div>
+                            <div className="flex justify-between gap-4 border-b pb-2">
+                                <span className="text-muted-foreground">العمولة الجديدة</span>
+                                <span className="font-bold">{formatRate(confirmPlan.commissionRate)} من كل بيع</span>
+                            </div>
+                            <div className="flex justify-between gap-4 border-b pb-2">
+                                <span className="text-muted-foreground">المدة</span>
+                                <span className="font-bold">{monthsLabel(confirmMonths)}</span>
+                            </div>
+                            <div className="flex justify-between gap-4 border-b pb-2">
+                                <span className="text-muted-foreground">السعر الشهري</span>
+                                <span>{formatPlanPrice(confirmPlan.monthlyPrice)}</span>
+                            </div>
+                            <div className="flex justify-between gap-4 font-bold">
+                                <span>الإجمالي</span>
+                                <span className="text-primary">{confirmTotal.toLocaleString("ar-EG")} ج.م</span>
+                            </div>
+                            <div className="flex items-start gap-2 rounded-xl bg-muted/50 p-3 text-muted-foreground">
+                                <Wallet className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                <p>هنتواصل معاك للدفع.</p>
+                            </div>
+                        </div>
+                    )}
+
+                    <DialogFooter className="gap-2 sm:gap-2">
+                        <Button
+                            variant="outline"
+                            className="min-h-11"
+                            disabled={isSubmitting}
+                            onClick={() => setConfirmPlan(null)}
+                        >
+                            إلغاء
+                        </Button>
+                        <Button className="min-h-11 gap-2" disabled={isSubmitting} onClick={submitRequest}>
+                            {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                            {confirmIsFree ? "تأكيد التحويل" : "إرسال الطلب"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div>
+    )
+}
