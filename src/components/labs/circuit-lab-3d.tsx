@@ -1,10 +1,9 @@
 "use client"
 
-import React, { useState, useMemo, useRef } from "react"
+import React, { useState, useMemo, useRef, useEffect } from "react"
 import * as THREE from "three"
 import { useFrame } from "@react-three/fiber"
-import { Text } from "@react-three/drei"
-import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useQuality, useLabLanguage } from "./3d"
+import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useQuality, useLabLanguage, BillboardLabel, QualityProvider, LanguageProvider } from "./3d"
 import {
   AlertTriangle,
   Zap,
@@ -22,6 +21,59 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+
+// Digital LCD display mesh with zero network dependencies
+function DigitalDisplayMesh({
+  position,
+  rotation = [0, 0, 0],
+  text,
+  color = "#38bdf8",
+  width = 0.18,
+  height = 0.07,
+}: {
+  position: [number, number, number]
+  rotation?: [number, number, number]
+  text: string
+  color?: string
+  width?: number
+  height?: number
+}) {
+  const texture = useMemo(() => {
+    if (typeof document === "undefined") return null
+    const canvas = document.createElement("canvas")
+    canvas.width = 256
+    canvas.height = 96
+    const ctx = canvas.getContext("2d")
+    if (ctx) {
+      ctx.fillStyle = "#020617"
+      ctx.fillRect(0, 0, 256, 96)
+      ctx.strokeStyle = "rgba(255,255,255,0.15)"
+      ctx.lineWidth = 4
+      ctx.strokeRect(2, 2, 252, 92)
+      ctx.font = "bold 44px monospace"
+      ctx.fillStyle = color
+      ctx.textAlign = "center"
+      ctx.textBaseline = "middle"
+      ctx.fillText(text, 128, 48)
+    }
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.colorSpace = THREE.SRGBColorSpace
+    return tex
+  }, [text, color])
+
+  useEffect(() => {
+    return () => {
+      texture?.dispose()
+    }
+  }, [texture])
+
+  return (
+    <mesh position={position} rotation={rotation}>
+      <planeGeometry args={[width, height]} />
+      <meshBasicMaterial map={texture || undefined} color={texture ? "#ffffff" : "#020617"} />
+    </mesh>
+  )
+}
 
 // Resistor 4-band color calculation
 function getResistorBands(ohms: number) {
@@ -165,9 +217,14 @@ function TerminalPost({
         <meshStandardMaterial color="#cbd5e1" metalness={0.9} />
       </mesh>
       {/* Label */}
-      <Text position={[0, 0.08, 0]} fontSize={0.03} color={isSelected ? "#38bdf8" : "#94a3b8"} anchorX="center">
-        {label}
-      </Text>
+      <BillboardLabel
+        position={[0, 0.08, 0]}
+        text={label}
+        color={isSelected ? "#38bdf8" : "#94a3b8"}
+        bgColor={isSelected ? "rgba(2, 132, 199, 0.85)" : "rgba(15, 23, 42, 0.75)"}
+        scale={[0.18, 0.05, 1]}
+        fontSize={16}
+      />
     </group>
   )
 }
@@ -205,27 +262,33 @@ function DCSupplyUnit({
         <meshStandardMaterial color="#0f172a" metalness={0.4} roughness={0.4} />
       </mesh>
 
-      <Text position={[0, 0.38, 0.205]} fontSize={0.03} color="#94a3b8" anchorX="center" anchorY="middle">
-        DC Power / مجهز قدرة
-      </Text>
+      <BillboardLabel
+        position={[0, 0.38, 0.21]}
+        text="DC Power Supply • مجهز قدرة"
+        color="#94a3b8"
+        bgColor="transparent"
+        borderColor="transparent"
+        scale={[0.42, 0.08, 1]}
+        fontSize={18}
+      />
 
       {/* Voltage Display */}
-      <mesh position={[-0.12, 0.28, 0.204]}>
-        <planeGeometry args={[0.18, 0.07]} />
-        <meshBasicMaterial color="#020617" />
-      </mesh>
-      <Text position={[-0.12, 0.28, 0.206]} fontSize={0.045} color={isOn ? "#ef4444" : "#451a1a"} anchorX="center" anchorY="middle">
-        {isOn ? `${voltage.toFixed(1)} V` : "0.0 V"}
-      </Text>
+      <DigitalDisplayMesh
+        position={[-0.12, 0.28, 0.204]}
+        text={isOn ? `${voltage.toFixed(1)} V` : "0.0 V"}
+        color={isOn ? "#ef4444" : "#451a1a"}
+        width={0.18}
+        height={0.07}
+      />
 
       {/* Current Display */}
-      <mesh position={[0.12, 0.28, 0.204]}>
-        <planeGeometry args={[0.18, 0.07]} />
-        <meshBasicMaterial color="#020617" />
-      </mesh>
-      <Text position={[0.12, 0.28, 0.206]} fontSize={0.045} color={isOn ? "#10b981" : "#064e3b"} anchorX="center" anchorY="middle">
-        {isOn ? `${current.toFixed(2)} A` : "0.00 A"}
-      </Text>
+      <DigitalDisplayMesh
+        position={[0.12, 0.28, 0.204]}
+        text={isOn ? `${current.toFixed(2)} A` : "0.00 A"}
+        color={isOn ? "#10b981" : "#064e3b"}
+        width={0.18}
+        height={0.07}
+      />
 
       {/* Interactive Terminal Binding Posts */}
       <TerminalPost
@@ -364,9 +427,14 @@ function BulbUnit({
         onClick={() => onSelectTerminal(termOutId)}
       />
 
-      <Text position={[0, 0.22, 0]} fontSize={0.032} color="#f8fafc" anchorX="center">
-        {label} ({isBlown ? "محترق!" : `${power.toFixed(1)} W`})
-      </Text>
+      <BillboardLabel
+        position={[0, 0.25, 0]}
+        text={`${label} (${isBlown ? "محترق!" : `${power.toFixed(1)} W`})`}
+        color="#f8fafc"
+        bgColor="rgba(15, 23, 42, 0.85)"
+        scale={[0.34, 0.08, 1]}
+        fontSize={18}
+      />
     </group>
   )
 }
@@ -433,9 +501,14 @@ function SwitchUnit({
         onClick={() => onSelectTerminal("switch_out")}
       />
 
-      <Text position={[0, 0.11, 0]} fontSize={0.03} color={isOpen ? "#ef4444" : "#10b981"} anchorX="center">
-        {isOpen ? "مفتاح مفتوح (اضغط للإغلاق)" : "مفتاح مغلق (نشط)"}
-      </Text>
+      <BillboardLabel
+        position={[0, 0.12, 0]}
+        text={isOpen ? "مفتاح مفتوح (اضغط للإغلاق)" : "مفتاح مغلق (نشط)"}
+        color={isOpen ? "#ef4444" : "#10b981"}
+        bgColor="rgba(15, 23, 42, 0.85)"
+        scale={[0.38, 0.08, 1]}
+        fontSize={18}
+      />
     </group>
   )
 }
@@ -496,9 +569,14 @@ function ResistorUnit({
         onClick={() => onSelectTerminal("resistor_out")}
       />
 
-      <Text position={[0, 0.09, 0]} fontSize={0.032} color="#e2e8f0" anchorX="center">
-        {ohms} Ω (اضغط لتغيير القيمة)
-      </Text>
+      <BillboardLabel
+        position={[0, 0.1, 0]}
+        text={`${ohms} Ω`}
+        color="#e2e8f0"
+        bgColor="rgba(15, 23, 42, 0.85)"
+        scale={[0.22, 0.06, 1]}
+        fontSize={18}
+      />
     </group>
   )
 }
@@ -568,9 +646,14 @@ function RheostatUnit({
         onClick={() => onSelectTerminal("rheostat_out")}
       />
 
-      <Text position={[0, 0.16, 0]} fontSize={0.03} color="#60a5fa" anchorX="center">
-        ريوستات: {ohms} Ω (اسحب للتعديل)
-      </Text>
+      <BillboardLabel
+        position={[0, 0.18, 0]}
+        text={`ريوستات: ${ohms} Ω`}
+        color="#60a5fa"
+        bgColor="rgba(15, 23, 42, 0.85)"
+        scale={[0.28, 0.07, 1]}
+        fontSize={18}
+      />
     </group>
   )
 }
@@ -609,20 +692,14 @@ function DigitalMeterUnit({
       </mesh>
 
       {/* Screen */}
-      <mesh position={[0, 0.096, -0.02]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.18, 0.08]} />
-        <meshBasicMaterial color="#020617" />
-      </mesh>
-      <Text
+      <DigitalDisplayMesh
         position={[0, 0.098, -0.02]}
         rotation={[-Math.PI / 2, 0, 0]}
-        fontSize={0.045}
+        text={`${value.toFixed(2)} ${unit}`}
         color="#38bdf8"
-        anchorX="center"
-        anchorY="middle"
-      >
-        {`${value.toFixed(2)} ${unit}`}
-      </Text>
+        width={0.18}
+        height={0.08}
+      />
 
       {/* Terminals */}
       <TerminalPost
@@ -642,9 +719,14 @@ function DigitalMeterUnit({
         onClick={() => onSelectTerminal(termOutId)}
       />
 
-      <Text position={[0, 0.098, 0.06]} rotation={[-Math.PI / 2, 0, 0]} fontSize={0.022} color="#ffffff" anchorX="center">
-        {label}
-      </Text>
+      <BillboardLabel
+        position={[0, 0.12, 0.06]}
+        text={label}
+        color="#ffffff"
+        bgColor="rgba(15, 23, 42, 0.85)"
+        scale={[0.22, 0.06, 1]}
+        fontSize={18}
+      />
     </group>
   )
 }
@@ -924,11 +1006,13 @@ export function CircuitLab() {
   }
 
   return (
-    <div className="relative w-full h-full min-h-[480px]">
-      <LabCanvas
-        camera={{ position: [0, 2.3, 3.2], fov: 42 }}
-        onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
-      >
+    <QualityProvider>
+      <LanguageProvider>
+        <div className="relative w-full h-full min-h-[480px] flex-1">
+          <LabCanvas
+            camera={{ position: [0, 2.3, 3.2], fov: 42, far: 100 }}
+            onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
+          >
         <LabRoom cameraResetSignal={cameraResetSignal} defaultCameraPosition={[0, 2.3, 3.2]} defaultTarget={[0, 0.85, 0]}>
           {/* 1. DC Power Supply (Back Left) */}
           <DCSupplyUnit
@@ -1128,6 +1212,8 @@ export function CircuitLab() {
           </div>
         </div>
       </LabHUD>
-    </div>
+        </div>
+      </LanguageProvider>
+    </QualityProvider>
   )
 }

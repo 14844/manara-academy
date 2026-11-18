@@ -3,8 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react"
 import * as THREE from "three"
 import { useFrame } from "@react-three/fiber"
-import { Text } from "@react-three/drei"
-import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useQuality, useLabLanguage } from "./3d"
+import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useQuality, useLabLanguage, BillboardLabel, QualityProvider, LanguageProvider } from "./3d"
 import {
   Beaker,
   Flame,
@@ -648,23 +647,24 @@ function InteractiveBeakerOnScale({
         </mesh>
 
         {/* LED Digital Display */}
-        <mesh position={[0, 0.045, 0.202]}>
-          <planeGeometry args={[0.22, 0.05]} />
-          <meshBasicMaterial color="#020617" />
-        </mesh>
-        <Text
-          position={[0, 0.045, 0.204]}
-          fontSize={0.035}
+        <BillboardLabel
+          position={[0, 0.045, 0.205]}
+          text={`${massGrams.toFixed(2)} g`}
           color="#10b981"
-          font="/fonts/inter.ttf"
-          anchorX="center"
-          anchorY="middle"
-        >
-          {`${massGrams.toFixed(2)} g`}
-        </Text>
-        <Text position={[0, 0.015, 0.204]} fontSize={0.018} color="#94a3b8" anchorX="center">
-          ميزان حساس / Mass Scale
-        </Text>
+          bgColor="#020617"
+          borderColor="rgba(16, 185, 129, 0.3)"
+          scale={[0.24, 0.06, 1]}
+          fontSize={22}
+        />
+        <BillboardLabel
+          position={[0, 0.015, 0.205]}
+          text="ميزان حساس • Mass Scale"
+          color="#94a3b8"
+          bgColor="transparent"
+          borderColor="transparent"
+          scale={[0.28, 0.04, 1]}
+          fontSize={14}
+        />
       </group>
 
       {/* 2. Glass Reaction Beaker */}
@@ -744,9 +744,15 @@ function InteractiveBeakerOnScale({
           <boxGeometry args={[0.08, 0.05, 0.03]} />
           <meshStandardMaterial color="#1e293b" />
         </mesh>
-        <Text position={[0, 0.34, 0.017]} fontSize={0.022} color="#38bdf8" anchorX="center">
-          {`${temperatureC.toFixed(1)}°C`}
-        </Text>
+        <BillboardLabel
+          position={[0, 0.34, 0.02]}
+          text={`${temperatureC.toFixed(1)}°C`}
+          color="#38bdf8"
+          bgColor="transparent"
+          borderColor="transparent"
+          scale={[0.16, 0.05, 1]}
+          fontSize={18}
+        />
       </group>
 
       {/* 4. pH Probe */}
@@ -763,9 +769,15 @@ function InteractiveBeakerOnScale({
           <boxGeometry args={[0.08, 0.05, 0.03]} />
           <meshStandardMaterial color="#1e293b" />
         </mesh>
-        <Text position={[0, 0.33, 0.017]} fontSize={0.022} color="#a855f7" anchorX="center">
-          {`pH ${ph.toFixed(1)}`}
-        </Text>
+        <BillboardLabel
+          position={[0, 0.33, 0.02]}
+          text={`pH ${ph.toFixed(1)}`}
+          color="#a855f7"
+          bgColor="transparent"
+          borderColor="transparent"
+          scale={[0.16, 0.05, 1]}
+          fontSize={18}
+        />
       </group>
     </group>
   )
@@ -825,9 +837,14 @@ function InteractiveBunsenBurner({
       )}
 
       {/* Label */}
-      <Text position={[0, -0.01, 0.14]} fontSize={0.03} color={isOn ? "#38bdf8" : "#94a3b8"} anchorX="center">
-        لهب بنزن (Bunsen Burner)
-      </Text>
+      <BillboardLabel
+        position={[0, -0.01, 0.16]}
+        text={isOn ? "لهب بنزن (نشط)" : "لهب بنزن (مغلق)"}
+        color={isOn ? "#38bdf8" : "#94a3b8"}
+        bgColor="rgba(15, 23, 42, 0.85)"
+        scale={[0.26, 0.06, 1]}
+        fontSize={16}
+      />
     </group>
   )
 }
@@ -1094,11 +1111,13 @@ export function ReactionLab() {
   }, [filterCategory])
 
   return (
-    <div className="relative w-full h-full min-h-[480px]">
-      <LabCanvas
-        camera={{ position: [0, 2.3, 3.4], fov: 42 }}
-        onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
-      >
+    <QualityProvider>
+      <LanguageProvider>
+        <div className="relative w-full h-full min-h-[480px] flex-1">
+          <LabCanvas
+            camera={{ position: [0, 2.3, 3.4], fov: 42, far: 100 }}
+            onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
+          >
         <LabRoom cameraResetSignal={cameraResetSignal} defaultCameraPosition={[0, 2.3, 3.4]} defaultTarget={[0, 0.95, 0]}>
           {/* Main Reaction Beaker on Analytical Balance */}
           <InteractiveBeakerOnScale
@@ -1312,6 +1331,8 @@ export function ReactionLab() {
           </div>
         </div>
       </LabHUD>
-    </div>
+        </div>
+      </LanguageProvider>
+    </QualityProvider>
   )
 }

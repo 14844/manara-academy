@@ -3,8 +3,7 @@
 import React, { useState, useMemo, useRef } from "react"
 import * as THREE from "three"
 import { useFrame } from "@react-three/fiber"
-import { Text } from "@react-three/drei"
-import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useLabLanguage } from "./3d"
+import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useLabLanguage, BillboardLabel, QualityProvider, LanguageProvider } from "./3d"
 import { Calculator, TrendingUp, Sliders, Hash, Move, Sparkles, Activity } from "lucide-react"
 
 type FunctionFamily = "quadratic" | "absolute" | "cubic" | "rational" | "sine" | "linear"
@@ -234,18 +233,14 @@ function GraphingBoard({
         <planeGeometry args={[2.1, 0.008]} />
         <meshBasicMaterial color="#64748b" />
       </mesh>
-      <Text position={[1.08, 0, 0.015]} fontSize={0.04} color="#94a3b8" anchorX="left">
-        X (س)
-      </Text>
+      <BillboardLabel position={[1.08, 0, 0.015]} text="X (س)" color="#94a3b8" bgColor="transparent" borderColor="transparent" scale={[0.14, 0.05, 1]} fontSize={18} />
 
       {/* Y-Axis */}
       <mesh position={[0, 0, 0.008]}>
         <planeGeometry args={[0.008, 1.35]} />
         <meshBasicMaterial color="#64748b" />
       </mesh>
-      <Text position={[0, 0.72, 0.015]} fontSize={0.04} color="#94a3b8" anchorY="bottom">
-        Y (ص)
-      </Text>
+      <BillboardLabel position={[0, 0.72, 0.015]} text="Y (ص)" color="#94a3b8" bgColor="transparent" borderColor="transparent" scale={[0.14, 0.05, 1]} fontSize={18} />
 
       {/* Shaded Area Under Curve (Integral) */}
       {areaGeo && (
@@ -299,14 +294,15 @@ function GraphingBoard({
           </mesh>
 
           {/* Floating slope badge on point */}
-          <Text
+          <BillboardLabel
             position={[tangentData.p0.x, tangentData.p0.y + 0.06, 0.03]}
-            fontSize={0.035}
+            text={`الميل m = ${tangentData.slope.toFixed(2)}`}
             color="#fbbf24"
-            anchorX="center"
-          >
-            {`الميل m = ${tangentData.slope.toFixed(2)}`}
-          </Text>
+            bgColor="rgba(15, 23, 42, 0.85)"
+            borderColor="rgba(251, 191, 36, 0.4)"
+            scale={[0.28, 0.06, 1]}
+            fontSize={16}
+          />
         </group>
       )}
     </group>
@@ -464,11 +460,13 @@ export function FunctionLab() {
   }
 
   return (
-    <div className="relative w-full h-full min-h-[480px]">
-      <LabCanvas
-        camera={{ position: [0, 1.8, 3.2], fov: 42 }}
-        onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
-      >
+    <QualityProvider>
+      <LanguageProvider>
+        <div className="relative w-full h-full min-h-[480px] flex-1">
+          <LabCanvas
+            camera={{ position: [0, 1.8, 3.2], fov: 42, far: 100 }}
+            onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
+          >
         <LabRoom cameraResetSignal={cameraResetSignal} defaultCameraPosition={[0, 1.8, 3.2]} defaultTarget={[0, 1.45, -0.1]}>
           {/* Main 3D Graphing Easel Board */}
           <GraphingBoard
@@ -645,6 +643,8 @@ export function FunctionLab() {
           </div>
         </div>
       </LabHUD>
-    </div>
+        </div>
+      </LanguageProvider>
+    </QualityProvider>
   )
 }

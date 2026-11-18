@@ -3,7 +3,6 @@
 import React, { useState, useEffect, Suspense, Component, ErrorInfo } from "react"
 import { Canvas } from "@react-three/fiber"
 import { QualityProvider, useQuality } from "./quality-manager"
-import { LanguageProvider, useLabLanguage } from "./language-context"
 import { WebGLFallback } from "./webgl-fallback"
 import { Loader2 } from "lucide-react"
 
@@ -56,11 +55,11 @@ function InCanvasLoader() {
 
 function InnerCanvas({
   children,
-  camera = { position: [0, 2.2, 3.8], fov: 45 },
+  camera = { position: [0, 2.2, 3.8], fov: 45, far: 1000 },
   onResetCamera,
 }: {
   children: React.ReactNode
-  camera?: { position: [number, number, number]; fov?: number }
+  camera?: { position: [number, number, number]; fov?: number; far?: number }
   onResetCamera?: () => void
 }) {
   const { dpr, shadows } = useQuality()
@@ -88,7 +87,7 @@ function InnerCanvas({
         position: camera.position,
         fov: camera.fov || 45,
         near: 0.1,
-        far: 100,
+        far: camera.far || 1000,
       }}
       gl={{
         antialias: true,
@@ -97,16 +96,16 @@ function InnerCanvas({
         stencil: false,
         depth: true,
       }}
-      className="w-full h-full touch-none select-none"
+      className="absolute inset-0 w-full h-full touch-none select-none"
     >
-      <Suspense fallback={null}>{children}</Suspense>
+      {children}
     </Canvas>
   )
 }
 
 interface LabCanvasProps {
   children: React.ReactNode
-  camera?: { position: [number, number, number]; fov?: number }
+  camera?: { position: [number, number, number]; fov?: number; far?: number }
   onResetCamera?: () => void
   className?: string
 }
@@ -124,7 +123,7 @@ export function LabCanvas({ children, camera, onResetCamera, className = "" }: L
       setHasWebGL(false)
     }
 
-    const timer = setTimeout(() => setIsLoading(false), 500)
+    const timer = setTimeout(() => setIsLoading(false), 300)
     return () => clearTimeout(timer)
   }, [])
 
@@ -133,17 +132,13 @@ export function LabCanvas({ children, camera, onResetCamera, className = "" }: L
   }
 
   return (
-    <QualityProvider>
-      <LanguageProvider>
-        <div className={`relative w-full h-full overflow-hidden bg-slate-950 select-none ${className}`}>
-          {isLoading && <InCanvasLoader />}
-          <CanvasErrorBoundary fallback={(err, reset) => <WebGLFallback errorMessage={err.message} onRetry={reset} />}>
-            <InnerCanvas camera={camera} onResetCamera={onResetCamera}>
-              {children}
-            </InnerCanvas>
-          </CanvasErrorBoundary>
-        </div>
-      </LanguageProvider>
-    </QualityProvider>
+    <div className={`absolute inset-0 w-full h-full overflow-hidden bg-slate-950 select-none ${className}`}>
+      {isLoading && <InCanvasLoader />}
+      <CanvasErrorBoundary fallback={(err, reset) => <WebGLFallback errorMessage={err.message} onRetry={reset} />}>
+        <InnerCanvas camera={camera} onResetCamera={onResetCamera}>
+          {children}
+        </InnerCanvas>
+      </CanvasErrorBoundary>
+    </div>
   )
 }

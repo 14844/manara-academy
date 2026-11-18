@@ -3,8 +3,8 @@
 import React, { useState, useMemo, useRef } from "react"
 import * as THREE from "three"
 import { useFrame } from "@react-three/fiber"
-import { Text, Float } from "@react-three/drei"
-import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useLabLanguage } from "./3d"
+import { Float } from "@react-three/drei"
+import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useLabLanguage, BillboardLabel, QualityProvider, LanguageProvider } from "./3d"
 import { Layers, Eye, Sparkles, Award, Atom, Check, Info } from "lucide-react"
 
 export type AtomElement = "H" | "C" | "O" | "N" | "Cl" | "S"
@@ -328,15 +328,14 @@ function AtomSphere({
 
       {/* Floating element symbol in ball-and-stick view */}
       {viewMode === "stick" && (
-        <Text
+        <BillboardLabel
           position={[0, radius + 0.08, 0]}
-          fontSize={0.065}
+          text={element}
           color={spec.color === "#f8fafc" ? "#94a3b8" : spec.color}
-          anchorX="center"
-          anchorY="middle"
-        >
-          {element}
-        </Text>
+          bgColor="rgba(15, 23, 42, 0.75)"
+          scale={[0.16, 0.06, 1]}
+          fontSize={18}
+        />
       )}
     </group>
   )
@@ -379,9 +378,14 @@ function AtomReagentTray({ onSelectAtom }: { onSelectAtom: (el: AtomElement) => 
               <meshStandardMaterial color={spec.color} roughness={0.25} />
             </mesh>
             {/* Label */}
-            <Text position={[0, 0.09, 0]} fontSize={0.04} color="#f8fafc" anchorX="center">
-              {spec.element} ({spec.nameAr})
-            </Text>
+            <BillboardLabel
+              position={[0, 0.1, 0]}
+              text={`${spec.element} (${spec.nameAr})`}
+              color="#f8fafc"
+              bgColor="rgba(15, 23, 42, 0.85)"
+              scale={[0.22, 0.06, 1]}
+              fontSize={16}
+            />
           </group>
         )
       })}
@@ -552,11 +556,13 @@ export function MoleculeLab() {
   const { lang, t, isAr } = useLabLanguage()
 
   return (
-    <div className="relative w-full h-full min-h-[480px]">
-      <LabCanvas
-        camera={{ position: [0, 2.0, 2.8], fov: 42 }}
-        onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
-      >
+    <QualityProvider>
+      <LanguageProvider>
+        <div className="relative w-full h-full min-h-[480px] flex-1">
+          <LabCanvas
+            camera={{ position: [0, 2.0, 2.8], fov: 42, far: 100 }}
+            onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
+          >
         <LabRoom cameraResetSignal={cameraResetSignal} defaultCameraPosition={[0, 2.0, 2.8]} defaultTarget={[0, 1.25, 0]}>
           {/* Main 3D Molecule Displayed Floating Above Table */}
           <group position={[0, 1.25, 0]}>
@@ -698,6 +704,8 @@ export function MoleculeLab() {
           </div>
         </div>
       </LabHUD>
-    </div>
+        </div>
+      </LanguageProvider>
+    </QualityProvider>
   )
 }

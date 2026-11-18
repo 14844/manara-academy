@@ -7,7 +7,7 @@ const cspHeader = `
   img-src 'self' blob: data: https:;
   font-src 'self' https://fonts.gstatic.com data:;
   frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://drive.google.com https://docs.google.com;
-  connect-src 'self' https://*.supabase.co https://*.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com wss://*.firebaseio.com https://manara-academy.b-cdn.net https://storage.bunnycdn.com;
+  connect-src 'self' https://*.supabase.co https://*.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com wss://*.firebaseio.com https://manara-academy.b-cdn.net https://storage.bunnycdn.com https://fonts.gstatic.com;
   media-src 'self' blob: https:;
   object-src 'none';
   base-uri 'self';

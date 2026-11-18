@@ -3,9 +3,9 @@
 import React, { useState, useMemo, useRef, useEffect } from "react"
 import * as THREE from "three"
 import { useFrame, useThree } from "@react-three/fiber"
-import { Text, OrbitControls } from "@react-three/drei"
+import { OrbitControls } from "@react-three/drei"
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
-import { LabCanvas, LabHUD, GuidedExperiment, labAudio, useQuality, useLabLanguage } from "./3d"
+import { LabCanvas, LabHUD, GuidedExperiment, labAudio, useQuality, useLabLanguage, BillboardLabel, QualityProvider, LanguageProvider } from "./3d"
 import {
   Globe2,
   Compass,
@@ -377,13 +377,19 @@ function CentralSun({ onClick }: { onClick: () => void }) {
       </mesh>
 
       {/* Radiant Solar Lights */}
-      <pointLight color="#fffbeb" intensity={4.5} distance={60} decay={1} />
-      <ambientLight intensity={0.25} color="#1e293b" />
+      <pointLight color="#fffbeb" intensity={5} distance={100} decay={0.8} />
+      <ambientLight intensity={0.45} color="#475569" />
 
       {/* Label */}
-      <Text position={[0, 1.9, 0]} fontSize={0.22} color="#fef08a" anchorX="center">
-        الشمس (The Sun)
-      </Text>
+      <BillboardLabel
+        position={[0, 2.0, 0]}
+        text="الشمس • The Sun"
+        color="#fef08a"
+        bgColor="rgba(30, 20, 5, 0.85)"
+        borderColor="rgba(245, 158, 11, 0.5)"
+        scale={[2.2, 0.55, 1]}
+        fontSize={22}
+      />
     </group>
   )
 }
@@ -522,23 +528,29 @@ function Planet3D({
                 <sphereGeometry args={[radius * 0.27, 16, 16]} />
                 <meshStandardMaterial color="#cbd5e1" roughness={0.9} />
               </mesh>
-              <Text position={[0, radius * 0.45, 0]} fontSize={0.07} color="#94a3b8" anchorX="center">
-                القمر (Moon)
-              </Text>
+              <BillboardLabel
+                position={[0, radius * 0.45, 0]}
+                text="القمر"
+                color="#cbd5e1"
+                bgColor="rgba(15, 23, 42, 0.75)"
+                borderColor="rgba(255, 255, 255, 0.2)"
+                scale={[0.7, 0.2, 1]}
+                fontSize={18}
+              />
             </group>
           )}
         </group>
 
         {/* Floating Planet Name */}
-        <Text
-          position={[0, radius + 0.2, 0]}
-          fontSize={0.14}
+        <BillboardLabel
+          position={[0, radius + 0.35, 0]}
+          text={data.nameAr}
           color="#f8fafc"
-          anchorX="center"
-          anchorY="bottom"
-        >
-          {data.nameAr}
-        </Text>
+          bgColor="rgba(15, 23, 42, 0.85)"
+          borderColor={data.color}
+          scale={[1.4, 0.38, 1]}
+          fontSize={24}
+        />
       </group>
     </>
   )
@@ -797,11 +809,13 @@ export function SpaceLab() {
   }
 
   return (
-    <div className="relative w-full h-full min-h-[480px]">
-      <LabCanvas
-        camera={{ position: [0, 18, 24], fov: 45 }}
-        onResetCamera={handleZoomOut}
-      >
+    <QualityProvider>
+      <LanguageProvider>
+        <div className="relative w-full h-full min-h-[480px] flex-1">
+          <LabCanvas
+            camera={{ position: [0, 18, 24], fov: 45, far: 1000 }}
+            onResetCamera={handleZoomOut}
+          >
         <OrbitControls
           ref={controlsRef}
           makeDefault
@@ -1084,6 +1098,8 @@ export function SpaceLab() {
           )}
         </div>
       </LabHUD>
-    </div>
+        </div>
+      </LanguageProvider>
+    </QualityProvider>
   )
 }

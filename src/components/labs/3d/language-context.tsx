@@ -29,9 +29,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <LanguageContext.Provider value={{ lang, setLang, t, dir, isAr }}>
-      <div dir={dir} className="w-full h-full">
-        {children}
-      </div>
+      {children}
     </LanguageContext.Provider>
   )
 }
