@@ -30,6 +30,7 @@ const loginSchema = z.object({
 
 import { useSearchParams } from "next/navigation"
 import { useEffect } from "react"
+import { getLabsNext } from "@/components/auth/status-guard"
 
 export function LoginForm() {
     const router = useRouter()
@@ -41,6 +42,9 @@ export function LoginForm() {
         const error = searchParams.get('error')
         if (error === 'session_conflict') {
             toast.error("تنبيه: تم تسجيل الدخول من جهاز آخر. تم تسجيل خروجك من الجلسة السابقة لضمان أمان حسابك.")
+        }
+        if (getLabsNext()) {
+            toast.info("المعامل للأعضاء بس — سجّل دخول أو اعمل حساب مجاني علشان تدخل")
         }
     }, [searchParams])
 
@@ -128,7 +132,7 @@ export function LoginForm() {
                 }
             }).catch(() => {})
 
-            const homeRoute = getHomeRouteForRole(profile?.role)
+            const homeRoute = getLabsNext() || getHomeRouteForRole(profile?.role)
             try {
                 console.log("LoginForm: Navigating to", homeRoute)
                 await router.push(homeRoute)

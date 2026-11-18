@@ -9,6 +9,13 @@ import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { getHomeRouteForRole, isBackofficeRole } from "@/lib/permissions"
 
+/** `?next=/labs/...` set when a visitor was sent to login from a lab. Only internal /labs paths are honoured. */
+export function getLabsNext(): string | null {
+    if (typeof window === "undefined") return null
+    const next = new URLSearchParams(window.location.search).get("next")
+    return next && /^\/labs(\/[A-Za-z0-9_-]+)*\/?$/.test(next) ? next : null
+}
+
 export function StatusGuard({ children }: { children: React.ReactNode }) {
     const router = useRouter()
     const pathname = usePathname()
@@ -33,8 +40,8 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                 // If we are on a protected route but auth is missing, we MUST clear any stale session
                 const isPublicRoute = [
                     '/', '/login', '/signup', '/about', '/faq', '/terms', '/privacy', '/refund', '/teach'
-                ].includes(path) || path.startsWith('/courses') || path.startsWith('/help') || path.startsWith('/labs')
-                
+                ].includes(path) || path.startsWith('/courses') || path.startsWith('/help')
+
                 if (!isPublicRoute) {
                     console.warn("StatusGuard: Protected path detected without auth. Clearing session...")
                     try {
@@ -42,7 +49,7 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                     } catch (e) {
                         console.error("Failed to clear stale session:", e)
                     }
-                    router.push("/login")
+                    router.push(path.startsWith('/labs') ? `/login?next=${encodeURIComponent(path)}` : "/login")
                     return // Keep loading to prevent content flash
                 }
                 setIsLoading(false)
@@ -117,7 +124,7 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                         }
                     } else {
                         if (path === '/pending-approval' || path === '/restricted-access' || path === '/login' || path === '/signup') {
-                            const target = getHomeRouteForRole(role);
+                            const target = getLabsNext() || getHomeRouteForRole(role);
                             router.push(target);
                         }
                     }
