@@ -115,7 +115,13 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
 
                     // Handle Status Redirects
                     if (status === 'pending' && !isBackofficeRole(role)) {
-                        if (path !== '/pending-approval') {
+                        // Not-yet-approved accounts may use the virtual labs (and ONLY the labs).
+                        const labsNext = getLabsNext()
+                        if (path.startsWith('/labs')) {
+                            // allowed
+                        } else if ((path === '/login' || path === '/signup') && labsNext) {
+                            router.push(labsNext);
+                        } else if (path !== '/pending-approval') {
                             router.push("/pending-approval");
                         }
                     } else if (status === 'rejected' || status === 'blocked') {

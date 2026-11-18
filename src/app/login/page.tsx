@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { KeepNextLink } from "@/components/auth/keep-next-link"
 import { LoginForm } from "@/components/auth/login-form"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -82,9 +83,9 @@ export default function LoginPage() {
                         <div className="text-center text-sm space-y-4">
                             <div>
                                 <span className="text-muted-foreground">ليس لديك حساب؟ </span>
-                                <Link href="/signup" className="font-bold text-primary hover:underline underline-offset-4">
+                                <KeepNextLink href="/signup" className="font-bold text-primary hover:underline underline-offset-4">
                                     إنشاء حساب جديد مجاناً
-                                </Link>
+                                </KeepNextLink>
                             </div>
                             <div className="pt-2 border-t mt-4">
                                 <Link href="/help" className="flex items-center justify-center gap-2 text-primary/70 hover:text-primary font-bold transition-colors">

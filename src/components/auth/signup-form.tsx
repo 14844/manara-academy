@@ -22,6 +22,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
 import { logActivity } from "@/lib/activity-logger"
+import { getLabsNext } from "@/components/auth/status-guard"
 import { Loader2, Eye, EyeOff, ShieldAlert, ShieldCheck, Shield, GraduationCap, User } from "lucide-react"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
@@ -264,7 +265,8 @@ export function SignupForm() {
                 throw new Error("فشل إنشاء جلسة الدخول")
             }
 
-            toast.success("تم إنشاء الحساب بنجاح! حسابك قيد المراجعة حالياً.")
+            const labsNext = getLabsNext()
+            toast.success(labsNext ? "تم إنشاء حسابك بنجاح! اتفضل المعمل 🔬" : "تم إنشاء الحساب بنجاح! جرّب المعامل الافتراضية دلوقتي.")
 
             // Log activity
             logActivity({
@@ -284,8 +286,8 @@ export function SignupForm() {
                 }
             }).catch(() => {})
 
-            // 5. Redirect to pending approval page
-            router.push("/pending-approval")
+            // 5. Came from a lab -> straight back to it; otherwise the pending page (which offers the labs).
+            router.push(labsNext || "/pending-approval")
         } catch (error: any) {
             console.error("Signup error:", error)
             let message = "حدث خطأ في إنشاء الحساب، يرجى المحاولة مرة أخرى."

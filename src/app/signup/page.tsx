@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { KeepNextLink } from "@/components/auth/keep-next-link"
 import { SignupForm } from "@/components/auth/signup-form"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { HelpCircle } from "lucide-react"
@@ -74,9 +75,9 @@ export default function SignupPage() {
                         <div className="text-center text-xs sm:text-sm space-y-3 pt-3 border-t border-border mt-3">
                             <div>
                                 <span className="text-muted-foreground">لديك حساب بالفعل؟ </span>
-                                <Link href="/login" className="font-bold text-primary hover:underline underline-offset-4">
+                                <KeepNextLink href="/login" className="font-bold text-primary hover:underline underline-offset-4">
                                     تسجيل الدخول الآن
-                                </Link>
+                                </KeepNextLink>
                             </div>
                             <div className="pt-2 border-t mt-2">
                                 <Link href="/help" className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-primary font-bold transition-colors">
