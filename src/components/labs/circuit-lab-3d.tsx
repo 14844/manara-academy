@@ -3,9 +3,25 @@
 import React, { useState, useMemo, useRef } from "react"
 import * as THREE from "three"
 import { useFrame } from "@react-three/fiber"
-import { Text, Float } from "@react-three/drei"
-import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useQuality } from "./3d"
-import { AlertTriangle, Zap, Gauge, Sliders, Activity, Lightbulb } from "lucide-react"
+import { Text } from "@react-three/drei"
+import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useQuality, useLabLanguage } from "./3d"
+import {
+  AlertTriangle,
+  Zap,
+  Gauge,
+  Sliders,
+  Activity,
+  Lightbulb,
+  Plus,
+  Trash2,
+  Play,
+  RotateCcw,
+  CheckCircle2,
+  Wrench,
+  Link as LinkIcon,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 
 // Resistor 4-band color calculation
 function getResistorBands(ohms: number) {
@@ -55,8 +71,6 @@ function WireParticles({
 
   useFrame((_, delta) => {
     if (!pointsRef.current || current <= 0) return
-
-    // Speed scales with electric current
     const speed = Math.min(Math.max(current * 0.12, 0.05), 0.8)
 
     for (let i = 0; i < count; i++) {
@@ -84,7 +98,7 @@ function WireParticles({
 }
 
 // 3D Connecting Wire Mesh
-function WirePath({
+function DynamicWireMesh({
   start,
   end,
   current,
@@ -101,7 +115,7 @@ function WirePath({
     const mid = new THREE.Vector3()
       .addVectors(p1, p2)
       .multiplyScalar(0.5)
-      .add(new THREE.Vector3(0, -0.05 + Math.random() * 0.02, 0)) // slight natural wire sag
+      .add(new THREE.Vector3(0, -0.04, 0)) // slight natural wire sag
     return new THREE.CatmullRomCurve3([p1, mid, p2])
   }, [start, end])
 
@@ -117,14 +131,57 @@ function WirePath({
   )
 }
 
+// Interactive Terminal Node
+function TerminalPost({
+  id,
+  position,
+  label,
+  color,
+  isSelected,
+  onClick,
+}: {
+  id: string
+  position: [number, number, number]
+  label: string
+  color: string
+  isSelected: boolean
+  onClick: () => void
+}) {
+  return (
+    <group position={position} onClick={(e) => { e.stopPropagation(); onClick() }}>
+      <mesh position={[0, 0.025, 0]}>
+        <cylinderGeometry args={[0.025, 0.025, 0.05, 16]} />
+        <meshStandardMaterial
+          color={isSelected ? "#38bdf8" : color}
+          emissive={isSelected ? "#0284c7" : "#000000"}
+          emissiveIntensity={isSelected ? 0.6 : 0}
+          metalness={0.7}
+          roughness={0.2}
+        />
+      </mesh>
+      {/* Terminal knurled nut */}
+      <mesh position={[0, 0.045, 0]}>
+        <cylinderGeometry args={[0.03, 0.03, 0.015, 12]} />
+        <meshStandardMaterial color="#cbd5e1" metalness={0.9} />
+      </mesh>
+      {/* Label */}
+      <Text position={[0, 0.08, 0]} fontSize={0.03} color={isSelected ? "#38bdf8" : "#94a3b8"} anchorX="center">
+        {label}
+      </Text>
+    </group>
+  )
+}
+
 // 3D Power Supply Unit
-function DCSupply({
+function DCSupplyUnit({
   position,
   voltage,
   current,
   onVoltageChange,
   isOn,
   onTogglePower,
+  onSelectTerminal,
+  selectedTerminal,
 }: {
   position: [number, number, number]
   voltage: number
@@ -132,88 +189,67 @@ function DCSupply({
   onVoltageChange: (v: number) => void
   isOn: boolean
   onTogglePower: () => void
+  onSelectTerminal: (termId: string) => void
+  selectedTerminal: string | null
 }) {
   return (
     <group position={position}>
-      {/* Unit Chassis */}
+      {/* Chassis */}
       <mesh position={[0, 0.22, 0]} castShadow receiveShadow>
         <boxGeometry args={[0.55, 0.44, 0.4]} />
         <meshStandardMaterial color="#1e293b" metalness={0.8} roughness={0.25} />
       </mesh>
-
-      {/* Front Faceplate */}
+      {/* Faceplate */}
       <mesh position={[0, 0.22, 0.201]}>
         <planeGeometry args={[0.51, 0.4]} />
         <meshStandardMaterial color="#0f172a" metalness={0.4} roughness={0.4} />
       </mesh>
 
-      {/* Brand & Model Arabic Label */}
       <Text position={[0, 0.38, 0.205]} fontSize={0.03} color="#94a3b8" anchorX="center" anchorY="middle">
-        منارة DC-30V / مجهز قدرة
+        DC Power / مجهز قدرة
       </Text>
 
-      {/* Digital LED Displays */}
-      {/* Voltage LED */}
+      {/* Voltage Display */}
       <mesh position={[-0.12, 0.28, 0.204]}>
         <planeGeometry args={[0.18, 0.07]} />
         <meshBasicMaterial color="#020617" />
       </mesh>
-      <Text
-        position={[-0.12, 0.28, 0.206]}
-        fontSize={0.045}
-        color={isOn ? "#ef4444" : "#451a1a"}
-        font="/fonts/inter.ttf"
-        anchorX="center"
-        anchorY="middle"
-      >
+      <Text position={[-0.12, 0.28, 0.206]} fontSize={0.045} color={isOn ? "#ef4444" : "#451a1a"} anchorX="center" anchorY="middle">
         {isOn ? `${voltage.toFixed(1)} V` : "0.0 V"}
       </Text>
 
-      {/* Current LED */}
+      {/* Current Display */}
       <mesh position={[0.12, 0.28, 0.204]}>
         <planeGeometry args={[0.18, 0.07]} />
         <meshBasicMaterial color="#020617" />
       </mesh>
-      <Text
-        position={[0.12, 0.28, 0.206]}
-        fontSize={0.045}
-        color={isOn ? "#10b981" : "#064e3b"}
-        font="/fonts/inter.ttf"
-        anchorX="center"
-        anchorY="middle"
-      >
+      <Text position={[0.12, 0.28, 0.206]} fontSize={0.045} color={isOn ? "#10b981" : "#064e3b"} anchorX="center" anchorY="middle">
         {isOn ? `${current.toFixed(2)} A` : "0.00 A"}
       </Text>
 
-      {/* Terminal Binding Posts: Red (+), Black (-) */}
-      {/* Positive Terminal (+) */}
-      <group position={[-0.14, 0.12, 0.205]}>
-        <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.022, 0.022, 0.04, 16]} />
-          <meshStandardMaterial color="#dc2626" metalness={0.6} roughness={0.3} />
-        </mesh>
-        <Text position={[0, 0.04, 0.01]} fontSize={0.03} color="#ef4444" anchorX="center">
-          +
-        </Text>
-      </group>
+      {/* Interactive Terminal Binding Posts */}
+      <TerminalPost
+        id="power_pos"
+        position={[-0.12, 0.12, 0.205]}
+        label="Power (+)"
+        color="#dc2626"
+        isSelected={selectedTerminal === "power_pos"}
+        onClick={() => onSelectTerminal("power_pos")}
+      />
+      <TerminalPost
+        id="power_neg"
+        position={[-0.02, 0.12, 0.205]}
+        label="Power (-)"
+        color="#0f172a"
+        isSelected={selectedTerminal === "power_neg"}
+        onClick={() => onSelectTerminal("power_neg")}
+      />
 
-      {/* Negative Terminal (-) */}
-      <group position={[-0.04, 0.12, 0.205]}>
-        <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.022, 0.022, 0.04, 16]} />
-          <meshStandardMaterial color="#1e293b" metalness={0.6} roughness={0.3} />
-        </mesh>
-        <Text position={[0, 0.04, 0.01]} fontSize={0.03} color="#94a3b8" anchorX="center">
-          -
-        </Text>
-      </group>
-
-      {/* Voltage Knob */}
+      {/* Voltage Dial Knob */}
       <group
-        position={[0.12, 0.12, 0.215]}
+        position={[0.13, 0.12, 0.215]}
         onClick={(e) => {
           e.stopPropagation()
-          // Cycle through common voltages: 3V, 6V, 9V, 12V, 15V, 24V
           const next = voltage >= 24 ? 3 : voltage + 3
           onVoltageChange(next)
           labAudio.playClick(600 + next * 20)
@@ -223,16 +259,15 @@ function DCSupply({
           <cylinderGeometry args={[0.035, 0.035, 0.03, 24]} />
           <meshStandardMaterial color="#475569" metalness={0.7} roughness={0.3} />
         </mesh>
-        {/* Notch on knob */}
         <mesh position={[0, 0.025, 0.016]}>
           <boxGeometry args={[0.008, 0.015, 0.005]} />
           <meshStandardMaterial color="#ffffff" />
         </mesh>
       </group>
 
-      {/* Power Toggle Button */}
+      {/* Power Rocker */}
       <group
-        position={[0, 0.05, 0.205]}
+        position={[0, 0.04, 0.205]}
         onClick={(e) => {
           e.stopPropagation()
           onTogglePower()
@@ -243,175 +278,32 @@ function DCSupply({
           <boxGeometry args={[0.06, 0.03, 0.02]} />
           <meshStandardMaterial color={isOn ? "#10b981" : "#ef4444"} />
         </mesh>
-        <Text position={[0, -0.035, 0.01]} fontSize={0.02} color="#94a3b8" anchorX="center">
-          {isOn ? "تشغيل ON" : "إيقاف OFF"}
-        </Text>
       </group>
     </group>
   )
 }
 
-// 3D Resistor with Color Bands
-function ResistorComponent({
-  position,
-  resistance,
-  onClick,
-}: {
-  position: [number, number, number]
-  resistance: number
-  onClick?: () => void
-}) {
-  const bands = useMemo(() => getResistorBands(resistance), [resistance])
-
-  return (
-    <group position={position} onClick={onClick}>
-      {/* Base mounting board */}
-      <mesh position={[0, 0.01, 0]} receiveShadow>
-        <boxGeometry args={[0.34, 0.02, 0.14]} />
-        <meshStandardMaterial color="#1e293b" roughness={0.5} />
-      </mesh>
-
-      {/* Terminals */}
-      <mesh position={[-0.14, 0.035, 0]}>
-        <cylinderGeometry args={[0.015, 0.015, 0.04, 16]} />
-        <meshStandardMaterial color="#cbd5e1" metalness={0.9} roughness={0.2} />
-      </mesh>
-      <mesh position={[0.14, 0.035, 0]}>
-        <cylinderGeometry args={[0.015, 0.015, 0.04, 16]} />
-        <meshStandardMaterial color="#cbd5e1" metalness={0.9} roughness={0.2} />
-      </mesh>
-
-      {/* Connecting leads */}
-      <mesh rotation={[0, 0, Math.PI / 2]} position={[-0.08, 0.04, 0]}>
-        <cylinderGeometry args={[0.004, 0.004, 0.12, 8]} />
-        <meshStandardMaterial color="#cbd5e1" metalness={0.9} />
-      </mesh>
-      <mesh rotation={[0, 0, Math.PI / 2]} position={[0.08, 0.04, 0]}>
-        <cylinderGeometry args={[0.004, 0.004, 0.12, 8]} />
-        <meshStandardMaterial color="#cbd5e1" metalness={0.9} />
-      </mesh>
-
-      {/* Resistor Ceramic Body */}
-      <group position={[0, 0.04, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <mesh castShadow>
-          <cylinderGeometry args={[0.022, 0.022, 0.1, 24]} />
-          <meshStandardMaterial color="#d4a373" roughness={0.3} />
-        </mesh>
-        {/* End Bulges */}
-        <mesh position={[0, 0.045, 0]}>
-          <cylinderGeometry args={[0.026, 0.022, 0.015, 24]} />
-          <meshStandardMaterial color="#d4a373" roughness={0.3} />
-        </mesh>
-        <mesh position={[0, -0.045, 0]}>
-          <cylinderGeometry args={[0.022, 0.026, 0.015, 24]} />
-          <meshStandardMaterial color="#d4a373" roughness={0.3} />
-        </mesh>
-
-        {/* 4 Colored Bands */}
-        {bands.map((color, idx) => (
-          <mesh key={idx} position={[0, -0.03 + idx * 0.02, 0]}>
-            <cylinderGeometry args={[0.023, 0.023, 0.008, 24]} />
-            <meshBasicMaterial color={color} />
-          </mesh>
-        ))}
-      </group>
-
-      {/* Ohmic value label */}
-      <Text position={[0, 0.09, 0]} fontSize={0.035} color="#e2e8f0" anchorX="center" anchorY="bottom">
-        {resistance} Ω
-      </Text>
-    </group>
-  )
-}
-
-// 3D Sliding Rheostat (مقاومة متغيرة / ريوستات زالق)
-function RheostatComponent({
-  position,
-  value,
-  max = 100,
-  onChange,
-}: {
-  position: [number, number, number]
-  value: number
-  max?: number
-  onChange: (val: number) => void
-}) {
-  const sliderNorm = THREE.MathUtils.clamp(value / max, 0, 1)
-  const sliderX = -0.16 + sliderNorm * 0.32
-
-  return (
-    <group position={position}>
-      {/* Base & Stands */}
-      <mesh position={[0, 0.01, 0]} receiveShadow>
-        <boxGeometry args={[0.44, 0.02, 0.16]} />
-        <meshStandardMaterial color="#0f172a" roughness={0.5} />
-      </mesh>
-      {/* Upright metal supports */}
-      <mesh position={[-0.18, 0.06, 0]}>
-        <boxGeometry args={[0.025, 0.1, 0.12]} />
-        <meshStandardMaterial color="#64748b" metalness={0.7} />
-      </mesh>
-      <mesh position={[0.18, 0.06, 0]}>
-        <boxGeometry args={[0.025, 0.1, 0.12]} />
-        <meshStandardMaterial color="#64748b" metalness={0.7} />
-      </mesh>
-
-      {/* Ceramic Tube with Nichrome Wire Windings */}
-      <group position={[0, 0.06, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <mesh castShadow>
-          <cylinderGeometry args={[0.035, 0.035, 0.34, 24]} />
-          <meshStandardMaterial color="#78350f" roughness={0.4} />
-        </mesh>
-      </group>
-
-      {/* Upper Brass Guide Rod */}
-      <mesh position={[0, 0.11, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[0.007, 0.007, 0.35, 16]} />
-        <meshStandardMaterial color="#eab308" metalness={0.8} roughness={0.2} />
-      </mesh>
-
-      {/* Sliding Contact Block (Interactive) */}
-      <group
-        position={[sliderX, 0.11, 0]}
-        onClick={(e) => {
-          e.stopPropagation()
-          const next = value >= max ? 5 : Math.round(value + 15)
-          onChange(Math.min(next, max))
-          labAudio.playClick(700)
-        }}
-      >
-        <mesh castShadow>
-          <boxGeometry args={[0.035, 0.045, 0.05]} />
-          <meshStandardMaterial color="#2563eb" metalness={0.5} roughness={0.3} />
-        </mesh>
-        {/* Contact pointer reaching coil */}
-        <mesh position={[0, -0.03, 0]}>
-          <boxGeometry args={[0.015, 0.02, 0.015]} />
-          <meshStandardMaterial color="#eab308" metalness={0.9} />
-        </mesh>
-      </group>
-
-      {/* Value label */}
-      <Text position={[0, 0.16, 0]} fontSize={0.032} color="#60a5fa" anchorX="center">
-        ريوستات: {value} Ω (اضغط للتعديل)
-      </Text>
-    </group>
-  )
-}
-
-// 3D Incandescent Light Bulb
-function LightBulbComponent({
+// 3D Incandescent Light Bulb Unit with Terminals
+function BulbUnit({
   position,
   power,
-  isBlown = false,
-  label = "مصباح",
+  isBlown,
+  onSelectTerminal,
+  selectedTerminal,
+  termInId = "bulb_in",
+  termOutId = "bulb_out",
+  label = "مصباح الحمل",
 }: {
   position: [number, number, number]
   power: number
-  isBlown?: boolean
+  isBlown: boolean
+  onSelectTerminal: (id: string) => void
+  selectedTerminal: string | null
+  termInId?: string
+  termOutId?: string
   label?: string
 }) {
-  const normPower = Math.min(power / 40, 1) // normalized power 0 to 1
+  const normPower = Math.min(power / 40, 1)
   const glowColor = isBlown
     ? "#334155"
     : normPower > 0.8
@@ -422,20 +314,20 @@ function LightBulbComponent({
 
   return (
     <group position={position}>
-      {/* Porcelain socket base */}
-      <mesh position={[0, 0.025, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[0.065, 0.075, 0.05, 24]} />
+      {/* Base mounting board */}
+      <mesh position={[0, 0.015, 0]} receiveShadow>
+        <boxGeometry args={[0.34, 0.03, 0.22]} />
+        <meshStandardMaterial color="#1e293b" roughness={0.4} />
+      </mesh>
+
+      {/* Porcelain socket */}
+      <mesh position={[0, 0.05, 0]}>
+        <cylinderGeometry args={[0.06, 0.07, 0.05, 24]} />
         <meshStandardMaterial color="#f1f5f9" roughness={0.2} />
       </mesh>
 
-      {/* Brass screw thread */}
-      <mesh position={[0, 0.065, 0]}>
-        <cylinderGeometry args={[0.035, 0.035, 0.035, 24]} />
-        <meshStandardMaterial color="#ca8a04" metalness={0.8} roughness={0.25} />
-      </mesh>
-
       {/* Glass Bulb Dome */}
-      <mesh position={[0, 0.13, 0]}>
+      <mesh position={[0, 0.14, 0]}>
         <sphereGeometry args={[0.055, 32, 32]} />
         <meshPhysicalMaterial
           color={isBlown || power === 0 ? "#ffffff" : glowColor}
@@ -449,24 +341,29 @@ function LightBulbComponent({
         />
       </mesh>
 
-      {/* Filament wire inside bulb */}
-      <mesh position={[0, 0.12, 0]}>
-        <torusGeometry args={[0.015, 0.002, 8, 16, Math.PI]} />
-        <meshBasicMaterial color={isBlown ? "#1e293b" : power > 0 ? "#ffedd5" : "#475569"} />
-      </mesh>
-
-      {/* Dynamic Point Light cast by bulb */}
+      {/* Bulb Light */}
       {!isBlown && power > 0 && (
-        <pointLight
-          position={[0, 0.14, 0]}
-          color={glowColor}
-          intensity={normPower * 2.2}
-          distance={3.5}
-          decay={2}
-        />
+        <pointLight position={[0, 0.16, 0]} color={glowColor} intensity={normPower * 2.2} distance={3.5} decay={2} />
       )}
 
-      {/* Power label */}
+      {/* Connection Terminals */}
+      <TerminalPost
+        id={termInId}
+        position={[-0.11, 0.03, 0]}
+        label="Terminal 1"
+        color="#dc2626"
+        isSelected={selectedTerminal === termInId}
+        onClick={() => onSelectTerminal(termInId)}
+      />
+      <TerminalPost
+        id={termOutId}
+        position={[0.11, 0.03, 0]}
+        label="Terminal 2"
+        color="#0f172a"
+        isSelected={selectedTerminal === termOutId}
+        onClick={() => onSelectTerminal(termOutId)}
+      />
+
       <Text position={[0, 0.22, 0]} fontSize={0.032} color="#f8fafc" anchorX="center">
         {label} ({isBlown ? "محترق!" : `${power.toFixed(1)} W`})
       </Text>
@@ -474,336 +371,555 @@ function LightBulbComponent({
   )
 }
 
-// 3D Knife Switch (مفتاح سكين)
-function KnifeSwitchComponent({
+// 3D Knife Switch Unit with Terminals
+function SwitchUnit({
   position,
   isOpen,
   onToggle,
+  onSelectTerminal,
+  selectedTerminal,
 }: {
   position: [number, number, number]
   isOpen: boolean
   onToggle: () => void
+  onSelectTerminal: (id: string) => void
+  selectedTerminal: string | null
 }) {
   const angle = isOpen ? -Math.PI / 4 : 0
 
   return (
-    <group
-      position={position}
-      onClick={(e) => {
-        e.stopPropagation()
-        onToggle()
-        labAudio.playClick(isOpen ? 850 : 500)
-      }}
-    >
-      {/* Insulated wooden / slate base */}
-      <mesh position={[0, 0.01, 0]} receiveShadow>
-        <boxGeometry args={[0.26, 0.02, 0.14]} />
+    <group position={position}>
+      {/* Base */}
+      <mesh position={[0, 0.015, 0]} receiveShadow>
+        <boxGeometry args={[0.34, 0.03, 0.18]} />
         <meshStandardMaterial color="#334155" roughness={0.6} />
       </mesh>
 
-      {/* Contact terminal blocks */}
-      <mesh position={[-0.09, 0.03, 0]}>
-        <boxGeometry args={[0.03, 0.025, 0.03]} />
-        <meshStandardMaterial color="#eab308" metalness={0.9} roughness={0.2} />
-      </mesh>
-      {/* Jaws contact for blade */}
-      <mesh position={[0.09, 0.035, 0]}>
-        <boxGeometry args={[0.025, 0.035, 0.02]} />
-        <meshStandardMaterial color="#eab308" metalness={0.9} roughness={0.2} />
-      </mesh>
-
-      {/* Knife Blade Pivoting Arm */}
-      <group position={[-0.09, 0.035, 0]} rotation={[0, 0, angle]}>
-        {/* Brass Blade */}
-        <mesh position={[0.09, 0, 0]}>
-          <boxGeometry args={[0.18, 0.015, 0.008]} />
+      {/* Blade Arm (Clickable to open/close) */}
+      <group
+        position={[-0.07, 0.045, 0]}
+        rotation={[0, 0, angle]}
+        onClick={(e) => {
+          e.stopPropagation()
+          onToggle()
+          labAudio.playClick(isOpen ? 850 : 500)
+        }}
+      >
+        <mesh position={[0.07, 0, 0]}>
+          <boxGeometry args={[0.15, 0.015, 0.008]} />
           <meshStandardMaterial color="#eab308" metalness={0.9} roughness={0.2} />
         </mesh>
-        {/* Insulated handle */}
-        <mesh position={[0.2, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+        <mesh position={[0.16, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
           <cylinderGeometry args={[0.014, 0.014, 0.05, 16]} />
           <meshStandardMaterial color="#dc2626" roughness={0.4} />
         </mesh>
       </group>
 
-      {/* State label */}
-      <Text position={[0, 0.08, 0]} fontSize={0.03} color={isOpen ? "#ef4444" : "#10b981"} anchorX="center">
+      {/* Terminals */}
+      <TerminalPost
+        id="switch_in"
+        position={[-0.11, 0.03, 0]}
+        label="Switch In"
+        color="#eab308"
+        isSelected={selectedTerminal === "switch_in"}
+        onClick={() => onSelectTerminal("switch_in")}
+      />
+      <TerminalPost
+        id="switch_out"
+        position={[0.11, 0.03, 0]}
+        label="Switch Out"
+        color="#eab308"
+        isSelected={selectedTerminal === "switch_out"}
+        onClick={() => onSelectTerminal("switch_out")}
+      />
+
+      <Text position={[0, 0.11, 0]} fontSize={0.03} color={isOpen ? "#ef4444" : "#10b981"} anchorX="center">
         {isOpen ? "مفتاح مفتوح (اضغط للإغلاق)" : "مفتاح مغلق (نشط)"}
       </Text>
     </group>
   )
 }
 
-// 3D Digital Multimeter (Ammeter or Voltmeter)
-function DigitalMeterComponent({
+// 3D Resistor Unit with Terminals
+function ResistorUnit({
+  position,
+  ohms,
+  onSelectTerminal,
+  selectedTerminal,
+  onClickOhms,
+}: {
+  position: [number, number, number]
+  ohms: number
+  onSelectTerminal: (id: string) => void
+  selectedTerminal: string | null
+  onClickOhms?: () => void
+}) {
+  const bands = useMemo(() => getResistorBands(ohms), [ohms])
+
+  return (
+    <group position={position}>
+      {/* Base */}
+      <mesh position={[0, 0.015, 0]} receiveShadow>
+        <boxGeometry args={[0.34, 0.03, 0.18]} />
+        <meshStandardMaterial color="#1e293b" roughness={0.5} />
+      </mesh>
+
+      {/* Ceramic body */}
+      <group position={[0, 0.045, 0]} rotation={[0, 0, Math.PI / 2]} onClick={onClickOhms}>
+        <mesh castShadow>
+          <cylinderGeometry args={[0.022, 0.022, 0.1, 24]} />
+          <meshStandardMaterial color="#d4a373" roughness={0.3} />
+        </mesh>
+        {bands.map((color, idx) => (
+          <mesh key={idx} position={[0, -0.03 + idx * 0.02, 0]}>
+            <cylinderGeometry args={[0.023, 0.023, 0.008, 24]} />
+            <meshBasicMaterial color={color} />
+          </mesh>
+        ))}
+      </group>
+
+      {/* Terminals */}
+      <TerminalPost
+        id="resistor_in"
+        position={[-0.11, 0.03, 0]}
+        label="R In"
+        color="#cbd5e1"
+        isSelected={selectedTerminal === "resistor_in"}
+        onClick={() => onSelectTerminal("resistor_in")}
+      />
+      <TerminalPost
+        id="resistor_out"
+        position={[0.11, 0.03, 0]}
+        label="R Out"
+        color="#cbd5e1"
+        isSelected={selectedTerminal === "resistor_out"}
+        onClick={() => onSelectTerminal("resistor_out")}
+      />
+
+      <Text position={[0, 0.09, 0]} fontSize={0.032} color="#e2e8f0" anchorX="center">
+        {ohms} Ω (اضغط لتغيير القيمة)
+      </Text>
+    </group>
+  )
+}
+
+// 3D Rheostat Unit with Terminals
+function RheostatUnit({
+  position,
+  ohms,
+  onChangeOhms,
+  onSelectTerminal,
+  selectedTerminal,
+}: {
+  position: [number, number, number]
+  ohms: number
+  onChangeOhms: (val: number) => void
+  onSelectTerminal: (id: string) => void
+  selectedTerminal: string | null
+}) {
+  const sliderNorm = THREE.MathUtils.clamp(ohms / 100, 0, 1)
+  const sliderX = -0.12 + sliderNorm * 0.24
+
+  return (
+    <group position={position}>
+      {/* Base */}
+      <mesh position={[0, 0.015, 0]} receiveShadow>
+        <boxGeometry args={[0.42, 0.03, 0.18]} />
+        <meshStandardMaterial color="#0f172a" roughness={0.5} />
+      </mesh>
+
+      {/* Coil */}
+      <mesh position={[0, 0.065, 0]} rotation={[0, 0, Math.PI / 2]} castShadow>
+        <cylinderGeometry args={[0.032, 0.032, 0.3, 24]} />
+        <meshStandardMaterial color="#78350f" roughness={0.4} />
+      </mesh>
+
+      {/* Slider */}
+      <group
+        position={[sliderX, 0.115, 0]}
+        onClick={(e) => {
+          e.stopPropagation()
+          const next = ohms >= 100 ? 5 : ohms + 15
+          onChangeOhms(next)
+          labAudio.playClick(700)
+        }}
+      >
+        <mesh castShadow>
+          <boxGeometry args={[0.035, 0.045, 0.05]} />
+          <meshStandardMaterial color="#2563eb" metalness={0.5} roughness={0.3} />
+        </mesh>
+      </group>
+
+      {/* Terminals */}
+      <TerminalPost
+        id="rheostat_in"
+        position={[-0.15, 0.03, 0]}
+        label="Rheo In"
+        color="#eab308"
+        isSelected={selectedTerminal === "rheostat_in"}
+        onClick={() => onSelectTerminal("rheostat_in")}
+      />
+      <TerminalPost
+        id="rheostat_out"
+        position={[0.15, 0.03, 0]}
+        label="Rheo Out"
+        color="#eab308"
+        isSelected={selectedTerminal === "rheostat_out"}
+        onClick={() => onSelectTerminal("rheostat_out")}
+      />
+
+      <Text position={[0, 0.16, 0]} fontSize={0.03} color="#60a5fa" anchorX="center">
+        ريوستات: {ohms} Ω (اسحب للتعديل)
+      </Text>
+    </group>
+  )
+}
+
+// 3D Digital Meter Unit
+function DigitalMeterUnit({
   position,
   label,
   value,
   unit,
-  color = "#3b82f6",
+  color,
+  termInId,
+  termOutId,
+  onSelectTerminal,
+  selectedTerminal,
 }: {
   position: [number, number, number]
   label: string
   value: number
   unit: string
-  color?: string
+  color: string
+  termInId: string
+  termOutId: string
+  onSelectTerminal: (id: string) => void
+  selectedTerminal: string | null
 }) {
   return (
     <group position={position}>
-      {/* Rugged multimeter casing */}
       <mesh position={[0, 0.05, 0]} castShadow receiveShadow>
-        <boxGeometry args={[0.26, 0.09, 0.2]} />
+        <boxGeometry args={[0.28, 0.09, 0.22]} />
         <meshStandardMaterial color="#0f172a" roughness={0.5} />
       </mesh>
-      {/* Protective rubber holster */}
       <mesh position={[0, 0.045, 0]}>
-        <boxGeometry args={[0.27, 0.08, 0.21]} />
+        <boxGeometry args={[0.29, 0.08, 0.23]} />
         <meshStandardMaterial color={color} roughness={0.4} />
       </mesh>
 
-      {/* LCD Screen recessed */}
+      {/* Screen */}
       <mesh position={[0, 0.096, -0.02]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[0.18, 0.08]} />
         <meshBasicMaterial color="#020617" />
       </mesh>
-
-      {/* LCD readout */}
       <Text
         position={[0, 0.098, -0.02]}
         rotation={[-Math.PI / 2, 0, 0]}
         fontSize={0.045}
         color="#38bdf8"
-        font="/fonts/inter.ttf"
         anchorX="center"
         anchorY="middle"
       >
         {`${value.toFixed(2)} ${unit}`}
       </Text>
 
-      {/* Meter description label */}
-      <Text
-        position={[0, 0.098, 0.06]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        fontSize={0.024}
-        color="#ffffff"
-        anchorX="center"
-      >
+      {/* Terminals */}
+      <TerminalPost
+        id={termInId}
+        position={[-0.08, 0.06, 0.07]}
+        label="+"
+        color="#dc2626"
+        isSelected={selectedTerminal === termInId}
+        onClick={() => onSelectTerminal(termInId)}
+      />
+      <TerminalPost
+        id={termOutId}
+        position={[0.08, 0.06, 0.07]}
+        label="-"
+        color="#0f172a"
+        isSelected={selectedTerminal === termOutId}
+        onClick={() => onSelectTerminal(termOutId)}
+      />
+
+      <Text position={[0, 0.098, 0.06]} rotation={[-Math.PI / 2, 0, 0]} fontSize={0.022} color="#ffffff" anchorX="center">
         {label}
       </Text>
     </group>
   )
 }
 
-// Spark warning particle burst for short circuits
-function SparkBurst({ position }: { position: [number, number, number] }) {
-  const sparkCount = 15
-  const sparks = useMemo(
-    () =>
-      Array.from({ length: sparkCount }, () => ({
-        vel: new THREE.Vector3(
-          (Math.random() - 0.5) * 1.5,
-          Math.random() * 1.5 + 0.5,
-          (Math.random() - 0.5) * 1.5
-        ),
-      })),
-    [sparkCount]
-  )
-
-  const groupRef = useRef<THREE.Group>(null)
-
-  useFrame((_, delta) => {
-    if (!groupRef.current) return
-    groupRef.current.children.forEach((child, i) => {
-      child.position.addScaledVector(sparks[i].vel, delta)
-      sparks[i].vel.y -= 3.5 * delta // gravity
-      if (child.position.y < 0) {
-        child.position.set(0, 0, 0)
-        sparks[i].vel.set(
-          (Math.random() - 0.5) * 1.5,
-          Math.random() * 1.5 + 0.5,
-          (Math.random() - 0.5) * 1.5
-        )
-      }
-    })
-  })
-
-  return (
-    <group ref={groupRef} position={position}>
-      {sparks.map((_, i) => (
-        <mesh key={i}>
-          <sphereGeometry args={[0.008, 4, 4]} />
-          <meshBasicMaterial color="#fbbf24" />
-        </mesh>
-      ))}
-      <pointLight color="#f59e0b" intensity={3} distance={1.5} />
-    </group>
-  )
-}
-
-// 4 Guided Experiments aligned with Egyptian Curriculum
-const ELECTRICITY_GUIDED_EXPERIMENTS: GuidedExperiment[] = [
+// 4 Guided Experiments (Bilingual)
+export const ELECTRICITY_GUIDED_EXPERIMENTS: GuidedExperiment[] = [
   {
     id: "ohms-law",
     title: "تحقيق قانون أوم (Ohm's Law: V = IR)",
-    curriculumRef: "الفيزياء - الفصل الأول: التيار الكهربي وقانون أوم",
-    description: "دراسة العلاقة الطردية بين فرق الجهد وشدة التيار عند ثبوت درجة الحرارة وتعيين المقاومة.",
+    titleEn: "Verification of Ohm's Law (V = IR)",
+    curriculumRef: "الفيزياء - التيار الكهربي وقانون أوم",
+    curriculumRefEn: "Physics - Electric Current & Ohm's Law",
+    description: "توصيل الدائرة وتغيير فرق الجهد والمقاومة لدراسة العلاقة الطردية بين الجهد والتيار.",
+    descriptionEn: "Connect the circuit and vary voltage/resistance to study the linear I-V relationship.",
     steps: [
       {
-        title: "تأكد من إغلاق مفتاح الدائرة",
-        instruction: "اضغط على مفتاح السكين (Knife Switch) لإغلاق الدائرة والسماح بمرور الشحنات الكهربائية.",
-        hint: "لاحظ حركة الجسيمات الزرقاء التي تمثل تدفق الإلكترونات في الأسلاك.",
+        title: "توصيل أطراف الدائرة الكهربائية",
+        titleEn: "Wire the Circuit Terminals",
+        instruction: "اختر أطراف التوصيل من مجهز القدرة إلى المفتاح ثم الريوستات والمصباح لتشكيل دائرة مغلقة.",
+        instructionEn: "Connect wires from the Power Supply (+) to the Switch, then to the Rheostat, Bulb, and back to Power (-).",
+        hint: "يمكنك أيضاً الضغط على زر 'قالب دائرة بسيطة' لبناء التوصيل فوراً.",
+        hintEn: "You can also click 'Simple Circuit Preset' to auto-wire the setup.",
       },
       {
-        title: "زيادة فرق الجهد وملاحظة شدة التيار",
-        instruction: "اضغط على مقبض مجهز القدرة (DC Supply) لزيادة الجهد إلى 12V ولاحظ قراءة الأمبيرميتر.",
-        hint: "وفقاً لقانون أوم: كلما زاد فرق الجهد V، تزداد شدة التيار I بنسبة ثابتة تمثل المقاومة R.",
-      },
-      {
-        title: "تغيير قيمة المقاومة بالريوستات",
-        instruction: "اضغط على الزالق المتحرك للريوستات لزيادة المقاومة، وشاهد هبوط شدة التيار وضعف إضاءة المصباح.",
-        hint: "العلاقة بين شدة التيار والمقاومة علاقة عكسية (I = V / R).",
+        title: "إغلاق المفتاح وزيادة فرق الجهد",
+        titleEn: "Close Switch and Increase Voltage",
+        instruction: "اضغط على مفتاح السكين لإغلاقه، ولاحظ قراءة الأمبيرميتر مع زيادة الجهد.",
+        instructionEn: "Click the knife switch to close it, and observe current rise as voltage increases.",
       },
     ],
     quiz: {
       question: "إذا تضاعف فرق الجهد بين طرفي مقاومة أومية ثابتة عند ثبوت درجة الحرارة، فإن شدة التيار المار بها:",
+      questionEn: "If the voltage across a fixed ohmic resistor is doubled at constant temperature, the current will:",
       options: ["تزداد للضعف (2I)", "تقل للنصف (I/2)", "تظل ثابتة لا تتغير", "تزداد لأربعة أمثالها"],
+      optionsEn: ["Double (2I)", "Halve (I/2)", "Remain unchanged", "Quadruple (4I)"],
       correctIndex: 0,
-      explanation: "وفق قانون أوم V = IR، تتناسب شدة التيار طردياً مع فرق الجهد عند ثبوت المقاومة (R ثابتة)، فتتضاعف شدة التيار بتضاعف الجهد.",
+      explanation: "وفق قانون أوم V = IR، تتناسب شدة التيار طردياً مع فرق الجهد عند ثبوت المقاومة.",
+      explanationEn: "According to Ohm's Law (V = IR), electric current is directly proportional to voltage across a constant resistance.",
     },
   },
   {
     id: "series-parallel",
-    title: "مقارنة التوصيل على التوالي والتوازي",
-    curriculumRef: "الفيزياء - توصيل المقاومات والمصابيح الكهربية",
-    description: "استكشف كيف تختلف المقاومة المكافئة وإضاءة المصابيح بين التوصيل على التوالي والتوازي.",
+    title: "توصيل المقاومات على التوالي والتوازي",
+    titleEn: "Series vs Parallel Resistor Circuits",
+    curriculumRef: "الفيزياء - توصيل المقاومات والمصابيح",
+    curriculumRefEn: "Physics - Resistor & Lamp Combinations",
+    description: "مقارنة المقاومة المكافئة وإضاءة المصابيح في التوصيلين.",
+    descriptionEn: "Compare equivalent resistance and bulb luminosity in series and parallel.",
     steps: [
       {
-        title: "اختر وضع التوصيل على التوالي",
-        instruction: "في التوصيل على التوالي: يكون للتيار مسار واحد، والمقاومة الكلية Req = R1 + R2.",
-        hint: "إذا فُتحت الدائرة في أي نقطة أو تلف مصباح ينقطع التيار عن جميع أجزاء الدائرة.",
+        title: "تجربة التوصيل على التوالي",
+        titleEn: "Test Series Circuit",
+        instruction: "في التوالي يكون مسار التيار واحداً والمقاومة المكافئة Req = R1 + R2.",
+        instructionEn: "In series, current flows through a single path, and equivalent resistance is Req = R1 + R2.",
       },
       {
-        title: "بدّل إلى التوصيل على التوازي",
-        instruction: "انتقل إلى وضع التوازي في لوحة التحكم لملاحظة شدة إضاءة المصابيح واستقلال كل فرع.",
-        hint: "في التوازي: فرق الجهد متساوٍ على جميع الفروع، والمقاومة المكافئة أصغر من أصغر مقاومة.",
+        title: "تجربة التوصيل على التوازي",
+        titleEn: "Test Parallel Circuit",
+        instruction: "في التوازي يتوزع التيار ويظل فرق الجهد متساوياً على كل فرع، وتكون إضاءة المصابيح أقوى.",
+        instructionEn: "In parallel, voltage is identical across branches and bulbs shine at full independent power.",
       },
     ],
     quiz: {
-      question: "عند توصيل عدة مصابيح متماثلة على التوازي مع مصدر مهمل المقاومة الداخلية، ثم إضافة مصباح آخر على التوازي، فإن إضاءة المصابيح السابقة:",
-      options: ["تظل ثابتة كما هي", "تقل شدتها", "تزداد شدتها", "تنطفئ تماماً"],
+      question: "عند توصيل عدة مصابيح متماثلة على التوازي مع مصدر مهمل المقاومة الداخلية، فإن إضاءة كل مصباح:",
+      questionEn: "When identical bulbs are connected in parallel to an ideal source, the brightness of each bulb:",
+      options: ["تظل ثابتة ومستقلة", "تقل شدتها", "تزداد شدتها", "تنطفئ تماماً"],
+      optionsEn: ["Remains constant and independent", "Decreases", "Increases", "Turns off"],
       correctIndex: 0,
-      explanation: "في التوصيل على التوازي، يظل فرق الجهد على طرفي كل مصباح ثابتاً ويساوي جهد المصدر V، وبالتالي تظل قدرة وإضاءة كل مصباح ثابتة.",
+      explanation: "في التوازي يظل فرق الجهد على طرفي كل مصباح ثابتاً ومساوياً لجهد المصدر.",
+      explanationEn: "In a parallel circuit, each branch receives the full source voltage independently.",
     },
   },
   {
     id: "kirchhoff-laws",
     title: "قانونا كيرشوف وتوزيع التيارات",
-    curriculumRef: "الفيزياء - قانونا كيرشوف للدوائر المعقدة",
-    description: "التحقق من قانون حفظ الشحنة (قانون كيرشوف الأول) وقانون حفظ الطاقة (قانون كيرشوف الثاني).",
+    titleEn: "Kirchhoff's Current & Voltage Laws",
+    curriculumRef: "الفيزياء - قانونا كيرشوف",
+    curriculumRefEn: "Physics - Kirchhoff's Circuit Laws",
+    description: "التحقق من حفظ الشحنة عند العقد وحفظ الطاقة في المسارات المغلقة.",
+    descriptionEn: "Verify conservation of charge at nodes (KCL) and energy in closed loops (KVL).",
     steps: [
       {
-        title: "التحقق من العقدة الكهربائية (Junction Node)",
-        instruction: "لاحظ نقطة تفرع التيار: التيار الكلي الداخل يساوي مجموع التيارات الخارجة (Σ I_in = Σ I_out).",
-        hint: "قانون كيرشوف الأول هو تطبيق مباشر لمبدأ بقاء الشحنة الكهربية.",
-      },
-      {
-        title: "فحص المسار المغلق (Loop)",
-        instruction: "قس فروق الجهد عبر كل عنصر في المسار للتأكد من أن المجموع الجبري للقوى الدافعة يساوي مجموع فروق الجهد.",
-        hint: "قانون كيرشوف الثاني هو تطبيق مباشر لمبدأ بقاء الطاقة.",
+        title: "فحص العقدة (KCL)",
+        titleEn: "Check Junction Node (KCL)",
+        instruction: "مجموع التيارات الداخلة إلى النقطة يساوي مجموع التيارات الخارجة منها (Σ I_in = Σ I_out).",
+        instructionEn: "Total current entering a junction equals the total current leaving it (Σ I_in = Σ I_out).",
       },
     ],
     quiz: {
-      question: "يعتبر قانون كيرشوف الأول (قانون النقطة) صيغة رياضية معبرة عن قانون:",
-      options: ["بقاء الشحنة الكهربية", "بقاء الطاقة", "بقاء كمية التحرك", "قانون الجذب العام"],
+      question: "يعتبر قانون كيرشوف الأول صيغة رياضية تعبر عن قانون:",
+      questionEn: "Kirchhoff's First Law (Current Law) expresses the principle of conservation of:",
+      options: ["بقاء الشحنة الكهربية", "بقاء الطاقة", "بقاء كمية التحرك", "الجاذبية الكونية"],
+      optionsEn: ["Conservation of electric charge", "Conservation of energy", "Conservation of momentum", "Universal gravitation"],
       correctIndex: 0,
-      explanation: "قانون كيرشوف الأول ينص على أن مجموع الشحنات الداخلة إلى نقطة في زمن معين يساوي مجموع الشحنات الخارجة منها، فهو يعبر عن حفظ الشحنة.",
+      explanation: "قانون كيرشوف الأول يعبر عن حفظ الشحنة الكهربية عند أي نقطة تفرع.",
+      explanationEn: "KCL mathematically embodies the fundamental conservation of electric charge at circuit junctions.",
     },
   },
   {
     id: "power-short-circuit",
-    title: "القدرة الكهربائية وخطر الماس الكهربائي (Short Circuit)",
-    curriculumRef: "الفيزياء - القدرة والطاقة الكهربية وحماية الدوائر",
-    description: "فهم قانون القدرة المستهلكة P = VI وتجربة أمان الدائرة عند هبوط المقاومة لصفر تقريباً.",
+    title: "القدرة الكهربية وخطر الماس الكهربائي",
+    titleEn: "Electric Power & Short-Circuit Safety",
+    curriculumRef: "الفيزياء - القدرة وحماية الدوائر",
+    curriculumRefEn: "Physics - Electric Power & Circuit Protection",
+    description: "حساب القدرة P = VI وملاحظة حماية الدائرة عند هبوط المقاومة لصفر تقريباً.",
+    descriptionEn: "Compute power P = VI and observe safety fuse blow when resistance drops near zero.",
     steps: [
       {
-        title: "ملاحظة القدرة المستهلكة للمصباح",
-        instruction: "راقب قراءة الواط (W) المحسوبة من P = V × I. لاحظ كيف تزداد الإضاءة بارتفاع القدرة.",
-        hint: "الطاقة الحرارية والضوئية المنبعثة تعتمد على معدل استهلاك الطاقة بالواط.",
-      },
-      {
-        title: "تنبيه قصر الدائرة (Short Circuit)",
-        instruction: "إذا انخفضت مقاومة الدائرة إلى ما يقارب الصفر، يقفز التيار لقيم هائلة ويفصل قاطع الأمان لمنع تلف الأجهزة.",
-        hint: "الماس الكهربائي يحدث عند تلامس سلكي المصدر بدون حمل، مما يسبب تياراً عالي الخطورة.",
+        title: "فحص استهلاك الواط (W)",
+        titleEn: "Inspect Wattage Consumption",
+        instruction: "راقب كيف تتغير القدرة المستهلكة مع تغيير الجهد والمقاومة.",
+        instructionEn: "Watch how power (W) scales with voltage and current.",
       },
     ],
     quiz: {
-      question: "مصباحان مكتوب عليهما (100W, 220V) و (25W, 220V)، تكون مقاومة فتيلة المصباح الثاني:",
-      options: ["أربعة أمثال مقاومة الأول", "نصف مقاومة الأول", "مساوية لمقاومة الأول", "ربع مقاومة الأول"],
+      question: "إذا انخفضت مقاومة دائرة كهربائية فجأة إلى الصفر تقريباً (ماس كهربائي)، فإن شدة التيار:",
+      questionEn: "If circuit resistance drops to near zero (short circuit), electric current will:",
+      options: ["تقفز لقيمة هائلة ويفصل قاطع الأمان", "تهبط للصفر فوراً", "تظل ثابتة", "تتذبذب"],
+      optionsEn: ["Surge to a dangerously high value tripping the fuse", "Drop to zero", "Remain constant", "Oscillate"],
       correctIndex: 0,
-      explanation: "من القانون P = V² / R، نجد أن المقاومة R = V² / P. بما أن الجهد ثابت (220V)، فالمصباح ذو القدرة الأقل (25W) تكون مقاومته أربعة أضعاف مصباح (100W).",
+      explanation: "من قانون أوم I = V/R، عندما تقترب R من الصفر يقفز التيار لقيم هائلة مسبباً خطراً يوجب فصل القاطع.",
+      explanationEn: "As R approaches zero, I = V/R surges toward infinity, triggering safety circuit breakers.",
     },
   },
 ]
 
+// Connection wire interface
+interface WireConnection {
+  id: string
+  from: string
+  to: string
+  fromPos: [number, number, number]
+  toPos: [number, number, number]
+}
+
 export function CircuitLab() {
-  // Circuit electrical parameters
   const [voltage, setVoltage] = useState(12)
-  const [rheostatResistance, setRheostatResistance] = useState(15)
-  const [fixedResistance, setFixedResistance] = useState(10)
-  const [circuitMode, setCircuitMode] = useState<"simple" | "series" | "parallel">("simple")
+  const [rheostatOhms, setRheostatOhms] = useState(15)
+  const [fixedResistorOhms, setFixedResistorOhms] = useState(10)
   const [isSwitchOpen, setIsSwitchOpen] = useState(false)
   const [isPowerOn, setIsPowerOn] = useState(true)
 
-  // HUD & Guided Exp states
+  // Terminal connection state (Student forms the circuit!)
+  const [selectedTerminal, setSelectedTerminal] = useState<string | null>(null)
+  const [wires, setWires] = useState<WireConnection[]>([
+    // Default simple circuit pre-connected
+    { id: "w1", from: "power_pos", to: "switch_in", fromPos: [-1.22, 0.94, -0.25], toPos: [0.79, 0.85, -0.45] },
+    { id: "w2", from: "switch_out", to: "rheostat_in", fromPos: [1.01, 0.85, -0.45], toPos: [-0.25, 0.85, -0.45] },
+    { id: "w3", from: "rheostat_out", to: "bulb_in", fromPos: [0.05, 0.85, -0.45], toPos: [0.74, 0.85, 0.4] },
+    { id: "w4", from: "bulb_out", to: "power_neg", fromPos: [0.96, 0.85, 0.4], toPos: [-1.12, 0.94, -0.25] },
+  ])
+
+  // Guided Experiments HUD
   const [activeExpIndex, setActiveExpIndex] = useState(0)
   const [isSandbox, setIsSandbox] = useState(false)
   const [cameraResetSignal, setCameraResetSignal] = useState(0)
 
-  // Equivalent resistance calculation
-  const equivalentResistance = useMemo(() => {
-    if (circuitMode === "simple") {
-      return rheostatResistance + 2 // 2 ohms internal/bulb base resistance
-    } else if (circuitMode === "series") {
-      return rheostatResistance + fixedResistance + 4
+  const { lang, t, isAr } = useLabLanguage()
+
+  // Terminal Positions Registry on the Tabletop
+  const TERMINALS: Record<string, { label: string; pos: [number, number, number] }> = {
+    power_pos: { label: "Power (+)", pos: [-1.22, 0.94, -0.25] },
+    power_neg: { label: "Power (-)", pos: [-1.12, 0.94, -0.25] },
+    switch_in: { label: "Switch In", pos: [0.79, 0.85, -0.45] },
+    switch_out: { label: "Switch Out", pos: [1.01, 0.85, -0.45] },
+    rheostat_in: { label: "Rheo In", pos: [-0.25, 0.85, -0.45] },
+    rheostat_out: { label: "Rheo Out", pos: [0.05, 0.85, -0.45] },
+    resistor_in: { label: "R In", pos: [0.14, 0.85, 0.45] },
+    resistor_out: { label: "R Out", pos: [0.36, 0.85, 0.45] },
+    bulb_in: { label: "Bulb In", pos: [0.74, 0.85, 0.4] },
+    bulb_out: { label: "Bulb Out", pos: [0.96, 0.85, 0.4] },
+    ammeter_in: { label: "Ammeter (+)", pos: [-1.03, 0.88, 0.52] },
+    ammeter_out: { label: "Ammeter (-)", pos: [-0.87, 0.88, 0.52] },
+    voltmeter_in: { label: "Voltmeter (+)", pos: [-0.43, 0.88, 0.52] },
+    voltmeter_out: { label: "Voltmeter (-)", pos: [-0.27, 0.88, 0.52] },
+  }
+
+  // Handle student clicking terminals to create / connect wires
+  const handleTerminalClick = (termId: string) => {
+    if (!selectedTerminal) {
+      setSelectedTerminal(termId)
+      labAudio.playClick(700)
     } else {
-      // Parallel: (R1 * R2) / (R1 + R2)
-      const r1 = Math.max(rheostatResistance, 1)
-      const r2 = Math.max(fixedResistance, 1)
-      return (r1 * r2) / (r1 + r2) + 1
+      if (selectedTerminal === termId) {
+        setSelectedTerminal(null)
+        return
+      }
+      // Create new wire between selectedTerminal and termId
+      const t1 = TERMINALS[selectedTerminal]
+      const t2 = TERMINALS[termId]
+      if (t1 && t2) {
+        const newWire: WireConnection = {
+          id: `w_${Date.now()}`,
+          from: selectedTerminal,
+          to: termId,
+          fromPos: t1.pos,
+          toPos: t2.pos,
+        }
+        setWires((prev) => [...prev, newWire])
+        labAudio.playSnap()
+      }
+      setSelectedTerminal(null)
     }
-  }, [circuitMode, rheostatResistance, fixedResistance])
+  }
 
-  // Is short-circuit condition?
-  const isShortCircuit = isPowerOn && !isSwitchOpen && equivalentResistance < 1.5
+  // Check if circuit forms a complete closed conductive path
+  const isCircuitClosed = useMemo(() => {
+    if (!isPowerOn || isSwitchOpen || wires.length < 2) return false
+    // Checks if power_pos connects through components back to power_neg
+    const hasPos = wires.some((w) => w.from === "power_pos" || w.to === "power_pos")
+    const hasNeg = wires.some((w) => w.from === "power_neg" || w.to === "power_neg")
+    return hasPos && hasNeg
+  }, [wires, isPowerOn, isSwitchOpen])
 
-  // Circuit current (I = V / Req)
+  // Circuit resistance calculation
+  const totalResistance = useMemo(() => {
+    let r = 2.0 // internal resistance of wires and bulb base
+    if (wires.some((w) => w.from.includes("rheostat") || w.to.includes("rheostat"))) {
+      r += rheostatOhms
+    }
+    if (wires.some((w) => w.from.includes("resistor") || w.to.includes("resistor"))) {
+      r += fixedResistorOhms
+    }
+    return r
+  }, [wires, rheostatOhms, fixedResistorOhms])
+
+  // Short circuit check: closed circuit with resistance < 1.0 Ohm
+  const isShortCircuit = isCircuitClosed && totalResistance < 1.5
+
+  // Current calculation
   const current = useMemo(() => {
-    if (!isPowerOn || isSwitchOpen || isShortCircuit) return 0
-    return Number((voltage / equivalentResistance).toFixed(2))
-  }, [voltage, equivalentResistance, isPowerOn, isSwitchOpen, isShortCircuit])
+    if (!isCircuitClosed || isShortCircuit) return 0
+    return Number((voltage / totalResistance).toFixed(2))
+  }, [isCircuitClosed, isShortCircuit, voltage, totalResistance])
 
-  // Power consumed (P = V * I)
+  // Power calculation
   const power = useMemo(() => {
-    if (!isPowerOn || isSwitchOpen) return 0
+    if (!isCircuitClosed) return 0
     return Number((voltage * current).toFixed(1))
-  }, [voltage, current, isPowerOn, isSwitchOpen])
+  }, [isCircuitClosed, voltage, current])
 
-  // Trigger spark sound on short circuit
-  const prevShortRef = useRef(false)
-  if (isShortCircuit && !prevShortRef.current) {
-    labAudio.playSpark()
-    prevShortRef.current = true
-  } else if (!isShortCircuit) {
-    prevShortRef.current = false
+  // Quick Preset Wiring Templates
+  const handleApplyPreset = (type: "simple" | "series" | "parallel" | "clear") => {
+    if (type === "clear") {
+      setWires([])
+      setSelectedTerminal(null)
+      labAudio.playClick(500)
+      return
+    }
+
+    if (type === "simple") {
+      setWires([
+        { id: "w1", from: "power_pos", to: "switch_in", fromPos: [-1.22, 0.94, -0.25], toPos: [0.79, 0.85, -0.45] },
+        { id: "w2", from: "switch_out", to: "rheostat_in", fromPos: [1.01, 0.85, -0.45], toPos: [-0.25, 0.85, -0.45] },
+        { id: "w3", from: "rheostat_out", to: "bulb_in", fromPos: [0.05, 0.85, -0.45], toPos: [0.74, 0.85, 0.4] },
+        { id: "w4", from: "bulb_out", to: "power_neg", fromPos: [0.96, 0.85, 0.4], toPos: [-1.12, 0.94, -0.25] },
+      ])
+    } else if (type === "series") {
+      setWires([
+        { id: "w1", from: "power_pos", to: "switch_in", fromPos: [-1.22, 0.94, -0.25], toPos: [0.79, 0.85, -0.45] },
+        { id: "w2", from: "switch_out", to: "resistor_in", fromPos: [1.01, 0.85, -0.45], toPos: [0.14, 0.85, 0.45] },
+        { id: "w3", from: "resistor_out", to: "bulb_in", fromPos: [0.36, 0.85, 0.45], toPos: [0.74, 0.85, 0.4] },
+        { id: "w4", from: "bulb_out", to: "power_neg", fromPos: [0.96, 0.85, 0.4], toPos: [-1.12, 0.94, -0.25] },
+      ])
+    }
+    labAudio.playSnap()
   }
 
   const handleResetLab = () => {
     setVoltage(12)
-    setRheostatResistance(15)
-    setFixedResistance(10)
-    setCircuitMode("simple")
+    setRheostatOhms(15)
+    setFixedResistorOhms(10)
     setIsSwitchOpen(false)
     setIsPowerOn(true)
+    handleApplyPreset("simple")
     setCameraResetSignal((prev) => prev + 1)
   }
 
@@ -814,125 +930,104 @@ export function CircuitLab() {
         onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
       >
         <LabRoom cameraResetSignal={cameraResetSignal} defaultCameraPosition={[0, 2.3, 3.2]} defaultTarget={[0, 0.85, 0]}>
-          {/* Bench Components Layout */}
-
           {/* 1. DC Power Supply (Back Left) */}
-          <DCSupply
+          <DCSupplyUnit
             position={[-1.1, 0.82, -0.45]}
             voltage={voltage}
             current={current}
             onVoltageChange={setVoltage}
             isOn={isPowerOn}
             onTogglePower={() => setIsPowerOn(!isPowerOn)}
+            onSelectTerminal={handleTerminalClick}
+            selectedTerminal={selectedTerminal}
           />
 
-          {/* 2. Rheostat (Center Back) */}
-          <RheostatComponent
+          {/* 2. Sliding Rheostat (Center Back) */}
+          <RheostatUnit
             position={[-0.1, 0.82, -0.45]}
-            value={rheostatResistance}
-            max={100}
-            onChange={setRheostatResistance}
+            ohms={rheostatOhms}
+            onChangeOhms={setRheostatOhms}
+            onSelectTerminal={handleTerminalClick}
+            selectedTerminal={selectedTerminal}
           />
 
           {/* 3. Knife Switch (Right Back) */}
-          <KnifeSwitchComponent
+          <SwitchUnit
             position={[0.9, 0.82, -0.45]}
             isOpen={isSwitchOpen}
             onToggle={() => setIsSwitchOpen(!isSwitchOpen)}
+            onSelectTerminal={handleTerminalClick}
+            selectedTerminal={selectedTerminal}
           />
 
-          {/* 4. Digital Multimeters (Front Left and Front Center) */}
-          {/* Ammeter: Measuring current in series */}
-          <DigitalMeterComponent
-            position={[-0.95, 0.82, 0.45]}
-            label="أمبيرميتر (A) على التوالي"
-            value={current}
-            unit="A"
-            color="#10b981"
+          {/* 4. Resistor Component (Center Front) */}
+          <ResistorUnit
+            position={[0.25, 0.82, 0.45]}
+            ohms={fixedResistorOhms}
+            onSelectTerminal={handleTerminalClick}
+            selectedTerminal={selectedTerminal}
+            onClickOhms={() => {
+              const next = fixedResistorOhms >= 50 ? 5 : fixedResistorOhms + 10
+              setFixedResistorOhms(next)
+              labAudio.playClick(650)
+            }}
           />
 
-          {/* Voltmeter: Measuring voltage in parallel */}
-          <DigitalMeterComponent
-            position={[-0.35, 0.82, 0.45]}
-            label="فولتميتر (V) على التوازي"
-            value={isPowerOn && !isSwitchOpen ? voltage : 0}
-            unit="V"
-            color="#3b82f6"
-          />
-
-          {/* 5. Resistor Component (Used in Series & Parallel Modes) */}
-          {circuitMode !== "simple" && (
-            <ResistorComponent
-              position={[0.25, 0.82, 0.45]}
-              resistance={fixedResistance}
-              onClick={() => {
-                const next = fixedResistance >= 50 ? 5 : fixedResistance + 10
-                setFixedResistance(next)
-                labAudio.playClick(650)
-              }}
-            />
-          )}
-
-          {/* 6. Light Bulb (Right Front) */}
-          <LightBulbComponent
+          {/* 5. Light Bulb (Right Front) */}
+          <BulbUnit
             position={[0.85, 0.82, 0.4]}
             power={power}
             isBlown={isShortCircuit}
-            label={circuitMode === "parallel" ? "مصباح فرع 1" : "مصباح الحمل"}
+            onSelectTerminal={handleTerminalClick}
+            selectedTerminal={selectedTerminal}
+            label={t("مصباح الحمل", "Load Lamp")}
           />
 
-          {/* Secondary Bulb for Parallel mode */}
-          {circuitMode === "parallel" && (
-            <LightBulbComponent
-              position={[1.25, 0.82, 0.4]}
-              power={power * 0.8}
-              isBlown={isShortCircuit}
-              label="مصباح فرع 2"
+          {/* 6. Digital Multimeters (Front Left) */}
+          <DigitalMeterUnit
+            position={[-0.95, 0.82, 0.45]}
+            label="Ammeter (A)"
+            value={current}
+            unit="A"
+            color="#10b981"
+            termInId="ammeter_in"
+            termOutId="ammeter_out"
+            onSelectTerminal={handleTerminalClick}
+            selectedTerminal={selectedTerminal}
+          />
+          <DigitalMeterUnit
+            position={[-0.35, 0.82, 0.45]}
+            label="Voltmeter (V)"
+            value={isCircuitClosed ? voltage : 0}
+            unit="V"
+            color="#3b82f6"
+            termInId="voltmeter_in"
+            termOutId="voltmeter_out"
+            onSelectTerminal={handleTerminalClick}
+            selectedTerminal={selectedTerminal}
+          />
+
+          {/* 7. Student-formed 3D Dynamic Wires */}
+          {wires.map((wire) => (
+            <DynamicWireMesh
+              key={wire.id}
+              start={wire.fromPos}
+              end={wire.toPos}
+              current={current}
+              wireColor="#3b82f6"
             />
-          )}
-
-          {/* Spark visual effect if short circuit occurs */}
-          {isShortCircuit && <SparkBurst position={[-0.1, 0.9, -0.45]} />}
-
-          {/* 3D Realistic Wires connecting the circuit */}
-          <WirePath
-            start={[-0.96, 0.94, -0.25]} // Power (+)
-            end={[-0.3, 0.88, -0.45]} // To Rheostat
-            current={current}
-            wireColor="#dc2626"
-          />
-          <WirePath
-            start={[0.1, 0.88, -0.45]} // Rheostat out
-            end={[0.77, 0.85, -0.45]} // To switch
-            current={current}
-            wireColor="#eab308"
-          />
-          <WirePath
-            start={[1.03, 0.85, -0.45]} // Switch out
-            end={[0.85, 0.85, 0.35]} // To Bulb
-            current={current}
-            wireColor="#3b82f6"
-          />
-          <WirePath
-            start={[0.85, 0.85, 0.45]} // Bulb out
-            end={[-0.95, 0.88, 0.35]} // To Ammeter
-            current={current}
-            wireColor="#1e293b"
-          />
-          <WirePath
-            start={[-0.95, 0.88, 0.55]} // Ammeter return
-            end={[-1.14, 0.94, -0.25]} // Power (-)
-            current={current}
-            wireColor="#0f172a"
-          />
+          ))}
         </LabRoom>
       </LabCanvas>
 
       {/* 2D Interactive HUD Overlay */}
       <LabHUD
-        title="مختبر الدوائر الكهربائية ثلاثي الأبعاد"
+        title="مختبر الدوائر والتركيب الكهربائي ثلاثي الأبعاد"
+        titleEn="3D Interactive Circuit Construction Laboratory"
         subjectTitle="الفيزياء الكهربية"
+        subjectTitleEn="Electric Physics"
         curriculumGrade="الثانوية العامة"
+        curriculumGradeEn="Secondary Physics"
         guidedExperiments={ELECTRICITY_GUIDED_EXPERIMENTS}
         activeExpIndex={activeExpIndex}
         onSelectExp={setActiveExpIndex}
@@ -941,77 +1036,94 @@ export function CircuitLab() {
         onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
         onResetExperiment={handleResetLab}
       >
-        {/* Floating In-Scene Quick Controls */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pointer-events-auto max-w-4xl mx-auto w-full px-2">
-          {/* Circuit Mode Selector */}
-          <div className="glass px-3 py-1.5 rounded-xl border border-white/10 flex items-center gap-1.5 shadow-lg">
-            <span className="text-xs font-bold text-slate-300 flex items-center gap-1">
-              <Sliders className="w-3.5 h-3.5 text-primary" />
-              <span>نمط التوصيل:</span>
-            </span>
-            <div className="flex gap-1 bg-black/40 p-0.5 rounded-lg border border-white/5 text-xs">
+        <div className="flex flex-col gap-2.5 pointer-events-auto max-w-4xl mx-auto w-full px-2">
+          {/* Wire Construction & Presets Bar */}
+          <div className="glass px-4 py-2.5 rounded-2xl border border-white/10 shadow-xl flex flex-wrap items-center justify-between gap-3">
+            {/* Terminal Connection Status */}
+            <div className="flex items-center gap-2">
+              <LinkIcon className="w-4 h-4 text-primary" />
+              <span className="text-xs font-bold text-slate-200">
+                {selectedTerminal ? (
+                  <span className="text-cyan-300 animate-pulse">
+                    {t(`تم اختيار طرف: ${selectedTerminal} — اضغط على طرف آخر للتوصيل`, `Selected: ${selectedTerminal} — Click another terminal to wire`)}
+                  </span>
+                ) : (
+                  <span>
+                    {t(
+                      `اضغط على أي طرفين لتوصيل سلك بينهما (${wires.length} أسلاك موصلة)`,
+                      `Click any two terminals to form a wire (${wires.length} connected)`
+                    )}
+                  </span>
+                )}
+              </span>
+            </div>
+
+            {/* Quick Presets & Clear Buttons */}
+            <div className="flex items-center gap-1.5 text-xs">
               <button
-                onClick={() => {
-                  setCircuitMode("simple")
-                  labAudio.playClick()
-                }}
-                className={`px-2 py-0.5 rounded-md font-semibold transition-all ${
-                  circuitMode === "simple" ? "bg-primary text-white" : "text-slate-400 hover:text-white"
-                }`}
+                onClick={() => handleApplyPreset("simple")}
+                className="px-2.5 py-1 rounded-lg font-semibold bg-white/5 border border-white/10 hover:bg-white/15 text-slate-300"
               >
-                دائرة مفردة
+                {t("دائرة بسيطة", "Simple Circuit")}
               </button>
               <button
-                onClick={() => {
-                  setCircuitMode("series")
-                  labAudio.playClick()
-                }}
-                className={`px-2 py-0.5 rounded-md font-semibold transition-all ${
-                  circuitMode === "series" ? "bg-primary text-white" : "text-slate-400 hover:text-white"
-                }`}
+                onClick={() => handleApplyPreset("series")}
+                className="px-2.5 py-1 rounded-lg font-semibold bg-white/5 border border-white/10 hover:bg-white/15 text-slate-300"
               >
-                توالي
+                {t("توالي", "Series")}
               </button>
               <button
-                onClick={() => {
-                  setCircuitMode("parallel")
-                  labAudio.playClick()
-                }}
-                className={`px-2 py-0.5 rounded-md font-semibold transition-all ${
-                  circuitMode === "parallel" ? "bg-primary text-white" : "text-slate-400 hover:text-white"
-                }`}
+                onClick={() => handleApplyPreset("clear")}
+                className="px-2.5 py-1 rounded-lg font-semibold bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-300 flex items-center gap-1"
               >
-                توازي
+                <Trash2 className="w-3 h-3" />
+                <span>{t("مسح الأسلاك", "Clear Wires")}</span>
               </button>
             </div>
           </div>
 
-          {/* Short Circuit Warning Alert */}
+          {/* Short Circuit Warning Banner */}
           {isShortCircuit && (
-            <div className="glass px-3.5 py-1.5 rounded-xl border border-rose-500/50 bg-rose-500/20 text-rose-300 text-xs font-bold flex items-center gap-2 animate-bounce shadow-xl">
+            <div className="glass px-3.5 py-2 rounded-xl border border-rose-500/50 bg-rose-500/20 text-rose-300 text-xs font-bold flex items-center gap-2 animate-bounce shadow-xl">
               <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-              <span>تحذير أمان: ماس كهربائي (Short Circuit)! انخفضت المقاومة وتم فصل المنصهر.</span>
+              <span>
+                {t(
+                  "تحذير أمان: ماس كهربائي (Short Circuit)! المقاومة صفر تقريباً وتم فصل المنصهر لمنع الاحتراق.",
+                  "Safety Warning: Short Circuit detected! Resistance is near zero, safety fuse has blown."
+                )}
+              </span>
             </div>
           )}
 
-          {/* Quick Real-Time Metrics Dial */}
-          <div className="glass px-3 py-1.5 rounded-xl border border-white/10 flex items-center gap-3 text-xs shadow-lg">
-            <div className="flex items-center gap-1">
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span className="text-slate-400">الجهد:</span>
-              <span className="font-mono font-bold text-white">{voltage} V</span>
+          {/* Real-Time Metrics Dial */}
+          <div className="glass px-4 py-2 rounded-xl border border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs shadow-lg">
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${isCircuitClosed ? "bg-emerald-400 animate-ping" : "bg-rose-400"}`} />
+              <span className="font-bold text-slate-300">
+                {isCircuitClosed
+                  ? t("حالة الدائرة: مغلقة ونشطة", "Circuit: Closed & Active")
+                  : t("حالة الدائرة: مفتوحة (غير مكتملة أو المفتاح مفتوح)", "Circuit: Open / Incomplete")}
+              </span>
             </div>
-            <div className="w-[1px] h-3.5 bg-white/10" />
-            <div className="flex items-center gap-1">
-              <Activity className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="text-slate-400">التيار:</span>
-              <span className="font-mono font-bold text-emerald-300">{current} A</span>
-            </div>
-            <div className="w-[1px] h-3.5 bg-white/10" />
-            <div className="flex items-center gap-1">
-              <Lightbulb className="w-3.5 h-3.5 text-yellow-300" />
-              <span className="text-slate-400">القدرة:</span>
-              <span className="font-mono font-bold text-yellow-300">{power} W</span>
+
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1">
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-slate-400">{t("الجهد:", "Voltage:")}</span>
+                <span className="font-mono font-bold text-white">{voltage} V</span>
+              </div>
+              <div className="w-[1px] h-3.5 bg-white/10" />
+              <div className="flex items-center gap-1">
+                <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-slate-400">{t("التيار:", "Current:")}</span>
+                <span className="font-mono font-bold text-emerald-300">{current} A</span>
+              </div>
+              <div className="w-[1px] h-3.5 bg-white/10" />
+              <div className="flex items-center gap-1">
+                <Lightbulb className="w-3.5 h-3.5 text-yellow-300" />
+                <span className="text-slate-400">{t("القدرة:", "Power:")}</span>
+                <span className="font-mono font-bold text-yellow-300">{power} W</span>
+              </div>
             </div>
           </div>
         </div>
