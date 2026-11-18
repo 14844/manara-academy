@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef } from "react"
 import * as THREE from "three"
 import { useFrame } from "@react-three/fiber"
 import { Text } from "@react-three/drei"
-import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio } from "./3d"
+import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useLabLanguage } from "./3d"
 import { Calculator, TrendingUp, Sliders, Hash, Move, Sparkles, Activity } from "lucide-react"
 
 type FunctionFamily = "quadratic" | "absolute" | "cubic" | "rational" | "sine" | "linear"
@@ -431,6 +431,8 @@ export function FunctionLab() {
   const [isSandbox, setIsSandbox] = useState(false)
   const [cameraResetSignal, setCameraResetSignal] = useState(0)
 
+  const { lang, t, isAr } = useLabLanguage()
+
   const currentDef = FUNCTIONS_REGISTRY[funcFamily]
 
   // Calculate approximate numerical definite integral for display
@@ -486,8 +488,11 @@ export function FunctionLab() {
       {/* 2D Interactive HUD Overlay */}
       <LabHUD
         title="مختبر الدوال والتحويلات الهندسية والتفاضل"
-        subjectTitle="الرياضيات والتفاضل والتكامل"
+        titleEn="3D Functions, Calculus & Geometric Graphing Lab"
+        subjectTitle="الرياضيات والتفاضل"
+        subjectTitleEn="Mathematics & Calculus"
         curriculumGrade="الثانوية العامة"
+        curriculumGradeEn="Secondary Mathematics"
         guidedExperiments={FUNCTIONS_GUIDED_EXPERIMENTS}
         activeExpIndex={activeExpIndex}
         onSelectExp={setActiveExpIndex}
@@ -541,7 +546,7 @@ export function FunctionLab() {
                   showTangent ? "bg-amber-500/20 border-amber-500/50 text-amber-300" : "bg-white/5 border-white/10 text-slate-400"
                 }`}
               >
-                المماس f'(x)
+                {t("المماس f'(x)", "Tangent f'(x)")}
               </button>
               <button
                 onClick={() => {
@@ -552,17 +557,17 @@ export function FunctionLab() {
                   showArea ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-300" : "bg-white/5 border-white/10 text-slate-400"
                 }`}
               >
-                المساحة والتكامل ∫
+                {t("المساحة والتكامل ∫", "Area & Integral ∫")}
               </button>
             </div>
           </div>
 
           {/* Bottom Row: Parameter Sliders Grid */}
           <div className="glass p-3 rounded-2xl border border-white/10 shadow-xl grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-            {/* Slider a (Vertical Stretch / Reflection) */}
+            {/* Slider a */}
             <div className="space-y-1">
               <div className="flex justify-between text-slate-400 font-semibold">
-                <span>معامل التمدد (a):</span>
+                <span>{t("معامل التمدد (a):", "Stretch / Scale (a):")}</span>
                 <span className="font-mono text-white font-bold">{a.toFixed(1)}</span>
               </div>
               <input
@@ -576,10 +581,10 @@ export function FunctionLab() {
               />
             </div>
 
-            {/* Slider h (Horizontal Shift) */}
+            {/* Slider h */}
             <div className="space-y-1">
               <div className="flex justify-between text-slate-400 font-semibold">
-                <span>الإزاحة الأفقية (h):</span>
+                <span>{t("الإزاحة الأفقية (h):", "Horiz. Shift (h):")}</span>
                 <span className="font-mono text-white font-bold">{h.toFixed(1)}</span>
               </div>
               <input
@@ -593,10 +598,10 @@ export function FunctionLab() {
               />
             </div>
 
-            {/* Slider k (Vertical Shift) */}
+            {/* Slider k */}
             <div className="space-y-1">
               <div className="flex justify-between text-slate-400 font-semibold">
-                <span>الإزاحة الرأسية (k):</span>
+                <span>{t("الإزاحة الرأسية (k):", "Vert. Shift (k):")}</span>
                 <span className="font-mono text-white font-bold">{k.toFixed(1)}</span>
               </div>
               <input
@@ -614,7 +619,7 @@ export function FunctionLab() {
             {showTangent ? (
               <div className="space-y-1">
                 <div className="flex justify-between text-amber-400 font-semibold">
-                  <span>موضع نقطة التماس (x₀):</span>
+                  <span>{t("نقطة التماس (x₀):", "Tangent Point (x₀):")}</span>
                   <span className="font-mono text-amber-300 font-bold">{tangentX.toFixed(1)}</span>
                 </div>
                 <input
@@ -629,12 +634,12 @@ export function FunctionLab() {
               </div>
             ) : showArea ? (
               <div className="flex flex-col justify-center items-center bg-emerald-500/10 rounded-xl p-1.5 border border-emerald-500/30">
-                <span className="text-[10px] text-emerald-400 font-semibold">المساحة تحت المنحنى ∫:</span>
-                <span className="font-mono text-sm font-black text-emerald-300">{integralValue} وحدة مربعة</span>
+                <span className="text-[10px] text-emerald-400 font-semibold">{t("المساحة تحت المنحنى ∫:", "Area Under Curve ∫:")}</span>
+                <span className="font-mono text-sm font-black text-emerald-300">{integralValue} {t("وحدة²", "sq units")}</span>
               </div>
             ) : (
               <div className="flex items-center justify-center text-slate-400 text-center">
-                حرّك المنزلقات لمشاهدة التحويل الفوري
+                {t("حرّك المنزلقات للتحويل الفوري", "Move sliders to transform")}
               </div>
             )}
           </div>

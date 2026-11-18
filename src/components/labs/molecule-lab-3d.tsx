@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef } from "react"
 import * as THREE from "three"
 import { useFrame } from "@react-three/fiber"
 import { Text, Float } from "@react-three/drei"
-import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio } from "./3d"
+import { LabCanvas, LabRoom, LabHUD, GuidedExperiment, labAudio, useLabLanguage } from "./3d"
 import { Layers, Eye, Sparkles, Award, Atom, Check, Info } from "lucide-react"
 
 export type AtomElement = "H" | "C" | "O" | "N" | "Cl" | "S"
@@ -549,6 +549,8 @@ export function MoleculeLab() {
     setCameraResetSignal((prev) => prev + 1)
   }
 
+  const { lang, t, isAr } = useLabLanguage()
+
   return (
     <div className="relative w-full h-full min-h-[480px]">
       <LabCanvas
@@ -593,7 +595,6 @@ export function MoleculeLab() {
           {/* Reagent Tray of Atoms on Bench Tabletop */}
           <AtomReagentTray
             onSelectAtom={(el) => {
-              // Quick jump to compound containing that atom
               const matchIdx = PRESET_MOLECULES.findIndex((m) => m.atoms.some((a) => a.element === el))
               if (matchIdx !== -1) {
                 setSelectedMoleculeIndex(matchIdx)
@@ -606,8 +607,11 @@ export function MoleculeLab() {
       {/* 2D Interactive HUD Overlay */}
       <LabHUD
         title="مختبر بناء الجزيئات والروابط ثلاثي الأبعاد"
+        titleEn="3D Molecule Construction & VSEPR Laboratory"
         subjectTitle="الكيمياء الفراغية والعضوية"
+        subjectTitleEn="Stereochemistry & Organic Chemistry"
         curriculumGrade="الثانوية العامة"
+        curriculumGradeEn="Secondary Chemistry"
         guidedExperiments={MOLECULES_GUIDED_EXPERIMENTS}
         activeExpIndex={activeExpIndex}
         onSelectExp={setActiveExpIndex}
@@ -628,7 +632,7 @@ export function MoleculeLab() {
             >
               {PRESET_MOLECULES.map((m, idx) => (
                 <option key={m.id} value={idx} className="bg-slate-900 text-white">
-                  {m.nameAr} ({m.formula})
+                  {isAr ? m.nameAr : m.iupac} ({m.formula})
                 </option>
               ))}
             </select>
@@ -647,7 +651,7 @@ export function MoleculeLab() {
                   viewMode === "stick" ? "bg-primary text-white" : "text-slate-400 hover:text-white"
                 }`}
               >
-                كرة وعصا (Ball & Stick)
+                {t("كرة وعصا", "Ball & Stick")}
               </button>
               <button
                 onClick={() => {
@@ -658,7 +662,7 @@ export function MoleculeLab() {
                   viewMode === "space" ? "bg-primary text-white" : "text-slate-400 hover:text-white"
                 }`}
               >
-                ملء الفراغ (Space-Filling)
+                {t("ملء الفراغ", "Space-Filling")}
               </button>
             </div>
 
@@ -671,24 +675,24 @@ export function MoleculeLab() {
                 isRotating ? "bg-emerald-500/20 text-emerald-300" : "bg-white/5 text-slate-400"
               }`}
             >
-              {isRotating ? "دوران تلقائي نشط" : "إيقاف الدوران"}
+              {isRotating ? t("دوران نشط", "Auto-Rotate ON") : t("إيقاف الدوران", "Rotate OFF")}
             </button>
           </div>
 
           {/* Scientific Info Badges */}
           <div className="glass px-3.5 py-1.5 rounded-xl border border-white/10 flex items-center gap-3 text-xs shadow-lg">
             <div>
-              <span className="text-slate-400">الشكل: </span>
+              <span className="text-slate-400">{t("الشكل:", "Geometry:")} </span>
               <span className="font-bold text-blue-300">{currentMolecule.geometryAr}</span>
             </div>
             <div className="w-[1px] h-3 bg-white/10" />
             <div>
-              <span className="text-slate-400">الزاوية: </span>
+              <span className="text-slate-400">{t("الزاوية:", "Angle:")} </span>
               <span className="font-mono font-bold text-amber-300">{currentMolecule.bondAngle}</span>
             </div>
             <div className="w-[1px] h-3 bg-white/10" />
             <div>
-              <span className="text-slate-400">الكتلة: </span>
+              <span className="text-slate-400">{t("الكتلة:", "Mass:")} </span>
               <span className="font-mono font-bold text-emerald-300">{molecularWeight} g/mol</span>
             </div>
           </div>
