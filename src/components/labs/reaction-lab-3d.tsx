@@ -849,6 +849,301 @@ function InteractiveBunsenBurner({
   )
 }
 
+// 3D Glass Burette & Titration Station with Retort Stand and Conical Flask
+function InteractiveBuretteUnit({
+  position = [0.65, 0.82, 0],
+  volumeAddedMl,
+  onDispenseDrop,
+  isOpen,
+  onToggleValve,
+}: {
+  position?: [number, number, number]
+  volumeAddedMl: number
+  onDispenseDrop: () => void
+  isOpen: boolean
+  onToggleValve: () => void
+}) {
+  const isNeutralized = volumeAddedMl >= 25.0
+  const isNearEndpoint = volumeAddedMl >= 23.5 && volumeAddedMl < 25.0
+  const flaskLiquidColor = isNeutralized
+    ? "#f43f5e" // Radiant pink of Phenolphthalein in basic/neutral endpoint
+    : isNearEndpoint
+    ? "rgba(244, 63, 94, 0.45)" // Transient pink swirls
+    : "rgba(226, 232, 240, 0.65)" // Clear acid solution
+
+  const flaskVolume = 25 + volumeAddedMl // 25ml acid + added base
+  const flaskLiquidHeight = THREE.MathUtils.clamp((flaskVolume / 100) * 0.12, 0.02, 0.13)
+  const buretteLiquidHeight = THREE.MathUtils.clamp(((50 - volumeAddedMl) / 50) * 0.48, 0.01, 0.48)
+
+  return (
+    <group position={position}>
+      {/* 1. Heavy Retort Stand */}
+      {/* Cast iron rectangular base plate */}
+      <mesh position={[0, 0.01, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.3, 0.02, 0.22]} />
+        <meshStandardMaterial color="#1e293b" metalness={0.7} roughness={0.3} />
+      </mesh>
+      {/* White porcelain tile on top of base for titration color contrast */}
+      <mesh position={[0, 0.021, 0.02]}>
+        <boxGeometry args={[0.18, 0.004, 0.16]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.15} />
+      </mesh>
+      {/* Vertical Chrome Support Rod */}
+      <mesh position={[-0.1, 0.44, -0.07]} castShadow>
+        <cylinderGeometry args={[0.009, 0.009, 0.86, 16]} />
+        <meshStandardMaterial color="#cbd5e1" metalness={0.95} roughness={0.1} />
+      </mesh>
+      {/* Bosshead clamp mount */}
+      <mesh position={[-0.1, 0.52, -0.07]}>
+        <boxGeometry args={[0.035, 0.04, 0.035]} />
+        <meshStandardMaterial color="#334155" metalness={0.8} />
+      </mesh>
+      {/* Extension Clamp arm */}
+      <mesh position={[-0.05, 0.52, -0.04]} rotation={[0, 0.3, 0]}>
+        <cylinderGeometry args={[0.005, 0.005, 0.12, 12]} />
+        <meshStandardMaterial color="#94a3b8" metalness={0.9} />
+      </mesh>
+      {/* Clamp ring holding burette */}
+      <mesh position={[0, 0.52, 0]}>
+        <torusGeometry args={[0.02, 0.005, 8, 24]} />
+        <meshStandardMaterial color="#0f172a" />
+      </mesh>
+
+      {/* 2. Precision 50 mL Glass Burette */}
+      <group position={[0, 0.54, 0]}>
+        {/* Glass tube */}
+        <mesh position={[0, 0, 0]} castShadow>
+          <cylinderGeometry args={[0.016, 0.016, 0.54, 24, 1, true]} />
+          <meshPhysicalMaterial
+            color="#ffffff"
+            transmission={0.92}
+            roughness={0.05}
+            thickness={0.01}
+            transparent
+            opacity={0.35}
+          />
+        </mesh>
+        {/* Burette Liquid Level (NaOH titrant) */}
+        {buretteLiquidHeight > 0 && (
+          <mesh position={[0, -0.25 + buretteLiquidHeight / 2, 0]}>
+            <cylinderGeometry args={[0.014, 0.014, buretteLiquidHeight, 24]} />
+            <meshStandardMaterial color="rgba(186, 230, 253, 0.75)" transparent opacity={0.7} />
+          </mesh>
+        )}
+        {/* Graduations lines */}
+        {Array.from({ length: 9 }).map((_, i) => (
+          <mesh key={i} position={[0, -0.2 + i * 0.052, 0.016]}>
+            <planeGeometry args={[0.015, 0.002]} />
+            <meshBasicMaterial color="#ffffff" opacity={0.7} transparent />
+          </mesh>
+        ))}
+
+        {/* Burette Glass Jet Tip */}
+        <mesh position={[0, -0.31, 0]}>
+          <coneGeometry args={[0.013, 0.08, 16]} />
+          <meshPhysicalMaterial color="#ffffff" transmission={0.9} transparent opacity={0.4} />
+        </mesh>
+
+        {/* Blue Stopcock Valve */}
+        <group
+          position={[0, -0.27, 0]}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleValve()
+            labAudio.playClick(900)
+          }}
+        >
+          {/* Valve barrel */}
+          <mesh rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.01, 0.01, 0.05, 16]} />
+            <meshStandardMaterial color="#2563eb" metalness={0.5} roughness={0.2} />
+          </mesh>
+          {/* Valve cross handle (Rotates when open) */}
+          <mesh position={[0.025, 0, 0]} rotation={[isOpen ? Math.PI / 2 : 0, 0, Math.PI / 2]}>
+            <boxGeometry args={[0.012, 0.045, 0.012]} />
+            <meshStandardMaterial color={isOpen ? "#10b981" : "#ef4444"} roughness={0.3} />
+          </mesh>
+        </group>
+
+        {/* Dripping stream when stopcock is open */}
+        {isOpen && (
+          <group position={[0, -0.36, 0]}>
+            <mesh position={[0, -0.04, 0]}>
+              <cylinderGeometry args={[0.002, 0.003, 0.08, 8]} />
+              <meshBasicMaterial color="#38bdf8" transparent opacity={0.85} />
+            </mesh>
+            <mesh position={[0, -0.09, 0]}>
+              <sphereGeometry args={[0.005, 8, 8]} />
+              <meshBasicMaterial color="#38bdf8" />
+            </mesh>
+          </group>
+        )}
+      </group>
+
+      {/* 3. Conical Erlenmeyer Flask (250 mL) beneath Burette tip */}
+      <group position={[0, 0.025, 0]}>
+        {/* Conical Lower Glass Body */}
+        <mesh position={[0, 0.075, 0]} castShadow>
+          <cylinderGeometry args={[0.035, 0.085, 0.13, 32, 1, true]} />
+          <meshPhysicalMaterial
+            color="#ffffff"
+            transmission={0.92}
+            roughness={0.05}
+            thickness={0.02}
+            transparent
+            opacity={0.35}
+          />
+        </mesh>
+        {/* Flask Base */}
+        <mesh position={[0, 0.01, 0]}>
+          <cylinderGeometry args={[0.085, 0.085, 0.008, 32]} />
+          <meshPhysicalMaterial color="#ffffff" transmission={0.9} transparent opacity={0.4} />
+        </mesh>
+        {/* Cylindrical Neck */}
+        <mesh position={[0, 0.165, 0]}>
+          <cylinderGeometry args={[0.035, 0.035, 0.06, 24, 1, true]} />
+          <meshPhysicalMaterial color="#ffffff" transmission={0.92} roughness={0.05} transparent opacity={0.35} />
+        </mesh>
+        {/* Lip rim */}
+        <mesh position={[0, 0.195, 0]}>
+          <torusGeometry args={[0.035, 0.004, 8, 24]} />
+          <meshPhysicalMaterial color="#ffffff" transmission={0.9} transparent opacity={0.5} />
+        </mesh>
+
+        {/* Liquid Inside Erlenmeyer Flask */}
+        <mesh position={[0, 0.01 + flaskLiquidHeight / 2, 0]}>
+          <cylinderGeometry args={[0.035 + (0.05 * (1 - flaskLiquidHeight / 0.13)), 0.082, flaskLiquidHeight, 32]} />
+          <meshStandardMaterial color={flaskLiquidColor} roughness={0.2} transparent opacity={0.88} />
+        </mesh>
+      </group>
+
+      {/* Stand Label */}
+      <BillboardLabel
+        position={[0, 0.05, 0.14]}
+        text={`سحاحة معايرة (NaOH: ${volumeAddedMl.toFixed(1)} mL)`}
+        color={isNeutralized ? "#f43f5e" : "#38bdf8"}
+        bgColor="rgba(15, 23, 42, 0.85)"
+        scale={[0.34, 0.06, 1]}
+        fontSize={16}
+      />
+    </group>
+  )
+}
+
+// 3D Wooden Test Tube Rack with Qualitative Demonstration Tubes
+function InteractiveTestTubeRack({
+  position = [-0.85, 0.82, -0.05],
+  onSelectTube,
+}: {
+  position?: [number, number, number]
+  onSelectTube: (index: number) => void
+}) {
+  const tubes = [
+    { label: "Zn + HCl ➔ H₂ ↑", color: "rgba(203, 213, 225, 0.8)", bubbles: true },
+    { label: "CuSO₄ + Fe ➔ Cu ↓", color: "#10b981", bubbles: false },
+    { label: "AgNO₃ + NaCl ➔ AgCl ↓", color: "#ffffff", bubbles: false },
+    { label: "CaCO₃ + HCl ➔ CO₂ ↑", color: "rgba(241, 245, 249, 0.7)", bubbles: true },
+  ]
+
+  return (
+    <group position={position}>
+      {/* Natural Oak Wooden Rack */}
+      <mesh position={[0, 0.015, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.5, 0.02, 0.13]} />
+        <meshStandardMaterial color="#854d0e" roughness={0.7} />
+      </mesh>
+      <mesh position={[0, 0.13, 0]} castShadow>
+        <boxGeometry args={[0.5, 0.015, 0.13]} />
+        <meshStandardMaterial color="#854d0e" roughness={0.7} />
+      </mesh>
+      <mesh position={[-0.23, 0.075, 0]}>
+        <boxGeometry args={[0.02, 0.12, 0.11]} />
+        <meshStandardMaterial color="#713f12" roughness={0.7} />
+      </mesh>
+      <mesh position={[0.23, 0.075, 0]}>
+        <boxGeometry args={[0.02, 0.12, 0.11]} />
+        <meshStandardMaterial color="#713f12" roughness={0.7} />
+      </mesh>
+
+      {/* 4 Glass Test Tubes */}
+      {tubes.map((t, idx) => {
+        const x = -0.15 + idx * 0.1
+        return (
+          <group
+            key={idx}
+            position={[x, 0.02, 0]}
+            onClick={(e) => {
+              e.stopPropagation()
+              onSelectTube(idx)
+              labAudio.playClick(750)
+            }}
+          >
+            {/* Glass Tube Body */}
+            <mesh position={[0, 0.11, 0]} castShadow>
+              <cylinderGeometry args={[0.015, 0.015, 0.2, 16, 1, true]} />
+              <meshPhysicalMaterial
+                color="#ffffff"
+                transmission={0.92}
+                roughness={0.05}
+                transparent
+                opacity={0.35}
+              />
+            </mesh>
+            {/* Hemispherical Bottom */}
+            <mesh position={[0, 0.01, 0]}>
+              <sphereGeometry args={[0.015, 16, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
+              <meshPhysicalMaterial color="#ffffff" transmission={0.9} transparent opacity={0.35} />
+            </mesh>
+            {/* Liquid inside tube */}
+            <mesh position={[0, 0.075, 0]}>
+              <cylinderGeometry args={[0.013, 0.013, 0.12, 16]} />
+              <meshStandardMaterial color={t.color} roughness={0.2} transparent opacity={0.8} />
+            </mesh>
+          </group>
+        )
+      })}
+
+      <BillboardLabel
+        position={[0, 0.16, 0.07]}
+        text="حامل أنابيب الاختبار"
+        color="#cbd5e1"
+        bgColor="rgba(15, 23, 42, 0.85)"
+        scale={[0.24, 0.05, 1]}
+        fontSize={15}
+      />
+    </group>
+  )
+}
+
+// 3D Reagent Dispensing Bottle Visual with Pouring Stream
+function PouringBottleVisual({
+  position = [0, 1.25, 0],
+}: {
+  position?: [number, number, number]
+}) {
+  return (
+    <group position={position}>
+      {/* 45-degree tilted glass chemical reagent bottle */}
+      <group position={[-0.05, 0.08, 0]} rotation={[0, 0, -Math.PI / 3.5]}>
+        <mesh position={[0, 0.08, 0]} castShadow>
+          <cylinderGeometry args={[0.038, 0.038, 0.14, 24]} />
+          <meshStandardMaterial color="#78350f" roughness={0.15} metalness={0.1} transparent opacity={0.88} />
+        </mesh>
+        <mesh position={[0, 0.17, 0]}>
+          <cylinderGeometry args={[0.018, 0.024, 0.05, 16]} />
+          <meshStandardMaterial color="#78350f" roughness={0.15} transparent opacity={0.88} />
+        </mesh>
+      </group>
+
+      {/* Dynamic Pouring Fluid Stream Falling Down */}
+      <mesh position={[0.03, -0.12, 0]}>
+        <cylinderGeometry args={[0.005, 0.008, 0.26, 8]} />
+        <meshBasicMaterial color="#38bdf8" transparent opacity={0.85} />
+      </mesh>
+    </group>
+  )
+}
+
 // 4 Guided Experiments (Bilingual)
 export const REACTIONS_GUIDED_EXPERIMENTS: GuidedExperiment[] = [
   {
@@ -1029,12 +1324,22 @@ export const REACTIONS_GUIDED_EXPERIMENTS: GuidedExperiment[] = [
   },
 ]
 
+export type ChemStation = "overview" | "beaker" | "titration" | "test-tubes" | "burner"
+
 export function ReactionLab() {
+  const [activeStation, setActiveStation] = useState<ChemStation>("overview")
   const [activeReagents, setActiveReagents] = useState<string[]>([])
   const [isBurnerOn, setIsBurnerOn] = useState(false)
   const [isPouring, setIsPouring] = useState(false)
   const [pouredReagentName, setPouredReagentName] = useState<string | null>(null)
   const [filterCategory, setFilterCategory] = useState<string>("all")
+
+  // Titration Station State
+  const [buretteVolumeAdded, setBuretteVolumeAdded] = useState(0)
+  const [isBuretteOpen, setIsBuretteOpen] = useState(false)
+
+  // Test Tubes State
+  const [selectedTubeIndex, setSelectedTubeIndex] = useState<number | null>(null)
 
   // Guided Experiments HUD
   const [activeExpIndex, setActiveExpIndex] = useState(0)
@@ -1043,7 +1348,48 @@ export function ReactionLab() {
 
   const { lang, t, isAr } = useLabLanguage()
 
-  // Evaluate reaction
+  // Automated titration drop timer
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+    if (isBuretteOpen) {
+      interval = setInterval(() => {
+        setBuretteVolumeAdded((prev) => {
+          if (prev >= 50) {
+            setIsBuretteOpen(false)
+            return 50
+          }
+          const next = +(prev + 0.25).toFixed(2)
+          if (Math.abs(next - 25.0) < 0.2) {
+            labAudio.playSuccess()
+          } else {
+            labAudio.playPour()
+          }
+          return next
+        })
+      }, 250)
+    }
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [isBuretteOpen])
+
+  // Station Camera Positions for VR feeling
+  const currentCamera = useMemo(() => {
+    switch (activeStation) {
+      case "beaker":
+        return { pos: [-0.15, 1.45, 1.3] as [number, number, number], target: [-0.15, 1.0, 0] as [number, number, number] }
+      case "titration":
+        return { pos: [0.65, 1.45, 1.25] as [number, number, number], target: [0.65, 1.15, 0] as [number, number, number] }
+      case "test-tubes":
+        return { pos: [-0.85, 1.35, 1.1] as [number, number, number], target: [-0.85, 0.98, -0.05] as [number, number, number] }
+      case "burner":
+        return { pos: [-1.2, 1.35, 1.1] as [number, number, number], target: [-1.2, 0.98, -0.2] as [number, number, number] }
+      default:
+        return { pos: [0, 2.2, 3.4] as [number, number, number], target: [0, 0.95, 0] as [number, number, number] }
+    }
+  }, [activeStation])
+
+  // Evaluate reaction in beaker
   const reaction = useMemo(
     () => evaluateReaction(activeReagents, isBurnerOn),
     [activeReagents, isBurnerOn]
@@ -1102,6 +1448,9 @@ export function ReactionLab() {
   const handleResetLab = () => {
     setActiveReagents([])
     setIsBurnerOn(false)
+    setBuretteVolumeAdded(0)
+    setIsBuretteOpen(false)
+    setActiveStation("overview")
     setCameraResetSignal((prev) => prev + 1)
   }
 
@@ -1115,222 +1464,454 @@ export function ReactionLab() {
       <LanguageProvider>
         <div className="relative w-full h-full min-h-[480px] flex-1">
           <LabCanvas
-            camera={{ position: [0, 2.3, 3.4], fov: 42, far: 100 }}
-            onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
-          >
-        <LabRoom cameraResetSignal={cameraResetSignal} defaultCameraPosition={[0, 2.3, 3.4]} defaultTarget={[0, 0.95, 0]}>
-          {/* Main Reaction Beaker on Analytical Balance */}
-          <InteractiveBeakerOnScale
-            position={[-0.2, 0.82, 0]}
-            volumeMl={totalVolume}
-            liquidColor={reaction.color}
-            isBubbling={Boolean(reaction.gasAr)}
-            precipitateColor={reaction.precipitateColor}
-            massGrams={totalMass}
-            temperatureC={currentTemp}
-            ph={reaction.phResult}
-          />
-
-          {/* Bunsen Burner */}
-          <InteractiveBunsenBurner
-            position={[-0.95, 0.82, -0.2]}
-            isOn={isBurnerOn}
-            onToggle={() => {
-              setIsBurnerOn(!isBurnerOn)
-              labAudio.playClick(isBurnerOn ? 400 : 850)
+            camera={{ position: currentCamera.pos, fov: 42, far: 100 }}
+            onResetCamera={() => {
+              setActiveStation("overview")
+              setCameraResetSignal((prev) => prev + 1)
             }}
-          />
-
-          {/* Pouring stream visual in scene */}
-          {isPouring && (
-            <group position={[0.2, 1.25, 0]}>
-              <mesh position={[0, 0, 0]}>
-                <cylinderGeometry args={[0.008, 0.008, 0.35, 8]} />
-                <meshBasicMaterial color="#38bdf8" transparent opacity={0.8} />
-              </mesh>
-            </group>
-          )}
-        </LabRoom>
-      </LabCanvas>
-
-      {/* 2D Interactive HUD Overlay */}
-      <LabHUD
-        title="مختبر التفاعلات الكيميائية وتوليد المعادلات"
-        titleEn="3D Chemical Reactions & Equation Generator Lab"
-        subjectTitle="الكيمياء التفاعلية"
-        subjectTitleEn="Interactive Chemistry"
-        curriculumGrade="الثانوية العامة"
-        curriculumGradeEn="Secondary Chemistry"
-        guidedExperiments={REACTIONS_GUIDED_EXPERIMENTS}
-        activeExpIndex={activeExpIndex}
-        onSelectExp={setActiveExpIndex}
-        isSandbox={isSandbox}
-        onToggleSandbox={setIsSandbox}
-        onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
-        onResetExperiment={handleResetLab}
-      >
-        <div className="flex flex-col gap-2 pointer-events-auto max-w-5xl mx-auto w-full px-2">
-          {/* Live Chemical Equation Banner */}
-          <div className="glass px-4 py-2.5 rounded-2xl border border-emerald-500/40 bg-slate-950/85 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-3 w-full">
-            <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto">
-              <span className="flex h-3 w-3 rounded-full bg-emerald-400 animate-ping shrink-0" />
-              <span className="text-xs text-slate-400 font-bold shrink-0">
-                {t("المعادلة الناتجة:", "Resulting Equation:")}
-              </span>
-              <span className="text-xs md:text-sm font-mono font-black text-emerald-300 whitespace-nowrap" dir="ltr">
-                {isAr ? reaction.equation : reaction.equationEn}
-              </span>
-            </div>
-
-            {/* Empty Beaker / Reset Button */}
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleEmptyBeaker}
-                className="h-8 px-2.5 rounded-xl glass text-rose-300 border-rose-500/30 hover:bg-rose-500/20 text-xs font-bold"
+          >
+            <LabRoom
+              cameraResetSignal={cameraResetSignal}
+              defaultCameraPosition={currentCamera.pos}
+              defaultTarget={currentCamera.target}
+            >
+              {/* Station 1: Qualitative Test Tube Rack */}
+              <group
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setActiveStation("test-tubes")
+                  labAudio.playClick()
+                }}
               >
-                <Trash2 className="w-3.5 h-3.5 ml-1" />
-                {t("إفراغ الكأس", "Empty Beaker")}
-              </Button>
-            </div>
-          </div>
+                <InteractiveTestTubeRack
+                  position={[-0.85, 0.82, -0.05]}
+                  onSelectTube={(idx) => {
+                    setSelectedTubeIndex(idx)
+                    setActiveStation("test-tubes")
+                    labAudio.playSnap()
+                  }}
+                />
+              </group>
 
-          {/* Active Reagents currently in beaker pills */}
-          {activeReagents.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-              <span className="text-slate-400 font-bold shrink-0">
-                {t("المواد داخل الكأس:", "In Beaker:")}
-              </span>
-              {activeReagents.map((id) => {
-                const r = REAGENTS_CATALOG.find((item) => item.id === id)
-                if (!r) return null
-                return (
-                  <span
-                    key={id}
-                    className="glass px-2.5 py-1 rounded-xl border border-white/20 text-white font-mono flex items-center gap-1.5 shrink-0 bg-white/5"
-                  >
-                    <span>{r.formula}</span>
+              {/* Station 2: Main Reaction Beaker on Analytical Balance */}
+              <group
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setActiveStation("beaker")
+                  labAudio.playClick()
+                }}
+              >
+                <InteractiveBeakerOnScale
+                  position={[-0.15, 0.82, 0]}
+                  volumeMl={totalVolume}
+                  liquidColor={reaction.color}
+                  isBubbling={Boolean(reaction.gasAr)}
+                  precipitateColor={reaction.precipitateColor}
+                  massGrams={totalMass}
+                  temperatureC={currentTemp}
+                  ph={reaction.phResult}
+                />
+              </group>
+
+              {/* Station 3: Precision Burette & Titration Retort Stand */}
+              <group
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setActiveStation("titration")
+                  labAudio.playClick()
+                }}
+              >
+                <InteractiveBuretteUnit
+                  position={[0.65, 0.82, 0]}
+                  volumeAddedMl={buretteVolumeAdded}
+                  isOpen={isBuretteOpen}
+                  onToggleValve={() => {
+                    setIsBuretteOpen((prev) => !prev)
+                    setActiveStation("titration")
+                    labAudio.playClick()
+                  }}
+                  onDispenseDrop={() => {
+                    setBuretteVolumeAdded((prev) => Math.min(50, +(prev + 0.1).toFixed(2)))
+                    labAudio.playPour()
+                  }}
+                />
+              </group>
+
+              {/* Station 4: Bunsen Burner */}
+              <group
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setActiveStation("burner")
+                  labAudio.playClick()
+                }}
+              >
+                <InteractiveBunsenBurner
+                  position={[-1.25, 0.82, -0.2]}
+                  isOn={isBurnerOn}
+                  onToggle={() => {
+                    setIsBurnerOn(!isBurnerOn)
+                    setActiveStation("burner")
+                    labAudio.playClick(isBurnerOn ? 400 : 850)
+                  }}
+                />
+              </group>
+
+              {/* Pouring stream visual in scene */}
+              {isPouring && (
+                <PouringBottleVisual position={[-0.05, 1.25, 0]} />
+              )}
+            </LabRoom>
+          </LabCanvas>
+
+          {/* 2D Interactive HUD Overlay */}
+          <LabHUD
+            title="مختبر الكيمياء الافتراضي التفاعلي ثلاثي الأبعاد"
+            titleEn="3D Interactive Virtual Chemistry Laboratory"
+            subjectTitle="الكيمياء التفاعلية"
+            subjectTitleEn="Interactive Chemistry"
+            curriculumGrade="الثانوية العامة"
+            curriculumGradeEn="Secondary Chemistry"
+            guidedExperiments={REACTIONS_GUIDED_EXPERIMENTS}
+            activeExpIndex={activeExpIndex}
+            onSelectExp={setActiveExpIndex}
+            isSandbox={isSandbox}
+            onToggleSandbox={setIsSandbox}
+            onResetCamera={() => {
+              setActiveStation("overview")
+              setCameraResetSignal((prev) => prev + 1)
+            }}
+            onResetExperiment={handleResetLab}
+          >
+            {/* Virtual Laboratory HUD Docked at Bottom */}
+            <div className="flex flex-col gap-2 pointer-events-auto max-w-5xl mx-auto w-full px-2">
+              {/* Station Switcher Navigation Bar (Virtual Reality / Game feel) */}
+              <div className="glass px-3 py-1.5 rounded-2xl border border-white/10 shadow-xl flex items-center justify-between gap-2 overflow-x-auto scrollbar-none">
+                <div className="flex items-center gap-1.5 text-xs font-bold shrink-0">
+                  <FlaskConical className="w-4 h-4 text-primary" />
+                  <span className="text-slate-300 hidden sm:inline">{t("محطات المعمل:", "Stations:")}</span>
+                </div>
+
+                <div className="flex items-center gap-1 text-xs">
+                  {[
+                    { id: "overview", ar: "نظرة عامة على المعمل", en: "Overview", icon: "🔬" },
+                    { id: "beaker", ar: "كأس التفاعل والميزان", en: "Beaker & Scale", icon: "⚖️" },
+                    { id: "titration", ar: "سحاحة المعايرة", en: "Burette Titration", icon: "🧪" },
+                    { id: "test-tubes", ar: "أنابيب الاختبار", en: "Test Tubes", icon: "🧫" },
+                    { id: "burner", ar: "موقد بنسن", en: "Bunsen Burner", icon: "🔥" },
+                  ].map((st) => (
                     <button
-                      onClick={() => handleRemoveReagent(id)}
-                      className="text-slate-400 hover:text-rose-400 ml-1 font-bold"
+                      key={st.id}
+                      onClick={() => {
+                        setActiveStation(st.id as ChemStation)
+                        labAudio.playClick(850)
+                      }}
+                      className={`px-2.5 py-1 rounded-xl font-bold transition-all shrink-0 flex items-center gap-1 text-xs border ${
+                        activeStation === st.id
+                          ? "bg-primary text-white border-primary shadow-md"
+                          : "glass border-white/5 text-slate-300 hover:text-white hover:border-white/20"
+                      }`}
                     >
-                      ×
+                      <span>{st.icon}</span>
+                      <span>{isAr ? st.ar : st.en}</span>
                     </button>
-                  </span>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Live Instrument Readouts Bar */}
-          <div className="glass px-3.5 py-1.5 rounded-xl border border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs shadow-lg">
-            {/* Reaction Title & Type */}
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              <span className="font-bold text-slate-200">
-                {isAr ? reaction.titleAr : reaction.titleEn}
-              </span>
-              {reaction.gasAr && (
-                <Badge variant="outline" className="text-[10px] bg-sky-500/10 border-sky-500/40 text-sky-300">
-                  {isAr ? reaction.gasAr : reaction.gasEn}
-                </Badge>
-              )}
-              {reaction.precipitateAr && (
-                <Badge variant="outline" className="text-[10px] bg-amber-500/10 border-amber-500/40 text-amber-300">
-                  {isAr ? reaction.precipitateAr : reaction.precipitateEn}
-                </Badge>
-              )}
-            </div>
-
-            {/* Scale, Temp, pH */}
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1">
-                <Scale className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-slate-400">{t("الكتلة:", "Mass:")}</span>
-                <span className="font-mono font-bold text-white">{totalMass.toFixed(2)} g</span>
-              </div>
-              <div className="w-[1px] h-3 bg-white/10" />
-              <div className="flex items-center gap-1">
-                <Thermometer className="w-3.5 h-3.5 text-amber-400" />
-                <span className="text-slate-400">{t("الحرارة:", "Temp:")}</span>
-                <span className="font-mono font-bold text-amber-300">{currentTemp.toFixed(1)}°C</span>
-              </div>
-              <div className="w-[1px] h-3 bg-white/10" />
-              <div className="flex items-center gap-1">
-                <span className="text-purple-400 font-bold text-[11px]">pH</span>
-                <span className="font-mono font-bold text-purple-300">{reaction.phResult.toFixed(1)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Interactive Reagents Shelf / Catalog (Drag & Drop or Click to Add) */}
-          <div className="glass p-3 rounded-2xl border border-white/15 shadow-2xl space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-                <FlaskConical className="w-4 h-4 text-primary" />
-                <span>{t("رف المواد الكيميائية (اضغط لإضافة المركب للكأس):", "Chemical Shelf (Click to add to beaker):")}</span>
+                  ))}
+                </div>
               </div>
 
-              {/* Category Filter Pills */}
-              <div className="flex items-center gap-1 text-[11px]">
-                {[
-                  { id: "all", ar: "الكل", en: "All" },
-                  { id: "acid", ar: "أحماض", en: "Acids" },
-                  { id: "base", ar: "قلويات", en: "Bases" },
-                  { id: "metal", ar: "فلزات", en: "Metals" },
-                  { id: "salt", ar: "أملاح", en: "Salts" },
-                  { id: "indicator", ar: "كواشف", en: "Indicators" },
-                ].map((cat) => (
-                  <button
-                    key={cat.id}
-                    onClick={() => setFilterCategory(cat.id)}
-                    className={`px-2 py-0.5 rounded-lg font-semibold transition-all ${
-                      filterCategory === cat.id ? "bg-primary text-white" : "text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    {isAr ? cat.ar : cat.en}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Reagents Grid / Shelf */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-1.5 max-h-36 overflow-y-auto pr-1">
-              {filteredReagents.map((r) => {
-                const isAdded = activeReagents.includes(r.id)
-                return (
-                  <button
-                    key={r.id}
-                    disabled={isAdded || isPouring}
-                    onClick={() => handleAddReagent(r)}
-                    className={`p-2 rounded-xl border text-right transition-all flex flex-col justify-between h-16 ${
-                      isAdded
-                        ? "bg-white/5 border-emerald-500/50 text-slate-400 opacity-60"
-                        : "bg-white/5 border-white/10 hover:border-primary/50 hover:bg-primary/10 text-slate-200 cursor-pointer active:scale-95"
-                    }`}
-                    title={isAr ? r.descriptionAr : r.descriptionEn}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="font-mono font-bold text-xs text-white" dir="ltr">
-                        {r.formula}
+              {/* Contextual Station 1: Titration Station Controls */}
+              {activeStation === "titration" && (
+                <div className="glass p-3 rounded-2xl border border-blue-500/30 bg-slate-950/85 shadow-2xl space-y-2 animate-fade-in">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-blue-400 animate-pulse" />
+                      <span className="text-xs font-black text-white">
+                        {t("محطة المعايرة الحجمية (سحاحة NaOH 0.1M + دورق مخروطي HCl)", "Titration Unit (0.1M NaOH Burette + HCl Flask)")}
                       </span>
-                      {isAdded ? (
-                        <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant={isBuretteOpen ? "destructive" : "default"}
+                        onClick={() => {
+                          setIsBuretteOpen(!isBuretteOpen)
+                          labAudio.playClick(900)
+                        }}
+                        className="h-8 px-3 rounded-xl text-xs font-bold"
+                      >
+                        {isBuretteOpen ? t("إغلاق الصنبور ✕", "Stop Tap ✕") : t("فتح الصنبور للتقطير ▶", "Open Burette Tap ▶")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setBuretteVolumeAdded((prev) => Math.min(50, +(prev + 0.1).toFixed(2)))
+                          labAudio.playPour()
+                        }}
+                        className="h-8 px-2.5 rounded-xl glass text-xs font-bold"
+                      >
+                        {t("+ قطرة (0.1 mL)", "+ Drop (0.1 mL)")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setBuretteVolumeAdded((prev) => Math.min(50, +(prev + 1.0).toFixed(2)))
+                          labAudio.playPour()
+                        }}
+                        className="h-8 px-2.5 rounded-xl glass text-xs font-bold"
+                      >
+                        {t("+ 1.0 mL", "+ 1.0 mL")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setBuretteVolumeAdded(0)
+                          setIsBuretteOpen(false)
+                          labAudio.playClick(500)
+                        }}
+                        className="h-8 px-2 text-rose-300 text-xs hover:bg-rose-500/20"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 ml-1" />
+                        {t("إعادة ملء", "Refill")}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Volume and Endpoint Status */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs border-t border-white/10">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400">{t("حجم محلول NaOH المستهلك:", "NaOH Dispensed:")}</span>
+                      <span className="font-mono font-black text-cyan-300 text-sm">{buretteVolumeAdded.toFixed(1)} / 50.0 mL</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {buretteVolumeAdded >= 25.0 ? (
+                        <Badge className="bg-rose-500 text-white font-bold text-xs py-0.5 px-2">
+                          🎉 {t("تم الوصول لنقطة التعادل (وردي قرمزي دائم pH ≈ 8.2)", "Equivalence Point Reached (Persistent Pink)")}
+                        </Badge>
+                      ) : buretteVolumeAdded >= 23.5 ? (
+                        <Badge variant="outline" className="text-amber-400 border-amber-400/50 bg-amber-500/10 text-xs">
+                          ⚠️ {t("اقتراب نقطة التعادل — قلل سرعة الإضافة قطرة قطرة", "Near Endpoint — Slow down to dropwise")}
+                        </Badge>
                       ) : (
-                        <Plus className="w-3 h-3 text-slate-400 shrink-0" />
+                        <Badge variant="outline" className="text-slate-400 border-white/20 text-xs">
+                          {t("محلول حمضي عديم اللون (pH < 7)", "Colorless Acid Solution (pH < 7)")}
+                        </Badge>
                       )}
                     </div>
-                    <span className="text-[10px] text-slate-300 truncate w-full">
-                      {isAr ? r.nameAr : r.nameEn}
+                  </div>
+                </div>
+              )}
+
+              {/* Contextual Station 2: Beaker on Scale Controls */}
+              {(activeStation === "beaker" || activeStation === "overview") && (
+                <>
+                  {/* Live Chemical Equation Banner */}
+                  <div className="glass px-3.5 py-2 rounded-2xl border border-emerald-500/40 bg-slate-950/85 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-2 w-full animate-fade-in">
+                    <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto">
+                      <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                      <span className="text-xs text-slate-400 font-bold shrink-0">
+                        {t("المعادلة الناتجة:", "Equation:")}
+                      </span>
+                      <span className="text-xs md:text-sm font-mono font-black text-emerald-300 whitespace-nowrap" dir="ltr">
+                        {isAr ? reaction.equation : reaction.equationEn}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0 text-xs">
+                      <div className="flex items-center gap-1">
+                        <Scale className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="font-mono font-bold text-white">{totalMass.toFixed(2)} g</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Thermometer className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="font-mono font-bold text-amber-300">{currentTemp.toFixed(1)}°C</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-purple-400 font-bold text-[11px]">pH</span>
+                        <span className="font-mono font-bold text-purple-300">{reaction.phResult.toFixed(1)}</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleEmptyBeaker}
+                        className="h-7 px-2 rounded-xl glass text-rose-300 border-rose-500/30 hover:bg-rose-500/20 text-xs font-bold"
+                      >
+                        <Trash2 className="w-3 h-3 ml-1" />
+                        {t("إفراغ الكأس", "Empty")}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Compact Reagent Shelf */}
+                  <div className="glass p-2.5 rounded-2xl border border-white/15 shadow-2xl space-y-1.5 animate-fade-in">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+                        <FlaskConical className="w-3.5 h-3.5 text-primary" />
+                        <span>{t("رف المواد الكيميائية (اضغط لإضافة المادة للكأس):", "Chemical Shelf (Click to add):")}</span>
+                      </div>
+
+                      {/* Category Filter Pills */}
+                      <div className="flex items-center gap-1 text-[10px]">
+                        {[
+                          { id: "all", ar: "الكل", en: "All" },
+                          { id: "acid", ar: "أحماض", en: "Acids" },
+                          { id: "base", ar: "قلويات", en: "Bases" },
+                          { id: "metal", ar: "فلزات", en: "Metals" },
+                          { id: "salt", ar: "أملاح", en: "Salts" },
+                        ].map((cat) => (
+                          <button
+                            key={cat.id}
+                            onClick={() => setFilterCategory(cat.id)}
+                            className={`px-2 py-0.5 rounded-md font-semibold transition-all ${
+                              filterCategory === cat.id ? "bg-primary text-white" : "text-slate-400 hover:text-white"
+                            }`}
+                          >
+                            {isAr ? cat.ar : cat.en}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Horizontal scrollable reagent list (compact height) */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                      {filteredReagents.map((r) => {
+                        const isAdded = activeReagents.includes(r.id)
+                        return (
+                          <button
+                            key={r.id}
+                            disabled={isAdded || isPouring}
+                            onClick={() => handleAddReagent(r)}
+                            className={`px-2.5 py-1.5 rounded-xl border text-right transition-all flex flex-col justify-between shrink-0 min-w-[90px] h-12 ${
+                              isAdded
+                                ? "bg-white/5 border-emerald-500/50 text-slate-400 opacity-60"
+                                : "glass border-white/10 hover:border-primary/50 hover:bg-primary/10 text-slate-200 cursor-pointer active:scale-95"
+                            }`}
+                            title={isAr ? r.descriptionAr : r.descriptionEn}
+                          >
+                            <span className="font-mono font-bold text-xs text-white" dir="ltr">
+                              {r.formula}
+                            </span>
+                            <span className="text-[10px] text-slate-300 truncate w-full">
+                              {isAr ? r.nameAr : r.nameEn}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Contextual Station 3: Test Tubes Controls */}
+              {activeStation === "test-tubes" && (
+                <div className="glass p-3 rounded-2xl border border-emerald-500/30 bg-slate-950/85 shadow-2xl space-y-2 animate-fade-in">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-emerald-400" />
+                      <span className="text-xs font-black text-white">
+                        {t("حامل أنابيب الاختبار للتجارب الوصفية ونوعية الرواسب", "Qualitative Analytical Test Tube Rack")}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-400">
+                      {t("اضغط على أي أنبوب لتشغيل تفاعله وملاحظة الراسب أو الغاز", "Click tube to run reaction")}
                     </span>
-                  </button>
-                )
-              })}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    {[
+                      {
+                        titleAr: "أنبوب 1: إحلال الخارصين",
+                        titleEn: "Tube 1: Zn Displacement",
+                        eq: "Zn + 2HCl ➔ ZnCl₂ + H₂ ↑",
+                        descAr: "تصاعد فقاعات غاز الهيدروجين مع فوران سريع",
+                        descEn: "Vigorous H2 effervescence",
+                      },
+                      {
+                        titleAr: "أنبوب 2: إحلال الحديد",
+                        titleEn: "Tube 2: Fe in CuSO4",
+                        eq: "Fe + CuSO₄ ➔ FeSO₄ + Cu ↓",
+                        descAr: "ترسب فلز النحاس الأحمر وتحول اللون للأخضر",
+                        descEn: "Red Cu metal precipitate",
+                      },
+                      {
+                        titleAr: "أنبوب 3: ترسيب الفضة",
+                        titleEn: "Tube 3: AgCl Precipitation",
+                        eq: "AgNO₃ + NaCl ➔ AgCl ↓ + NaNO₃",
+                        descAr: "تكون راسب أبيض حليبي يذوب في النشادر",
+                        descEn: "Curdy white AgCl precipitate",
+                      },
+                      {
+                        titleAr: "أنبوب 4: فوران الكربونات",
+                        titleEn: "Tube 4: Carbonate Fizz",
+                        eq: "CaCO₃ + 2HCl ➔ CaCl₂ + CO₂ ↑ + H₂O",
+                        descAr: "فوران غاز ثاني أكسيد الكربون الذي يعكر ماء الجير",
+                        descEn: "CO2 gas effervescence",
+                      },
+                    ].map((tube, i) => (
+                      <button
+                        key={i}
+                        onClick={() => {
+                          setSelectedTubeIndex(i)
+                          labAudio.playSnap()
+                        }}
+                        className={`p-2 rounded-xl border text-right transition-all flex flex-col justify-between ${
+                          selectedTubeIndex === i
+                            ? "bg-emerald-500/20 border-emerald-500 text-white shadow-lg"
+                            : "glass border-white/10 hover:border-white/30 text-slate-300"
+                        }`}
+                      >
+                        <div className="font-bold text-[11px] text-emerald-300">
+                          {isAr ? tube.titleAr : tube.titleEn}
+                        </div>
+                        <div className="font-mono text-[10px] text-white pt-1" dir="ltr">
+                          {tube.eq}
+                        </div>
+                        <div className="text-[10px] text-slate-400 pt-0.5">
+                          {isAr ? tube.descAr : tube.descEn}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Contextual Station 4: Bunsen Burner Controls */}
+              {activeStation === "burner" && (
+                <div className="glass p-3 rounded-2xl border border-amber-500/30 bg-slate-950/85 shadow-2xl flex flex-wrap items-center justify-between gap-3 animate-fade-in">
+                  <div className="flex items-center gap-2">
+                    <Flame className="w-5 h-5 text-amber-400" />
+                    <div>
+                      <h4 className="text-xs font-bold text-white">
+                        {t("موقد بنسن الغازي المعملي (Bunsen Burner)", "Laboratory Gas Bunsen Burner")}
+                      </h4>
+                      <p className="text-[11px] text-slate-400">
+                        {isBurnerOn
+                          ? t("اللهب الأزرق المؤكسد نشط (الحرارة > 450°C)", "Active Blue Oxidizing Flame (> 450°C)")
+                          : t("الموقد مغلق حالياً", "Burner currently off")}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant={isBurnerOn ? "destructive" : "default"}
+                      onClick={() => {
+                        setIsBurnerOn(!isBurnerOn)
+                        labAudio.playClick(isBurnerOn ? 400 : 850)
+                      }}
+                      className="h-8 px-3 rounded-xl text-xs font-bold"
+                    >
+                      {isBurnerOn ? t("إطفاء اللهب ✕", "Extinguish Flame ✕") : t("إشعال الموقد 🔥", "Ignite Burner 🔥")}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        </div>
-      </LabHUD>
+          </LabHUD>
         </div>
       </LanguageProvider>
     </QualityProvider>

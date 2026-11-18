@@ -25,16 +25,19 @@ export function LabRoom({
   const controlsRef = useRef<OrbitControlsImpl>(null)
   const { shadows } = useQuality()
 
-  // Animate camera back to default on reset signal
+  // Animate camera back to default on reset signal or station change
   const isResettingRef = useRef(false)
   const resetProgressRef = useRef(0)
   const startPosRef = useRef(new THREE.Vector3())
   const startTargetRef = useRef(new THREE.Vector3())
   const targetPos = useRef(new THREE.Vector3(...defaultCameraPosition))
   const targetCenter = useRef(new THREE.Vector3(...defaultTarget))
+  const lastTargetPosKey = useRef(`${defaultCameraPosition.join(",")}|${defaultTarget.join(",")}`)
 
   useEffect(() => {
-    if (cameraResetSignal > 0 && controlsRef.current) {
+    const key = `${defaultCameraPosition.join(",")}|${defaultTarget.join(",")}`
+    if (controlsRef.current && (cameraResetSignal > 0 || key !== lastTargetPosKey.current)) {
+      lastTargetPosKey.current = key
       isResettingRef.current = true
       resetProgressRef.current = 0
       startPosRef.current.copy(controlsRef.current.object.position)

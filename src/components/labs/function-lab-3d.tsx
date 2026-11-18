@@ -464,10 +464,10 @@ export function FunctionLab() {
       <LanguageProvider>
         <div className="relative w-full h-full min-h-[480px] flex-1">
           <LabCanvas
-            camera={{ position: [0, 1.8, 3.2], fov: 42, far: 100 }}
+            camera={{ position: [0, 1.45, 2.7], fov: 42, far: 100 }}
             onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
           >
-        <LabRoom cameraResetSignal={cameraResetSignal} defaultCameraPosition={[0, 1.8, 3.2]} defaultTarget={[0, 1.45, -0.1]}>
+        <LabRoom cameraResetSignal={cameraResetSignal} defaultCameraPosition={[0, 1.45, 2.7]} defaultTarget={[0, 1.45, -0.1]}>
           {/* Main 3D Graphing Easel Board */}
           <GraphingBoard
             funcFamily={funcFamily}
@@ -499,19 +499,19 @@ export function FunctionLab() {
         onResetCamera={() => setCameraResetSignal((prev) => prev + 1)}
         onResetExperiment={handleResetLab}
       >
-        {/* Interactive Sliders & Calculus Tool Controls */}
-        <div className="flex flex-col gap-2.5 pointer-events-auto max-w-4xl mx-auto w-full px-2">
-          {/* Top Row: Function Picker & Formula Display */}
-          <div className="glass px-4 py-2 rounded-2xl border border-white/10 shadow-xl flex flex-wrap items-center justify-between gap-3">
+        {/* Compact Docked Bottom Toolbar for Math Tools */}
+        <div className="flex flex-col gap-1.5 pointer-events-auto max-w-4xl mx-auto w-full px-2">
+          {/* Main Controls Row */}
+          <div className="glass px-3 py-1.5 rounded-xl border border-white/10 shadow-xl flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Calculator className="w-4 h-4 text-purple-400" />
+              <Calculator className="w-3.5 h-3.5 text-purple-400" />
               <select
                 value={funcFamily}
                 onChange={(e) => {
                   setFuncFamily(e.target.value as FunctionFamily)
                   labAudio.playClick()
                 }}
-                className="bg-black/50 text-xs md:text-sm font-bold text-white rounded-lg px-2.5 py-1 border border-white/10 focus:outline-none focus:border-primary cursor-pointer"
+                className="bg-black/50 text-xs font-bold text-white rounded-lg px-2 py-0.5 border border-white/10 focus:outline-none focus:border-primary cursor-pointer"
               >
                 {Object.values(FUNCTIONS_REGISTRY).map((f) => (
                   <option key={f.id} value={f.id} className="bg-slate-900 text-white">
@@ -522,7 +522,7 @@ export function FunctionLab() {
             </div>
 
             {/* Live Formula Display */}
-            <div className="font-mono text-xs md:text-sm font-bold text-purple-300 bg-black/40 px-3 py-1 rounded-xl border border-white/5" dir="ltr">
+            <div className="font-mono text-xs font-bold text-purple-300 bg-black/40 px-2.5 py-0.5 rounded-lg border border-white/5" dir="ltr">
               f(x) = {a !== 1 ? a.toFixed(1) : ""}
               {funcFamily === "quadratic" && `(x ${h >= 0 ? `- ${h.toFixed(1)}` : `+ ${Math.abs(h).toFixed(1)}`})²`}
               {funcFamily === "absolute" && `|x ${h >= 0 ? `- ${h.toFixed(1)}` : `+ ${Math.abs(h).toFixed(1)}`}|`}
@@ -540,32 +540,32 @@ export function FunctionLab() {
                   setShowTangent(!showTangent)
                   labAudio.playClick()
                 }}
-                className={`px-2.5 py-1 rounded-lg font-bold border transition-all ${
+                className={`px-2 py-0.5 rounded-lg text-xs font-bold border transition-all ${
                   showTangent ? "bg-amber-500/20 border-amber-500/50 text-amber-300" : "bg-white/5 border-white/10 text-slate-400"
                 }`}
               >
-                {t("المماس f'(x)", "Tangent f'(x)")}
+                {t("المماس f'(x)", "Tangent")}
               </button>
               <button
                 onClick={() => {
                   setShowArea(!showArea)
                   labAudio.playClick()
                 }}
-                className={`px-2.5 py-1 rounded-lg font-bold border transition-all ${
+                className={`px-2 py-0.5 rounded-lg text-xs font-bold border transition-all ${
                   showArea ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-300" : "bg-white/5 border-white/10 text-slate-400"
                 }`}
               >
-                {t("المساحة والتكامل ∫", "Area & Integral ∫")}
+                {t("المساحة والتكامل ∫", "Area ∫")}
               </button>
             </div>
           </div>
 
-          {/* Bottom Row: Parameter Sliders Grid */}
-          <div className="glass p-3 rounded-2xl border border-white/10 shadow-xl grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          {/* Compact Sliders Grid */}
+          <div className="glass px-3 py-1.5 rounded-xl border border-white/10 shadow-xl grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             {/* Slider a */}
-            <div className="space-y-1">
-              <div className="flex justify-between text-slate-400 font-semibold">
-                <span>{t("معامل التمدد (a):", "Stretch / Scale (a):")}</span>
+            <div className="space-y-0.5">
+              <div className="flex justify-between text-[11px] text-slate-400 font-semibold">
+                <span>{t("التمدد (a):", "Scale (a):")}</span>
                 <span className="font-mono text-white font-bold">{a.toFixed(1)}</span>
               </div>
               <input
@@ -575,14 +575,14 @@ export function FunctionLab() {
                 step="0.2"
                 value={a}
                 onChange={(e) => setA(parseFloat(e.target.value))}
-                className="w-full accent-primary cursor-pointer"
+                className="w-full accent-primary cursor-pointer h-1"
               />
             </div>
 
             {/* Slider h */}
-            <div className="space-y-1">
-              <div className="flex justify-between text-slate-400 font-semibold">
-                <span>{t("الإزاحة الأفقية (h):", "Horiz. Shift (h):")}</span>
+            <div className="space-y-0.5">
+              <div className="flex justify-between text-[11px] text-slate-400 font-semibold">
+                <span>{t("الإزاحة الأفقية (h):", "Horiz (h):")}</span>
                 <span className="font-mono text-white font-bold">{h.toFixed(1)}</span>
               </div>
               <input
@@ -592,14 +592,14 @@ export function FunctionLab() {
                 step="0.5"
                 value={h}
                 onChange={(e) => setH(parseFloat(e.target.value))}
-                className="w-full accent-primary cursor-pointer"
+                className="w-full accent-primary cursor-pointer h-1"
               />
             </div>
 
             {/* Slider k */}
-            <div className="space-y-1">
-              <div className="flex justify-between text-slate-400 font-semibold">
-                <span>{t("الإزاحة الرأسية (k):", "Vert. Shift (k):")}</span>
+            <div className="space-y-0.5">
+              <div className="flex justify-between text-[11px] text-slate-400 font-semibold">
+                <span>{t("الإزاحة الرأسية (k):", "Vert (k):")}</span>
                 <span className="font-mono text-white font-bold">{k.toFixed(1)}</span>
               </div>
               <input
@@ -609,15 +609,15 @@ export function FunctionLab() {
                 step="0.5"
                 value={k}
                 onChange={(e) => setK(parseFloat(e.target.value))}
-                className="w-full accent-primary cursor-pointer"
+                className="w-full accent-primary cursor-pointer h-1"
               />
             </div>
 
             {/* Tangent Position / Area Readout */}
             {showTangent ? (
-              <div className="space-y-1">
-                <div className="flex justify-between text-amber-400 font-semibold">
-                  <span>{t("نقطة التماس (x₀):", "Tangent Point (x₀):")}</span>
+              <div className="space-y-0.5">
+                <div className="flex justify-between text-[11px] text-amber-400 font-semibold">
+                  <span>{t("نقطة التماس (x₀):", "Point (x₀):")}</span>
                   <span className="font-mono text-amber-300 font-bold">{tangentX.toFixed(1)}</span>
                 </div>
                 <input
@@ -627,17 +627,17 @@ export function FunctionLab() {
                   step="0.2"
                   value={tangentX}
                   onChange={(e) => setTangentX(parseFloat(e.target.value))}
-                  className="w-full accent-amber-500 cursor-pointer"
+                  className="w-full accent-amber-500 cursor-pointer h-1"
                 />
               </div>
             ) : showArea ? (
-              <div className="flex flex-col justify-center items-center bg-emerald-500/10 rounded-xl p-1.5 border border-emerald-500/30">
-                <span className="text-[10px] text-emerald-400 font-semibold">{t("المساحة تحت المنحنى ∫:", "Area Under Curve ∫:")}</span>
-                <span className="font-mono text-sm font-black text-emerald-300">{integralValue} {t("وحدة²", "sq units")}</span>
+              <div className="flex items-center justify-between bg-emerald-500/10 rounded-lg px-2 py-0.5 border border-emerald-500/30 text-[11px]">
+                <span className="text-emerald-400 font-semibold">{t("المساحة:", "Area:")}</span>
+                <span className="font-mono font-bold text-emerald-300">{integralValue} {t("وحدة²", "sq")}</span>
               </div>
             ) : (
-              <div className="flex items-center justify-center text-slate-400 text-center">
-                {t("حرّك المنزلقات للتحويل الفوري", "Move sliders to transform")}
+              <div className="flex items-center justify-center text-[10px] text-slate-500">
+                {t("حرّك المنزلقات للتحويل", "Move sliders to transform")}
               </div>
             )}
           </div>

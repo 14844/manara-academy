@@ -97,7 +97,7 @@ export function LabHUD({
   const [showHint, setShowHint] = useState(false)
   const [selectedQuizAnswer, setSelectedQuizAnswer] = useState<number | null>(null)
   const [isQuizSubmitted, setIsQuizSubmitted] = useState(false)
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false)
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true) // Collapsed by default so 3D scene is 100% visible
   const [showQualityMenu, setShowQualityMenu] = useState(false)
 
   const activeExp = guidedExperiments[activeExpIndex]
@@ -307,181 +307,192 @@ export function LabHUD({
         </div>
       </div>
 
-      {/* Lab-Specific Custom Instrument / Live HUD Overlays (Center/Sides) */}
-      <div className="flex-1 pointer-events-none flex flex-col justify-end md:justify-center py-2">
-        {children}
-      </div>
+      {/* Clear Center Viewport (Direct 3D Interaction Zone - 100% unobstructed) */}
+      <div className="flex-1 pointer-events-none" />
 
-      {/* Bottom Area: Guided Experiment / Steps Overlay */}
-      {!isSandbox && activeExp && (
-        <div className="pointer-events-auto w-full max-w-xl mx-auto glass p-3.5 md:p-4 rounded-2xl border border-white/15 shadow-2xl transition-all">
-          {/* Header of Guided Box */}
-          <div className="flex items-center justify-between mb-2 pb-2 border-b border-white/10">
-            <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <select
-                value={activeExpIndex}
-                onChange={(e) => handleSelectExperiment(Number(e.target.value))}
-                className="bg-black/40 text-xs md:text-sm font-bold text-white rounded-lg px-2 py-1 border border-white/10 focus:outline-none focus:border-primary cursor-pointer"
-              >
-                {guidedExperiments.map((exp, idx) => (
-                  <option key={exp.id} value={idx} className="bg-slate-900 text-white">
-                    {t(`تجربة ${idx + 1}: ${exp.title}`, `Exp ${idx + 1}: ${exp.titleEn || exp.title}`)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-400 font-mono">
-                {t(`خطوة ${currentStepIndex + 1} / ${totalSteps}`, `Step ${currentStepIndex + 1} / ${totalSteps}`)}
-              </span>
-              <button
-                onClick={() => setIsPanelCollapsed(!isPanelCollapsed)}
-                className="text-slate-400 hover:text-white p-1"
-                title={isPanelCollapsed ? t("توسيع", "Expand") : t("تصغير", "Collapse")}
-              >
-                <ChevronDown className={`w-4 h-4 transition-transform ${isPanelCollapsed ? "rotate-180" : ""}`} />
-              </button>
-            </div>
+      {/* Bottom Area: Lab Controls + Guided Box (Strictly docked at bottom, leaving center 100% clear) */}
+      <div className="pointer-events-none flex flex-col items-center gap-1.5 w-full mt-auto">
+        {/* Lab-Specific Custom Overlays */}
+        {children && (
+          <div className="pointer-events-none flex flex-col justify-end w-full">
+            {children}
           </div>
+        )}
 
-          {/* Collapsible Content */}
-          {!isPanelCollapsed && (
-            <div className="space-y-3">
-              {/* Step Title & Instruction */}
-              <div>
-                <h4 className="text-xs md:text-sm font-bold text-blue-300 mb-1 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                  {isAr ? currentStep?.title : currentStep?.titleEn || currentStep?.title}
-                </h4>
-                <p className="text-xs md:text-sm text-slate-200 leading-relaxed">
-                  {isAr ? currentStep?.instruction : currentStep?.instructionEn || currentStep?.instruction}
-                </p>
+        {/* Guided Experiment / Steps Overlay */}
+        {!isSandbox && activeExp && (
+          <div className={`pointer-events-auto w-full max-w-lg mx-auto glass rounded-2xl border border-white/15 shadow-2xl transition-all ${
+            isPanelCollapsed ? "px-3 py-1.5" : "p-3.5 md:p-4"
+          }`}>
+            {/* Header of Guided Box */}
+            <div className={`flex items-center justify-between ${!isPanelCollapsed ? "mb-2 pb-2 border-b border-white/10" : ""}`}>
+              <div className="flex items-center gap-2">
+                <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                <select
+                  value={activeExpIndex}
+                  onChange={(e) => handleSelectExperiment(Number(e.target.value))}
+                  className="bg-black/40 text-xs font-bold text-white rounded-lg px-2 py-0.5 border border-white/10 focus:outline-none focus:border-primary cursor-pointer max-w-[200px] sm:max-w-none truncate"
+                >
+                  {guidedExperiments.map((exp, idx) => (
+                    <option key={exp.id} value={idx} className="bg-slate-900 text-white">
+                      {t(`تجربة ${idx + 1}: ${exp.title}`, `Exp ${idx + 1}: ${exp.titleEn || exp.title}`)}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {/* Hint Box */}
-              {(currentStep?.hint || currentStep?.hintEn) && (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-400 font-mono">
+                  {t(`خطوة ${currentStepIndex + 1} / ${totalSteps}`, `Step ${currentStepIndex + 1} / ${totalSteps}`)}
+                </span>
+                <button
+                  onClick={() => setIsPanelCollapsed(!isPanelCollapsed)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 flex items-center gap-1 text-xs"
+                  title={isPanelCollapsed ? t("توسيع الشرح والخطوات", "Expand Instructions") : t("تصغير", "Collapse")}
+                >
+                  <span className="text-[10px] hidden sm:inline">{isPanelCollapsed ? t("عرض الشرح", "Instructions") : ""}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isPanelCollapsed ? "rotate-180" : ""}`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Collapsible Content */}
+            {!isPanelCollapsed && (
+              <div className="space-y-3">
+                {/* Step Title & Instruction */}
                 <div>
-                  <button
-                    onClick={() => setShowHint(!showHint)}
-                    className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors"
-                  >
-                    <HelpCircle className="w-3 h-3" />
-                    <span>
-                      {showHint
-                        ? t("إخفاء التلميح", "Hide hint")
-                        : t("تحتاج مساعدة؟ اعرض التلميح", "Need help? Show hint")}
-                    </span>
-                  </button>
-                  {showHint && (
-                    <div className="mt-1.5 p-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 leading-relaxed">
-                      💡 {isAr ? currentStep?.hint : currentStep?.hintEn || currentStep?.hint}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* End-of-Experiment Quiz (shown on last step if quiz exists) */}
-              {currentStepIndex === totalSteps - 1 && activeExp.quiz && (
-                <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-2 mt-2">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
-                    <Award className="w-4 h-4" />
-                    <span>{t("سؤال تثبيت الفهم المنهجي:", "Concept Check Question:")}</span>
-                  </div>
-                  <p className="text-xs text-slate-100 font-semibold">
-                    {isAr ? activeExp.quiz.question : activeExp.quiz.questionEn || activeExp.quiz.question}
+                  <h4 className="text-xs md:text-sm font-bold text-blue-300 mb-1 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                    {isAr ? currentStep?.title : currentStep?.titleEn || currentStep?.title}
+                  </h4>
+                  <p className="text-xs md:text-sm text-slate-200 leading-relaxed">
+                    {isAr ? currentStep?.instruction : currentStep?.instructionEn || currentStep?.instruction}
                   </p>
+                </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
-                    {(isAr ? activeExp.quiz.options : activeExp.quiz.optionsEn || activeExp.quiz.options).map(
-                      (opt, optIdx) => {
-                        const isCorrect = optIdx === activeExp.quiz?.correctIndex
-                        const isSelected = selectedQuizAnswer === optIdx
-                        let btnStyle = "bg-white/5 border-white/10 hover:bg-white/15 text-slate-200"
-
-                        if (isQuizSubmitted) {
-                          if (isCorrect) {
-                            btnStyle = "bg-emerald-500/20 border-emerald-500/60 text-emerald-300"
-                          } else if (isSelected) {
-                            btnStyle = "bg-rose-500/20 border-rose-500/60 text-rose-300"
-                          }
-                        }
-
-                        return (
-                          <button
-                            key={optIdx}
-                            disabled={isQuizSubmitted}
-                            onClick={() => handleQuizSubmit(optIdx)}
-                            className={`text-right p-2 rounded-lg border text-xs font-medium transition-all flex items-center justify-between ${btnStyle}`}
-                          >
-                            <span>{opt}</span>
-                            {isQuizSubmitted && isCorrect && (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                            )}
-                            {isQuizSubmitted && isSelected && !isCorrect && (
-                              <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                            )}
-                          </button>
-                        )
-                      }
+                {/* Hint Box */}
+                {(currentStep?.hint || currentStep?.hintEn) && (
+                  <div>
+                    <button
+                      onClick={() => setShowHint(!showHint)}
+                      className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors"
+                    >
+                      <HelpCircle className="w-3 h-3" />
+                      <span>
+                        {showHint
+                          ? t("إخفاء التلميح", "Hide hint")
+                          : t("تحتاج مساعدة؟ اعرض التلميح", "Need help? Show hint")}
+                      </span>
+                    </button>
+                    {showHint && (
+                      <div className="mt-1.5 p-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 leading-relaxed">
+                        💡 {isAr ? currentStep?.hint : currentStep?.hintEn || currentStep?.hint}
+                      </div>
                     )}
                   </div>
+                )}
 
-                  {isQuizSubmitted && (
-                    <div className="mt-2 text-[11px] text-slate-300 bg-slate-900/60 p-2 rounded-lg border border-white/10 leading-relaxed">
-                      <strong>{t("الشرح العلمي:", "Scientific explanation:")}</strong>{" "}
-                      {isAr
-                        ? activeExp.quiz.explanation
-                        : activeExp.quiz.explanationEn || activeExp.quiz.explanation}
+                {/* End-of-Experiment Quiz */}
+                {currentStepIndex === totalSteps - 1 && activeExp.quiz && (
+                  <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-2 mt-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                      <Award className="w-4 h-4" />
+                      <span>{t("سؤال تثبيت الفهم المنهجي:", "Concept Check Question:")}</span>
                     </div>
-                  )}
+                    <p className="text-xs text-slate-100 font-semibold">
+                      {isAr ? activeExp.quiz.question : activeExp.quiz.questionEn || activeExp.quiz.question}
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
+                      {(isAr ? activeExp.quiz.options : activeExp.quiz.optionsEn || activeExp.quiz.options).map(
+                        (opt, optIdx) => {
+                          const isCorrect = optIdx === activeExp.quiz?.correctIndex
+                          const isSelected = selectedQuizAnswer === optIdx
+                          let btnStyle = "bg-white/5 border-white/10 hover:bg-white/15 text-slate-200"
+
+                          if (isQuizSubmitted) {
+                            if (isCorrect) {
+                              btnStyle = "bg-emerald-500/20 border-emerald-500/60 text-emerald-300"
+                            } else if (isSelected) {
+                              btnStyle = "bg-rose-500/20 border-rose-500/60 text-rose-300"
+                            }
+                          }
+
+                          return (
+                            <button
+                              key={optIdx}
+                              disabled={isQuizSubmitted}
+                              onClick={() => handleQuizSubmit(optIdx)}
+                              className={`text-right p-2 rounded-lg border text-xs font-medium transition-all flex items-center justify-between ${btnStyle}`}
+                            >
+                              <span>{opt}</span>
+                              {isQuizSubmitted && isCorrect && (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              )}
+                              {isQuizSubmitted && isSelected && !isCorrect && (
+                                <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                              )}
+                            </button>
+                          )
+                        }
+                      )}
+                    </div>
+
+                    {isQuizSubmitted && (
+                      <div className="mt-2 text-[11px] text-slate-300 bg-slate-900/60 p-2 rounded-lg border border-white/10 leading-relaxed">
+                        <strong>{t("الشرح العلمي:", "Scientific explanation:")}</strong>{" "}
+                        {isAr
+                          ? activeExp.quiz.explanation
+                          : activeExp.quiz.explanationEn || activeExp.quiz.explanation}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Navigation buttons */}
+                <div className="flex items-center justify-between pt-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handlePrevStep}
+                    disabled={currentStepIndex === 0}
+                    className="h-7 text-xs px-2.5 rounded-lg glass disabled:opacity-40"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                    {t("السابق", "Previous")}
+                  </Button>
+
+                  <div className="flex gap-1">
+                    {activeExp.steps.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => {
+                          setCurrentStepIndex(i)
+                          setShowHint(false)
+                          labAudio.playClick()
+                        }}
+                        className={`w-2 h-2 rounded-full transition-all ${
+                          currentStepIndex === i ? "bg-primary w-4" : "bg-white/20 hover:bg-white/40"
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  <Button
+                    size="sm"
+                    onClick={handleNextStep}
+                    disabled={currentStepIndex >= totalSteps - 1}
+                    className="h-7 text-xs px-2.5 rounded-lg disabled:opacity-40"
+                  >
+                    {t("التالي", "Next")}
+                    <ChevronLeft className="w-3.5 h-3.5 mr-1" />
+                  </Button>
                 </div>
-              )}
-
-              {/* Navigation buttons */}
-              <div className="flex items-center justify-between pt-1">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handlePrevStep}
-                  disabled={currentStepIndex === 0}
-                  className="h-7 text-xs px-2.5 rounded-lg glass disabled:opacity-40"
-                >
-                  <ChevronRight className="w-3.5 h-3.5 ml-1" />
-                  {t("السابق", "Previous")}
-                </Button>
-
-                <div className="flex gap-1">
-                  {activeExp.steps.map((_, i) => (
-                    <button
-                      key={i}
-                      onClick={() => {
-                        setCurrentStepIndex(i)
-                        setShowHint(false)
-                        labAudio.playClick()
-                      }}
-                      className={`w-2 h-2 rounded-full transition-all ${
-                        currentStepIndex === i ? "bg-primary w-4" : "bg-white/20 hover:bg-white/40"
-                      }`}
-                    />
-                  ))}
-                </div>
-
-                <Button
-                  size="sm"
-                  onClick={handleNextStep}
-                  disabled={currentStepIndex >= totalSteps - 1}
-                  className="h-7 text-xs px-2.5 rounded-lg disabled:opacity-40"
-                >
-                  {t("التالي", "Next")}
-                  <ChevronLeft className="w-3.5 h-3.5 mr-1" />
-                </Button>
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Sandbox mode floating hint badge */}
       {isSandbox && (

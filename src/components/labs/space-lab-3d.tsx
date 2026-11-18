@@ -33,7 +33,9 @@ export interface PlanetData {
   nameAr: string
   nameEn: string
   color: string
+  textureUrl: string
   ringColor?: string
+  ringTextureUrl?: string
   hasRings?: boolean
   radiusVisual: number
   radiusReal: number
@@ -61,6 +63,7 @@ export const PLANETS_DATABASE: PlanetData[] = [
     nameAr: "عطارد",
     nameEn: "Mercury",
     color: "#94a3b8",
+    textureUrl: "/textures/planets/mercury.jpg",
     radiusVisual: 0.22,
     radiusReal: 0.1,
     distanceVisual: 2.8,
@@ -85,6 +88,7 @@ export const PLANETS_DATABASE: PlanetData[] = [
     nameAr: "الزهرة",
     nameEn: "Venus",
     color: "#eab308",
+    textureUrl: "/textures/planets/venus.jpg",
     radiusVisual: 0.35,
     radiusReal: 0.22,
     distanceVisual: 4.0,
@@ -109,6 +113,7 @@ export const PLANETS_DATABASE: PlanetData[] = [
     nameAr: "الأرض",
     nameEn: "Earth",
     color: "#38bdf8",
+    textureUrl: "/textures/planets/2k_earth.jpg",
     radiusVisual: 0.38,
     radiusReal: 0.24,
     distanceVisual: 5.5,
@@ -133,6 +138,7 @@ export const PLANETS_DATABASE: PlanetData[] = [
     nameAr: "المريخ",
     nameEn: "Mars",
     color: "#ef4444",
+    textureUrl: "/textures/planets/mars.jpg",
     radiusVisual: 0.28,
     radiusReal: 0.15,
     distanceVisual: 7.0,
@@ -157,6 +163,7 @@ export const PLANETS_DATABASE: PlanetData[] = [
     nameAr: "المشتري",
     nameEn: "Jupiter",
     color: "#d97706",
+    textureUrl: "/textures/planets/jupiter.jpg",
     radiusVisual: 0.8,
     radiusReal: 0.55,
     distanceVisual: 9.2,
@@ -181,8 +188,10 @@ export const PLANETS_DATABASE: PlanetData[] = [
     nameAr: "زحل",
     nameEn: "Saturn",
     color: "#f59e0b",
+    textureUrl: "/textures/planets/saturn.jpg",
     hasRings: true,
     ringColor: "#d97706",
+    ringTextureUrl: "/textures/planets/saturn_ring.png",
     radiusVisual: 0.7,
     radiusReal: 0.48,
     distanceVisual: 11.5,
@@ -207,6 +216,7 @@ export const PLANETS_DATABASE: PlanetData[] = [
     nameAr: "أورانوس",
     nameEn: "Uranus",
     color: "#22d3ee",
+    textureUrl: "/textures/planets/uranus.jpg",
     radiusVisual: 0.5,
     radiusReal: 0.35,
     distanceVisual: 13.8,
@@ -231,6 +241,7 @@ export const PLANETS_DATABASE: PlanetData[] = [
     nameAr: "نبتون",
     nameEn: "Neptune",
     color: "#2563eb",
+    textureUrl: "/textures/planets/neptune.jpg",
     radiusVisual: 0.48,
     radiusReal: 0.34,
     distanceVisual: 16.0,
@@ -251,6 +262,33 @@ export const PLANETS_DATABASE: PlanetData[] = [
     featuresEn: ["Fastest planetary winds in the Solar System", "One year equals 165 Earth years", "Moon Triton orbits backward with active cryogeysers"],
   },
 ]
+
+// Safe asynchronous texture loader that never leaves meshes black
+function useTextureSafe(url: string | undefined): THREE.Texture | null {
+  const [texture, setTexture] = useState<THREE.Texture | null>(null)
+  useEffect(() => {
+    if (!url || typeof window === "undefined") return
+    let isMounted = true
+    const loader = new THREE.TextureLoader()
+    loader.load(
+      url,
+      (loadedTex) => {
+        if (!isMounted) return
+        loadedTex.colorSpace = THREE.SRGBColorSpace
+        loadedTex.needsUpdate = true
+        setTexture(loadedTex)
+      },
+      undefined,
+      (err) => {
+        console.warn(`[SpaceLab] Texture fallback for ${url}:`, err)
+      }
+    )
+    return () => {
+      isMounted = false
+    }
+  }, [url])
+  return texture
+}
 
 // 3D Asteroid Belt between Mars and Jupiter
 function AsteroidBelt({ innerRadius = 7.8, outerRadius = 8.6, count = 120 }) {
@@ -293,7 +331,7 @@ function AsteroidBelt({ innerRadius = 7.8, outerRadius = 8.6, count = 120 }) {
 // 3D Starfield Galaxy Background
 function DeepSpaceGalaxy() {
   const { particleCount } = useQuality()
-  const count = Math.round(1400 * particleCount)
+  const count = Math.round(1800 * particleCount)
 
   const [positions, colors] = useMemo(() => {
     const pos = new Float32Array(count * 3)
@@ -338,15 +376,16 @@ function DeepSpaceGalaxy() {
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
         <bufferAttribute attach="attributes-color" args={[colors, 3]} />
       </bufferGeometry>
-      <pointsMaterial size={0.35} vertexColors transparent opacity={0.85} sizeAttenuation />
+      <pointsMaterial size={1.2} vertexColors transparent opacity={0.9} sizeAttenuation />
     </points>
   )
 }
 
-// 3D The Sun with Pulsing Corona & Dynamic Flare Shaders
+// 3D The Sun with Pulsing Corona & Dynamic Photosphere Texture
 function CentralSun({ onClick }: { onClick: () => void }) {
   const sunMeshRef = useRef<THREE.Mesh>(null)
   const coronaRef = useRef<THREE.Mesh>(null)
+  const sunTexture = useTextureSafe("/textures/planets/sun.jpg")
 
   useFrame(({ clock }, delta) => {
     if (sunMeshRef.current) {
@@ -360,10 +399,14 @@ function CentralSun({ onClick }: { onClick: () => void }) {
 
   return (
     <group onClick={onClick}>
-      {/* Sun Stellar Core */}
+      {/* Sun Stellar Core with Real Solar Photosphere or Radiant Fallback */}
       <mesh ref={sunMeshRef}>
-        <sphereGeometry args={[1.35, 32, 32]} />
-        <meshBasicMaterial color="#fef08a" />
+        <sphereGeometry args={[1.35, 36, 36]} />
+        {sunTexture ? (
+          <meshBasicMaterial map={sunTexture} />
+        ) : (
+          <meshBasicMaterial color="#fef08a" />
+        )}
       </mesh>
 
       {/* Pulsing Solar Corona */}
@@ -377,19 +420,9 @@ function CentralSun({ onClick }: { onClick: () => void }) {
       </mesh>
 
       {/* Radiant Solar Lights */}
-      <pointLight color="#fffbeb" intensity={5} distance={100} decay={0.8} />
-      <ambientLight intensity={0.45} color="#475569" />
-
-      {/* Label */}
-      <BillboardLabel
-        position={[0, 2.0, 0]}
-        text="الشمس • The Sun"
-        color="#fef08a"
-        bgColor="rgba(30, 20, 5, 0.85)"
-        borderColor="rgba(245, 158, 11, 0.5)"
-        scale={[2.2, 0.55, 1]}
-        fontSize={22}
-      />
+      <pointLight color="#fffbeb" intensity={8.0} distance={160} decay={0.5} />
+      <ambientLight intensity={0.65} color="#e2e8f0" />
+      <hemisphereLight intensity={0.45} color="#38bdf8" groundColor="#0f172a" />
     </group>
   )
 }
@@ -398,8 +431,8 @@ function CentralSun({ onClick }: { onClick: () => void }) {
 function OrbitTrack({ radius }: { radius: number }) {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]}>
-      <ringGeometry args={[radius - 0.02, radius + 0.02, 64]} />
-      <meshBasicMaterial color="#334155" side={THREE.DoubleSide} transparent opacity={0.35} />
+      <ringGeometry args={[radius - 0.015, radius + 0.015, 64]} />
+      <meshBasicMaterial color="#475569" side={THREE.DoubleSide} transparent opacity={0.35} />
     </mesh>
   )
 }
@@ -412,13 +445,15 @@ function Planet3D({
   isPaused,
   isFocused,
   onSelect,
+  onPositionUpdate,
 }: {
   data: PlanetData
   isRealScale: boolean
   timeMultiplier: number
   isPaused: boolean
   isFocused: boolean
-  onSelect: () => void
+  onSelect: (pos: THREE.Vector3) => void
+  onPositionUpdate?: (id: string, pos: THREE.Vector3) => void
 }) {
   const groupRef = useRef<THREE.Group>(null)
   const planetMeshRef = useRef<THREE.Mesh>(null)
@@ -426,6 +461,11 @@ function Planet3D({
 
   const radius = isRealScale ? data.radiusReal : data.radiusVisual
   const distance = isRealScale ? data.distanceReal : data.distanceVisual
+
+  // Safe async texture loaders with instant procedural fallbacks
+  const planetTexture = useTextureSafe(data.textureUrl)
+  const ringTexture = useTextureSafe(data.ringTextureUrl)
+  const moonTexture = useTextureSafe("/textures/planets/moon.jpg")
 
   // Keplerian angular speed: v proportional to 1 / sqrt(r)
   const orbitSpeed = (365 / data.orbitPeriodDays) * 0.14
@@ -439,6 +479,7 @@ function Planet3D({
 
       if (groupRef.current) {
         groupRef.current.position.set(x, 0, z)
+        onPositionUpdate?.(data.id, groupRef.current.position)
       }
     }
 
@@ -465,92 +506,109 @@ function Planet3D({
         ref={groupRef}
         onClick={(e) => {
           e.stopPropagation()
-          onSelect()
+          const worldPos = new THREE.Vector3()
+          if (groupRef.current) {
+            worldPos.copy(groupRef.current.position)
+          }
+          onSelect(worldPos)
           labAudio.playClick(850)
         }}
       >
         {/* Tilted Axis */}
         <group rotation={[0, 0, tiltRad]}>
           <mesh ref={planetMeshRef} castShadow receiveShadow>
-            <sphereGeometry args={[radius, 36, 36]} />
+            <sphereGeometry args={[radius, 48, 48]} />
             <meshStandardMaterial
-              color={data.color}
-              roughness={data.id === "earth" ? 0.4 : 0.6}
-              metalness={0.1}
+              map={planetTexture || undefined}
+              color={planetTexture ? "#ffffff" : data.color}
+              roughness={data.id === "earth" ? 0.35 : 0.65}
+              metalness={0.05}
             />
           </mesh>
 
           {/* Earth Atmosphere & Clouds Layer */}
           {data.id === "earth" && (
             <mesh ref={atmosphereRef}>
-              <sphereGeometry args={[radius * 1.025, 32, 32]} />
+              <sphereGeometry args={[radius * 1.025, 36, 36]} />
               <meshStandardMaterial
                 color="#ffffff"
                 transparent
-                opacity={0.3}
+                opacity={0.35}
                 roughness={0.8}
               />
             </mesh>
           )}
 
-          {/* Saturn's Rings (A, B rings + Cassini division) */}
+          {/* Venus Sulfuric Haze Layer */}
+          {data.id === "venus" && (
+            <mesh>
+              <sphereGeometry args={[radius * 1.03, 32, 32]} />
+              <meshStandardMaterial
+                color="#fef08a"
+                transparent
+                opacity={0.2}
+                roughness={0.9}
+              />
+            </mesh>
+          )}
+
+          {/* Mars Thin Atmosphere */}
+          {data.id === "mars" && (
+            <mesh>
+              <sphereGeometry args={[radius * 1.025, 32, 32]} />
+              <meshStandardMaterial
+                color="#f87171"
+                transparent
+                opacity={0.15}
+                roughness={0.9}
+              />
+            </mesh>
+          )}
+
+          {/* Neptune Deep Azure Halo */}
+          {data.id === "neptune" && (
+            <mesh>
+              <sphereGeometry args={[radius * 1.03, 32, 32]} />
+              <meshStandardMaterial
+                color="#60a5fa"
+                transparent
+                opacity={0.22}
+                roughness={0.9}
+              />
+            </mesh>
+          )}
+
+          {/* Saturn's Rings (Realistic with Ring Alpha Texture) */}
           {data.hasRings && (
             <group rotation={[-Math.PI / 2, 0, 0]}>
-              {/* Inner ring */}
               <mesh>
-                <ringGeometry args={[radius * 1.3, radius * 1.75, 64]} />
+                <ringGeometry args={[radius * 1.35, radius * 2.35, 64]} />
                 <meshStandardMaterial
-                  color="#d97706"
+                  map={ringTexture || undefined}
+                  color={ringTexture ? "#ffffff" : "#d97706"}
                   side={THREE.DoubleSide}
                   transparent
-                  opacity={0.85}
+                  opacity={0.9}
                   roughness={0.3}
                 />
               </mesh>
-              {/* Outer ring */}
-              <mesh>
-                <ringGeometry args={[radius * 1.82, radius * 2.35, 64]} />
+            </group>
+          )}
+
+          {/* Earth's Moon with Real Texture */}
+          {data.id === "earth" && (
+            <group position={[radius * 2.1, 0, 0]}>
+              <mesh castShadow receiveShadow>
+                <sphereGeometry args={[radius * 0.27, 24, 24]} />
                 <meshStandardMaterial
-                  color="#ca8a04"
-                  side={THREE.DoubleSide}
-                  transparent
-                  opacity={0.75}
-                  roughness={0.4}
+                  map={moonTexture || undefined}
+                  color={moonTexture ? "#ffffff" : "#cbd5e1"}
+                  roughness={0.85}
                 />
               </mesh>
             </group>
           )}
-
-          {/* Earth's Moon */}
-          {data.id === "earth" && (
-            <group position={[radius * 2.0, 0, 0]}>
-              <mesh castShadow receiveShadow>
-                <sphereGeometry args={[radius * 0.27, 16, 16]} />
-                <meshStandardMaterial color="#cbd5e1" roughness={0.9} />
-              </mesh>
-              <BillboardLabel
-                position={[0, radius * 0.45, 0]}
-                text="القمر"
-                color="#cbd5e1"
-                bgColor="rgba(15, 23, 42, 0.75)"
-                borderColor="rgba(255, 255, 255, 0.2)"
-                scale={[0.7, 0.2, 1]}
-                fontSize={18}
-              />
-            </group>
-          )}
         </group>
-
-        {/* Floating Planet Name */}
-        <BillboardLabel
-          position={[0, radius + 0.35, 0]}
-          text={data.nameAr}
-          color="#f8fafc"
-          bgColor="rgba(15, 23, 42, 0.85)"
-          borderColor={data.color}
-          scale={[1.4, 0.38, 1]}
-          fontSize={24}
-        />
       </group>
     </>
   )
@@ -559,10 +617,12 @@ function Planet3D({
 // Camera Focus Controller to smoothly fly to a clicked planet or zoom out
 function PlanetCameraGlide({
   targetPlanet,
+  targetPos,
   controlsRef,
   onResetComplete,
 }: {
   targetPlanet: PlanetData | null
+  targetPos: THREE.Vector3 | null
   controlsRef: React.RefObject<OrbitControlsImpl | null>
   onResetComplete?: () => void
 }) {
@@ -575,17 +635,18 @@ function PlanetCameraGlide({
     if (controlsRef.current) {
       isGlidingRef.current = true
       if (targetPlanet) {
-        // Position camera close to planet
-        const dist = targetPlanet.distanceVisual
-        destPosRef.current.set(dist + targetPlanet.radiusVisual * 2.8, targetPlanet.radiusVisual * 1.5, targetPlanet.radiusVisual * 2.8)
-        destTargetRef.current.set(dist, 0, 0)
+        // Position camera close to planet using its real orbital position
+        const p = targetPos || new THREE.Vector3(targetPlanet.distanceVisual, 0, 0)
+        const offset = Math.max(targetPlanet.radiusVisual * 3.4, 0.7)
+        destPosRef.current.set(p.x + offset, p.y + offset * 0.45, p.z + offset)
+        destTargetRef.current.copy(p)
       } else {
-        // Zoom out to whole solar system
+        // Zoom out to whole solar system overview
         destPosRef.current.set(0, 18, 24)
         destTargetRef.current.set(0, 0, 0)
       }
     }
-  }, [targetPlanet, controlsRef])
+  }, [targetPlanet, targetPos, controlsRef])
 
   useFrame((_, delta) => {
     if (isGlidingRef.current && controlsRef.current) {
@@ -773,9 +834,13 @@ export const SPACE_GUIDED_EXPERIMENTS: GuidedExperiment[] = [
 
 export function SpaceLab() {
   const [selectedPlanet, setSelectedPlanet] = useState<PlanetData | null>(null)
+  const [selectedPlanetPos, setSelectedPlanetPos] = useState<THREE.Vector3 | null>(null)
   const [isRealScale, setIsRealScale] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
   const [timeMultiplier, setTimeMultiplier] = useState(1)
+
+  // Track real-time 3D positions of orbiting planets
+  const planetPositionsRef = useRef<Record<string, THREE.Vector3>>({})
 
   // Weight calculator state
   const [studentMass, setStudentMass] = useState(70)
@@ -789,19 +854,22 @@ export function SpaceLab() {
   const controlsRef = useRef<OrbitControlsImpl>(null)
   const { lang, t, isAr } = useLabLanguage()
 
-  const handleSelectPlanet = (planet: PlanetData) => {
+  const handleSelectPlanet = (planet: PlanetData, pos?: THREE.Vector3) => {
     setSelectedPlanet(planet)
+    setSelectedPlanetPos(pos || planetPositionsRef.current[planet.id] || null)
     labAudio.playClick(900)
   }
 
   const handleZoomOut = () => {
     setSelectedPlanet(null)
+    setSelectedPlanetPos(null)
     setCameraResetSignal((prev) => prev + 1)
     labAudio.playClick(750)
   }
 
   const handleResetLab = () => {
     setSelectedPlanet(null)
+    setSelectedPlanetPos(null)
     setIsRealScale(false)
     setIsPaused(false)
     setTimeMultiplier(1)
@@ -816,199 +884,68 @@ export function SpaceLab() {
             camera={{ position: [0, 18, 24], fov: 45, far: 1000 }}
             onResetCamera={handleZoomOut}
           >
-        <OrbitControls
-          ref={controlsRef}
-          makeDefault
-          enableDamping
-          dampingFactor={0.06}
-          minDistance={1.2}
-          maxDistance={50}
-          maxPolarAngle={Math.PI / 2 + 0.15}
-        />
+            <OrbitControls
+              ref={controlsRef}
+              makeDefault
+              enableDamping
+              dampingFactor={0.06}
+              minDistance={1.2}
+              maxDistance={50}
+              maxPolarAngle={Math.PI / 2 + 0.15}
+            />
 
-        {/* Camera Glide Controller */}
-        <PlanetCameraGlide
-          targetPlanet={selectedPlanet}
-          controlsRef={controlsRef}
-        />
+            {/* Camera Glide Controller to smoothly fly in close-up or out */}
+            <PlanetCameraGlide
+              targetPlanet={selectedPlanet}
+              targetPos={selectedPlanetPos}
+              controlsRef={controlsRef}
+            />
 
-        {/* Deep Space Milky Way Galaxy Stars */}
-        <DeepSpaceGalaxy />
+            {/* Deep Space Milky Way Galaxy Stars */}
+            <DeepSpaceGalaxy />
 
-        {/* Central Sun */}
-        <CentralSun onClick={handleZoomOut} />
+            {/* Central Sun */}
+            <CentralSun onClick={handleZoomOut} />
 
-        {/* Asteroid Belt between Mars & Jupiter */}
-        <AsteroidBelt innerRadius={7.8} outerRadius={8.6} count={120} />
+            {/* Asteroid Belt between Mars & Jupiter */}
+            <AsteroidBelt innerRadius={7.8} outerRadius={8.6} count={120} />
 
-        {/* The 8 Planets */}
-        {PLANETS_DATABASE.map((planet) => (
-          <Planet3D
-            key={planet.id}
-            data={planet}
-            isRealScale={isRealScale}
-            timeMultiplier={timeMultiplier}
-            isPaused={isPaused}
-            isFocused={selectedPlanet?.id === planet.id}
-            onSelect={() => handleSelectPlanet(planet)}
-          />
-        ))}
-      </LabCanvas>
-
-      {/* 2D Interactive HUD Overlay */}
-      <LabHUD
-        title="مختبر الفضاء والمجموعة الشمسية ثلاثي الأبعاد"
-        titleEn="3D Space & Solar System Laboratory"
-        subjectTitle="الفيزياء الفلكية"
-        subjectTitleEn="Astrophysics"
-        curriculumGrade="الثانوية العامة"
-        curriculumGradeEn="Secondary Physics"
-        guidedExperiments={SPACE_GUIDED_EXPERIMENTS}
-        activeExpIndex={activeExpIndex}
-        onSelectExp={setActiveExpIndex}
-        isSandbox={isSandbox}
-        onToggleSandbox={setIsSandbox}
-        onResetCamera={handleZoomOut}
-        onResetExperiment={handleResetLab}
-      >
-        {/* Space Lab Control Center */}
-        <div className="flex flex-col gap-2.5 pointer-events-auto max-w-4xl mx-auto w-full px-2">
-          {/* Top Control Bar: Time Controls & Scale Switcher */}
-          <div className="glass px-4 py-2 rounded-2xl border border-white/10 shadow-xl flex flex-wrap items-center justify-between gap-3">
-            {/* Time Controls */}
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setIsPaused(!isPaused)
-                  labAudio.playClick()
+            {/* The 8 Planets */}
+            {PLANETS_DATABASE.map((planet) => (
+              <Planet3D
+                key={planet.id}
+                data={planet}
+                isRealScale={isRealScale}
+                timeMultiplier={timeMultiplier}
+                isPaused={isPaused}
+                isFocused={selectedPlanet?.id === planet.id}
+                onSelect={(pos) => handleSelectPlanet(planet, pos)}
+                onPositionUpdate={(id, pos) => {
+                  planetPositionsRef.current[id] = pos
                 }}
-                className="h-8 px-2.5 rounded-xl glass font-bold text-xs"
-              >
-                {isPaused ? <Play className="w-3.5 h-3.5 text-emerald-400 ml-1" /> : <Pause className="w-3.5 h-3.5 text-amber-400 ml-1" />}
-                {isPaused ? t("تشغيل", "Play") : t("إيقاف مؤقت", "Pause")}
-              </Button>
+              />
+            ))}
+          </LabCanvas>
 
-              <div className="flex bg-black/40 p-0.5 rounded-lg border border-white/5 text-xs">
-                {[1, 5, 20, 100].map((speed) => (
-                  <button
-                    key={speed}
-                    onClick={() => {
-                      setTimeMultiplier(speed)
-                      labAudio.playClick()
-                    }}
-                    className={`px-2 py-0.5 rounded-md font-semibold transition-all ${
-                      timeMultiplier === speed ? "bg-primary text-white" : "text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    {speed}x
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Scale & Zoom Controls */}
-            <div className="flex items-center gap-2">
-              <div className="flex bg-black/40 p-0.5 rounded-lg border border-white/5 text-xs">
-                <button
-                  onClick={() => {
-                    setIsRealScale(false)
-                    labAudio.playClick()
-                  }}
-                  className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
-                    !isRealScale ? "bg-primary text-white" : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  {t("مقياس مرئي تعليمي", "Visual Scale")}
-                </button>
-                <button
-                  onClick={() => {
-                    setIsRealScale(true)
-                    labAudio.playClick()
-                  }}
-                  className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
-                    isRealScale ? "bg-primary text-white" : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  {t("مقياس نسبي حقيقي", "True Proportions")}
-                </button>
-              </div>
-
-              {/* Zoom Out / Overview Button */}
-              {selectedPlanet && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleZoomOut}
-                  className="h-8 px-2.5 rounded-xl glass font-bold text-xs text-amber-300 border-amber-500/30"
-                >
-                  <ZoomOut className="w-3.5 h-3.5 ml-1" />
-                  {t("عرض المجرة والمجموعة", "Overview")}
-                </Button>
-              )}
-
-              {/* Weight Calculator Toggle */}
-              <button
-                onClick={() => {
-                  setShowWeightCalc(!showWeightCalc)
-                  labAudio.playClick()
-                }}
-                className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  showWeightCalc ? "bg-cyan-500/20 border-cyan-500/50 text-cyan-300" : "glass border-white/10 text-slate-300"
-                }`}
-              >
-                <Scale className="w-3.5 h-3.5" />
-                <span>{t("احسب وزنك على الكواكب", "Planet Weight Calculator")}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Planet Selection Fast Carousel Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-            {PLANETS_DATABASE.map((p) => {
-              const isSelected = selectedPlanet?.id === p.id
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => handleSelectPlanet(p)}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 border ${
-                    isSelected
-                      ? "bg-primary text-white border-primary shadow-lg shadow-primary/20 scale-105"
-                      : "glass text-slate-300 border-white/10 hover:border-white/30"
-                  }`}
-                >
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.color }} />
-                  <span>{isAr ? p.nameAr : p.nameEn}</span>
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Selected Planet Detailed Dossier Card Modal / Overlay */}
+          {/* Floating Selected Planet Dossier Side Panel (Docked on Side, 100% Unobstructed Center) */}
           {selectedPlanet && (
-            <div className="glass p-4 rounded-2xl border border-cyan-500/30 bg-slate-950/90 shadow-2xl animate-fade-in space-y-3">
+            <div className="absolute top-16 end-4 bottom-24 w-80 md:w-96 glass p-4 rounded-2xl border border-cyan-500/30 bg-slate-950/90 shadow-2xl overflow-y-auto pointer-events-auto z-20 space-y-3 animate-fade-in">
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
                 <div className="flex items-center gap-2">
-                  <span className="w-4 h-4 rounded-full" style={{ backgroundColor: selectedPlanet.color }} />
+                  <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: selectedPlanet.color }} />
                   <h3 className="text-sm md:text-base font-black text-white">
                     {t(
-                      `كوكب ${selectedPlanet.nameAr} (${selectedPlanet.nameEn}) - عرض ثلاثي الأبعاد مقرب`,
-                      `Planet ${selectedPlanet.nameEn} (${selectedPlanet.nameAr}) - 3D Close-up Inspection`
+                      `كوكب ${selectedPlanet.nameAr} (${selectedPlanet.nameEn})`,
+                      `Planet ${selectedPlanet.nameEn} (${selectedPlanet.nameAr})`
                     )}
                   </h3>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-cyan-300 hidden sm:inline">
-                    {t("يمكنك تدوير الكوكب بالفأرة أو اللمس", "Rotate planet with mouse or touch")}
-                  </span>
-                  <button
-                    onClick={() => setSelectedPlanet(null)}
-                    className="text-xs text-slate-400 hover:text-white font-bold px-2.5 py-1 rounded-lg bg-white/5"
-                  >
-                    {t("إغلاق ✕", "Close ✕")}
-                  </button>
-                </div>
+                <button
+                  onClick={handleZoomOut}
+                  className="text-xs text-slate-400 hover:text-white font-bold px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10"
+                >
+                  ✕ {t("إغلاق", "Close")}
+                </button>
               </div>
 
               <p className="text-xs text-slate-200 leading-relaxed">
@@ -1016,18 +953,18 @@ export function SpaceLab() {
               </p>
 
               {/* Distinctive Features List */}
-              <div className="flex flex-wrap gap-1.5 pt-1">
+              <div className="flex flex-wrap gap-1 pt-1">
                 {(isAr ? selectedPlanet.featuresAr : selectedPlanet.featuresEn).map((feat, i) => (
-                  <span key={i} className="text-[10px] bg-white/5 border border-white/10 px-2.5 py-0.5 rounded-full text-cyan-200">
+                  <span key={i} className="text-[10px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-cyan-200">
                     ★ {feat}
                   </span>
                 ))}
               </div>
 
               {/* Data Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-1">
+              <div className="grid grid-cols-2 gap-2 text-xs pt-1">
                 <div className="bg-white/5 p-2 rounded-xl border border-white/5">
-                  <div className="text-slate-400 text-[10px]">{t("عجلة الجاذبية (g):", "Surface Gravity (g):")}</div>
+                  <div className="text-slate-400 text-[10px]">{t("عجلة الجاذبية (g):", "Gravity (g):")}</div>
                   <div className="font-mono font-bold text-cyan-300">{selectedPlanet.gravityMps2} m/s²</div>
                 </div>
                 <div className="bg-white/5 p-2 rounded-xl border border-white/5">
@@ -1043,61 +980,176 @@ export function SpaceLab() {
                   <div className="font-mono font-bold text-rose-300">{isAr ? selectedPlanet.surfaceTempC : selectedPlanet.surfaceTempCEn}°C</div>
                 </div>
               </div>
+
+              {/* Weight on this planet calculation */}
+              <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-between text-xs">
+                <span className="text-slate-300">{t(`وزنك (70 كجم) هنا:`, `Your weight (70kg) here:`)}</span>
+                <span className="font-mono font-bold text-cyan-300 text-sm">
+                  {((70 * selectedPlanet.gravityMps2) / 9.81).toFixed(1)} kg ({ (70 * selectedPlanet.gravityMps2).toFixed(0) } N)
+                </span>
+              </div>
             </div>
           )}
 
-          {/* Weight on Other Planets Calculator Drawer */}
-          {showWeightCalc && (
-            <div className="glass p-4 rounded-2xl border border-cyan-500/30 bg-slate-950/90 shadow-2xl space-y-3 animate-fade-in">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-cyan-300">
-                  <Scale className="w-4 h-4" />
-                  <span>{t("حاسبة وزنك على أسطح الكواكب (W = m · g)", "Weight on Other Planets (W = m · g)")}</span>
+          {/* 2D Interactive HUD Overlay */}
+          <LabHUD
+            title="مختبر الفضاء والمجموعة الشمسية ثلاثي الأبعاد"
+            titleEn="3D Space & Solar System Laboratory"
+            subjectTitle="الفيزياء الفلكية"
+            subjectTitleEn="Astrophysics"
+            curriculumGrade="الثانوية العامة"
+            curriculumGradeEn="Secondary Physics"
+            guidedExperiments={SPACE_GUIDED_EXPERIMENTS}
+            activeExpIndex={activeExpIndex}
+            onSelectExp={setActiveExpIndex}
+            isSandbox={isSandbox}
+            onToggleSandbox={setIsSandbox}
+            onResetCamera={handleZoomOut}
+            onResetExperiment={handleResetLab}
+          >
+            {/* Sleek Compact Space Lab Controls Docked at Bottom */}
+            <div className="flex flex-col gap-1.5 pointer-events-auto max-w-4xl mx-auto w-full px-2">
+              <div className="glass px-3 py-1.5 rounded-2xl border border-white/10 shadow-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                {/* Time Controls */}
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setIsPaused(!isPaused)
+                      labAudio.playClick()
+                    }}
+                    className="h-7 px-2 rounded-lg font-bold text-xs hover:bg-white/10"
+                  >
+                    {isPaused ? <Play className="w-3.5 h-3.5 text-emerald-400 ml-1" /> : <Pause className="w-3.5 h-3.5 text-amber-400 ml-1" />}
+                    <span>{isPaused ? t("تشغيل", "Play") : t("إيقاف", "Pause")}</span>
+                  </Button>
+
+                  <div className="flex bg-black/40 p-0.5 rounded-lg border border-white/5 text-[11px]">
+                    {[1, 5, 20, 100].map((speed) => (
+                      <button
+                        key={speed}
+                        onClick={() => {
+                          setTimeMultiplier(speed)
+                          labAudio.playClick()
+                        }}
+                        className={`px-1.5 py-0.5 rounded-md font-semibold transition-all ${
+                          timeMultiplier === speed ? "bg-primary text-white" : "text-slate-400 hover:text-white"
+                        }`}
+                      >
+                        {speed}x
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <button onClick={() => setShowWeightCalc(false)} className="text-xs text-slate-400 hover:text-white">
-                  ✕
-                </button>
-              </div>
 
-              {/* Input for student mass */}
-              <div className="flex items-center gap-3 text-xs">
-                <span className="text-slate-300">{t("أدخل كتلتك على الأرض بالكيلوجرام:", "Enter your Earth mass in kg:")}</span>
-                <input
-                  type="number"
-                  min="20"
-                  max="150"
-                  value={studentMass}
-                  onChange={(e) => setStudentMass(Math.max(1, parseFloat(e.target.value) || 0))}
-                  className="w-20 bg-black/60 border border-white/20 rounded-lg px-2 py-1 text-center font-mono font-bold text-white"
-                />
-                <span className="text-slate-400 font-bold">kg</span>
-              </div>
+                <div className="w-[1px] h-4 bg-white/10 hidden sm:block" />
 
-              {/* Weight Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-1">
-                {PLANETS_DATABASE.map((p) => {
-                  const weightNewtons = studentMass * p.gravityMps2
-                  const apparentKg = (weightNewtons / 9.81).toFixed(1)
-                  return (
-                    <div key={p.id} className="bg-white/5 p-2 rounded-xl border border-white/5 flex flex-col justify-between">
-                      <div className="flex items-center gap-1.5 text-[11px] text-slate-300 font-semibold mb-1">
+                {/* Planet Selector Pills */}
+                <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none">
+                  {PLANETS_DATABASE.map((p) => {
+                    const isSelected = selectedPlanet?.id === p.id
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => handleSelectPlanet(p)}
+                        className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all shrink-0 flex items-center gap-1 border ${
+                          isSelected
+                            ? "bg-primary text-white border-primary shadow-md"
+                            : "glass text-slate-300 border-white/5 hover:border-white/20"
+                        }`}
+                      >
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
                         <span>{isAr ? p.nameAr : p.nameEn}</span>
-                      </div>
-                      <div className="font-mono font-bold text-cyan-300 text-sm">
-                        {apparentKg} <span className="text-[10px] text-slate-400">kg</span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 font-mono">
-                        ({weightNewtons.toFixed(0)} {t("نيوتن", "N")})
-                      </div>
-                    </div>
-                  )
-                })}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="w-[1px] h-4 bg-white/10 hidden sm:block" />
+
+                {/* Scale Switcher & Overview Button */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => {
+                      setIsRealScale(!isRealScale)
+                      labAudio.playClick()
+                    }}
+                    className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                      isRealScale ? "bg-primary text-white border-primary" : "glass text-slate-400 border-white/10"
+                    }`}
+                    title={isRealScale ? t("التبديل إلى مقياس تعليمي", "Switch to visual scale") : t("التبديل إلى مقياس حقيقي", "Switch to real scale")}
+                  >
+                    {isRealScale ? t("مقياس حقيقي", "Real Scale") : t("مقياس تعليمي", "Visual Scale")}
+                  </button>
+
+                  {selectedPlanet && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleZoomOut}
+                      className="h-7 px-2 rounded-lg glass font-bold text-xs text-amber-300 border-amber-500/30"
+                    >
+                      <ZoomOut className="w-3 h-3 ml-1" />
+                      {t("نظرة عامة", "Overview")}
+                    </Button>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      setShowWeightCalc(!showWeightCalc)
+                      labAudio.playClick()
+                    }}
+                    className={`p-1.5 rounded-lg border text-xs transition-all ${
+                      showWeightCalc ? "bg-cyan-500/20 border-cyan-500/50 text-cyan-300" : "glass border-white/10 text-slate-400 hover:text-white"
+                    }`}
+                    title={t("حاسبة الوزن على الكواكب", "Planet Weight Calculator")}
+                  >
+                    <Scale className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
+
+              {/* Weight on Other Planets Drawer */}
+              {showWeightCalc && (
+                <div className="glass p-3 rounded-2xl border border-cyan-500/30 bg-slate-950/90 shadow-2xl space-y-2 animate-fade-in text-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-bold text-cyan-300">
+                      <Scale className="w-3.5 h-3.5" />
+                      <span>{t("حاسبة وزنك على أسطح الكواكب (W = m · g)", "Weight on Other Planets (W = m · g)")}</span>
+                    </div>
+                    <button onClick={() => setShowWeightCalc(false)} className="text-slate-400 hover:text-white">✕</button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-300">{t("كتلتك على الأرض:", "Earth mass:")}</span>
+                    <input
+                      type="number"
+                      min="20"
+                      max="150"
+                      value={studentMass}
+                      onChange={(e) => setStudentMass(Math.max(1, parseFloat(e.target.value) || 0))}
+                      className="w-16 bg-black/60 border border-white/20 rounded-lg px-2 py-0.5 text-center font-mono font-bold text-white text-xs"
+                    />
+                    <span className="text-slate-400">kg</span>
+                  </div>
+
+                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 pt-1 text-[11px]">
+                    {PLANETS_DATABASE.map((p) => {
+                      const weightNewtons = studentMass * p.gravityMps2
+                      const apparentKg = (weightNewtons / 9.81).toFixed(1)
+                      return (
+                        <div key={p.id} className="bg-white/5 p-1.5 rounded-xl border border-white/5 flex flex-col items-center text-center">
+                          <span className="text-slate-300 text-[10px] truncate">{isAr ? p.nameAr : p.nameEn}</span>
+                          <span className="font-mono font-bold text-cyan-300">{apparentKg} kg</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </LabHUD>
+          </LabHUD>
         </div>
       </LanguageProvider>
     </QualityProvider>
