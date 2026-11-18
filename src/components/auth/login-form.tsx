@@ -32,7 +32,8 @@ import { useSearchParams } from "next/navigation"
 import { useEffect } from "react"
 import { getLabsNext } from "@/components/auth/status-guard"
 
-export function LoginForm() {
+/** onSuccess: when given (e.g. the lab guest gate), stay on the current page instead of navigating. */
+export function LoginForm({ onSuccess }: { onSuccess?: () => void } = {}) {
     const router = useRouter()
     const searchParams = useSearchParams()
     const [isLoading, setIsLoading] = useState(false)
@@ -132,6 +133,11 @@ export function LoginForm() {
                 }
             }).catch(() => {})
 
+            if (onSuccess) {
+                setIsLoading(false)
+                onSuccess()
+                return
+            }
             const homeRoute = getLabsNext() || getHomeRouteForRole(profile?.role)
             try {
                 console.log("LoginForm: Navigating to", homeRoute)

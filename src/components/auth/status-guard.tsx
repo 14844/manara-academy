@@ -41,6 +41,8 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                 const isPublicRoute = [
                     '/', '/login', '/signup', '/about', '/faq', '/terms', '/privacy', '/refund', '/teach'
                 ].includes(path) || path.startsWith('/courses') || path.startsWith('/help')
+                    // Labs: visitors get a 2-minute trial, then LabGuestGate asks them to log in / sign up in place.
+                    || path.startsWith('/labs')
 
                 if (!isPublicRoute) {
                     console.warn("StatusGuard: Protected path detected without auth. Clearing session...")
@@ -111,6 +113,12 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
                                 return;
                             }
                         }
+                    }
+
+                    // Instructors are never allowed in the labs, whatever their account status.
+                    if (role === 'instructor' && path.startsWith('/labs')) {
+                        router.replace(status === 'pending' ? '/pending-approval' : '/instructor');
+                        return;
                     }
 
                     // Handle Status Redirects

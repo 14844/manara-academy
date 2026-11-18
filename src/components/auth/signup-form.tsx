@@ -138,7 +138,11 @@ const signupSchema = z.object({
     }
 })
 
-export function SignupForm() {
+/**
+ * onSuccess: when given (lab guest gate), stay on the current page instead of navigating.
+ * studentOnly: hide the role picker (labs are for students only).
+ */
+export function SignupForm({ onSuccess, studentOnly }: { onSuccess?: () => void; studentOnly?: boolean } = {}) {
     const router = useRouter()
     const [isLoading, setIsLoading] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
@@ -185,11 +189,11 @@ export function SignupForm() {
     // Read from window (not useSearchParams) to avoid needing a Suspense boundary.
     useEffect(() => {
         try {
-            if (new URLSearchParams(window.location.search).get("role") === "instructor") {
+            if (!studentOnly && new URLSearchParams(window.location.search).get("role") === "instructor") {
                 form.setValue("role", "instructor")
             }
         } catch {}
-    }, [form])
+    }, [form, studentOnly])
 
     async function onSubmit(values: z.infer<typeof signupSchema>) {
         setIsLoading(true)
@@ -287,6 +291,11 @@ export function SignupForm() {
             }).catch(() => {})
 
             // 5. Came from a lab -> straight back to it; otherwise the pending page (which offers the labs).
+            if (onSuccess) {
+                setIsLoading(false)
+                onSuccess()
+                return
+            }
             router.push(labsNext || "/pending-approval")
         } catch (error: any) {
             console.error("Signup error:", error)
@@ -452,7 +461,7 @@ export function SignupForm() {
                         control={form.control}
                         name="role"
                         render={({ field }) => (
-                            <FormItem className="space-y-1.5 sm:col-span-2">
+                            <FormItem className={`space-y-1.5 sm:col-span-2 ${studentOnly ? "hidden" : ""}`}>
                                 <FormLabel className="text-xs font-bold text-muted-foreground">نوع الحساب</FormLabel>
                                 <FormControl>
                                     <div className="grid grid-cols-2 gap-2.5">
