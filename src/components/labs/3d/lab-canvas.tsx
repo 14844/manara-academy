@@ -3,6 +3,7 @@
 import React, { useState, useEffect, Suspense, Component, ErrorInfo } from "react"
 import { Canvas } from "@react-three/fiber"
 import { QualityProvider, useQuality } from "./quality-manager"
+import { LanguageProvider, useLabLanguage } from "./language-context"
 import { WebGLFallback } from "./webgl-fallback"
 import { Loader2 } from "lucide-react"
 
@@ -133,14 +134,16 @@ export function LabCanvas({ children, camera, onResetCamera, className = "" }: L
 
   return (
     <QualityProvider>
-      <div className={`relative w-full h-full overflow-hidden bg-slate-950 select-none ${className}`}>
-        {isLoading && <InCanvasLoader />}
-        <CanvasErrorBoundary fallback={(err, reset) => <WebGLFallback errorMessage={err.message} onRetry={reset} />}>
-          <InnerCanvas camera={camera} onResetCamera={onResetCamera}>
-            {children}
-          </InnerCanvas>
-        </CanvasErrorBoundary>
-      </div>
+      <LanguageProvider>
+        <div className={`relative w-full h-full overflow-hidden bg-slate-950 select-none ${className}`}>
+          {isLoading && <InCanvasLoader />}
+          <CanvasErrorBoundary fallback={(err, reset) => <WebGLFallback errorMessage={err.message} onRetry={reset} />}>
+            <InnerCanvas camera={camera} onResetCamera={onResetCamera}>
+              {children}
+            </InnerCanvas>
+          </CanvasErrorBoundary>
+        </div>
+      </LanguageProvider>
     </QualityProvider>
   )
 }
