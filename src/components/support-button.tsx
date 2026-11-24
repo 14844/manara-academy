@@ -26,6 +26,21 @@ const QUICK_SUGGESTIONS = [
     "تقارير أولياء الأمور 📊"
 ]
 
+/** One chat session per browser tab (n8n memory key). Server prefixes it with the user id when logged in. */
+function getChatSessionId(): string {
+    const KEY = "manara_chat_session_id"
+    try {
+        let id = sessionStorage.getItem(KEY)
+        if (!id || !/^[A-Za-z0-9_-]{8,64}$/.test(id)) {
+            id = crypto.randomUUID().replace(/-/g, "")
+            sessionStorage.setItem(KEY, id)
+        }
+        return id
+    } catch {
+        return Math.random().toString(36).slice(2) + Date.now().toString(36)
+    }
+}
+
 function FormattedMessage({ text, isUser }: { text: string; isUser: boolean }) {
     if (isUser) {
         return <p className="leading-relaxed m-0 text-sm font-medium">{text}</p>
@@ -121,7 +136,7 @@ export function SupportButton() {
             const res = await fetch("/api/ai/support", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: query })
+                body: JSON.stringify({ message: query, session_id: getChatSessionId() })
             })
 
             const data = await res.json()
