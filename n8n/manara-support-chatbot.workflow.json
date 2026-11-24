@@ -31,11 +31,14 @@
       "name": "AI Agent",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.7,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
       "position": [260, 0]
     },
     {
       "parameters": {
-        "modelName": "models/gemini-2.5-flash",
+        "modelName": "models/gemini-3.8-flash-lite",
         "options": { "temperature": 0.4, "maxOutputTokens": 800 }
       },
       "id": "a1f0c6c2-0003-4a8e-9a01-000000000003",
