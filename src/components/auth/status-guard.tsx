@@ -7,6 +7,14 @@ import { onAuthStateChanged } from "firebase/auth"
 import { doc, getDoc } from "firebase/firestore"
 import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { getHomeRouteForRole, isBackofficeRole } from "@/lib/permissions"
+
+/** `?next=/labs/...` set when a visitor was sent to login from a lab. Only internal /labs paths are honoured. */
+export function getLabsNext(): string | null {
+    if (typeof window === "undefined") return null
+    const next = new URLSearchParams(window.location.search).get("next")
+    return next && /^\/labs(\/[A-Za-z0-9_-]+)*\/?$/.test(next) ? next : null
+}
 
 export function StatusGuard({ children }: { children: React.ReactNode }) {
     const router = useRouter()
@@ -14,19 +22,36 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = useState(true)
 
     useEffect(() => {
+        const path = pathname || ""
+
+        // Completely bypass any auth loading or checks for parent report links
+        if (path.startsWith('/report')) {
+            setIsLoading(false)
+            return
+        }
+
+        let profileUnsubscribe: (() => void) | undefined;
+
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            console.log("StatusGuard: Check for path:", pathname, "| User UID:", user?.uid)
+            console.log("StatusGuard: Check for path:", path, "| User UID:", user?.uid)
 
             if (!user) {
+                if (profileUnsubscribe) profileUnsubscribe();
                 // If we are on a protected route but auth is missing, we MUST clear any stale session
-                if (pathname !== '/login' && pathname !== '/signup' && pathname !== '/') {
+                const isPublicRoute = [
+                    '/', '/login', '/signup', '/about', '/faq', '/terms', '/privacy', '/refund', '/teach'
+                ].includes(path) || path.startsWith('/courses') || path.startsWith('/help')
+                    // Labs: visitors get a 2-minute trial, then LabGuestGate asks them to log in / sign up in place.
+                    || path.startsWith('/labs')
+
+                if (!isPublicRoute) {
                     console.warn("StatusGuard: Protected path detected without auth. Clearing session...")
                     try {
                         await fetch('/api/auth/session', { method: 'DELETE' })
                     } catch (e) {
                         console.error("Failed to clear stale session:", e)
                     }
-                    router.push("/login")
+                    router.push(path.startsWith('/labs') ? `/login?next=${encodeURIComponent(path)}` : "/login")
                     return // Keep loading to prevent content flash
                 }
                 setIsLoading(false)
@@ -34,46 +59,105 @@ export function StatusGuard({ children }: { children: React.ReactNode }) {
             }
 
             try {
-                const docRef = doc(db, "profiles", user.uid)
-                const docSnap = await getDoc(docRef)
-
-                if (docSnap.exists()) {
-                    const profile = docSnap.data()
-                    console.log("StatusGuard: Profile role:", profile.role, "status:", profile.status)
-
-                    // 1. Handle Pending
-                    if ((profile.status === 'pending' || !profile.status) && profile.role !== 'admin') {
-                        if (pathname !== '/pending-approval') {
-                            router.push("/pending-approval")
-                            return
-                        }
+                // Fetch role from public profile
+                let role = "student";
+                try {
+                    const pubSnap = await getDoc(doc(db, "profiles", user.uid));
+                    if (pubSnap.exists()) {
+                        role = pubSnap.data()?.role || "student";
                     }
-                    // 2. Handle Blocked/Rejected
-                    else if (profile.status === 'rejected' || profile.status === 'blocked') {
-                        if (pathname !== '/restricted-access') {
-                            router.push("/restricted-access?reason=account")
-                            return
-                        }
-                    }
-                    // 3. Handle Approved
-                    else {
-                        if (pathname === '/pending-approval' || pathname === '/restricted-access' || pathname === '/login' || pathname === '/signup') {
-                            const target = profile.role === 'instructor' ? "/instructor" : "/dashboard"
-                            router.push(target)
-                            return
-                        }
-                    }
-                } else {
-                    console.warn("StatusGuard: Profile missing for user:", user.uid)
+                } catch (e) {
+                    console.error("StatusGuard: Error fetching public profile:", e);
                 }
+
+                // Real-time Session & Status Monitoring via profiles_private/{user.uid}
+                const { onSnapshot } = await import("firebase/firestore");
+                const safetyTimer = setTimeout(() => {
+                    setIsLoading(false);
+                }, 4000);
+
+                profileUnsubscribe = onSnapshot(doc(db, "profiles_private", user.uid), async (docSnap) => {
+                    clearTimeout(safetyTimer);
+                    const privateData = docSnap.exists() ? docSnap.data() : null;
+                    const status = privateData?.status || "pending";
+                    const activeSessionId = privateData?.active_session_id;
+
+                    // Single Session Enforcement (Students only)
+                    let loginPending = false;
+                    try { loginPending = sessionStorage.getItem('manara_login_pending') === '1'; } catch {}
+                    if (role === 'student' && !docSnap.metadata.fromCache && !loginPending) {
+                        const localSessionId = localStorage.getItem('manara_active_session_id');
+                        if (!localSessionId && activeSessionId) {
+                            localStorage.setItem('manara_active_session_id', String(activeSessionId));
+                        } else if (activeSessionId && localSessionId) {
+                            // Session ids are "<timestamp>_<random>" (server-generated); legacy ids are plain timestamps
+                            const profileSessionTime = parseInt(String(activeSessionId), 10) || 0;
+                            const localSessionTime = parseInt(String(localSessionId), 10) || 0;
+
+                            // Only conflict if another login created a STRICTLY NEWER session on a different device
+                            if (profileSessionTime > localSessionTime && String(activeSessionId) !== String(localSessionId)) {
+                                console.warn("StatusGuard: Newer session detected on another device! Logging out...");
+
+                                // Perform logout cleanup
+                                try {
+                                    await auth.signOut();
+                                    await fetch('/api/auth/session', { method: 'DELETE' });
+                                } catch (err) {
+                                    console.error("Logout error:", err);
+                                }
+
+                                localStorage.removeItem('manara_active_session_id');
+
+                                // FORCE hard redirect to login to kill all states
+                                window.location.replace("/login?error=session_conflict");
+                                return;
+                            }
+                        }
+                    }
+
+                    // Instructors are never allowed in the labs, whatever their account status.
+                    if (role === 'instructor' && path.startsWith('/labs')) {
+                        router.replace(status === 'pending' ? '/pending-approval' : '/instructor');
+                        return;
+                    }
+
+                    // Handle Status Redirects
+                    if (status === 'pending' && !isBackofficeRole(role)) {
+                        // Not-yet-approved accounts may use the virtual labs (and ONLY the labs).
+                        const labsNext = getLabsNext()
+                        if (path.startsWith('/labs')) {
+                            // allowed
+                        } else if ((path === '/login' || path === '/signup') && labsNext) {
+                            router.push(labsNext);
+                        } else if (path !== '/pending-approval') {
+                            router.push("/pending-approval");
+                        }
+                    } else if (status === 'rejected' || status === 'blocked') {
+                        if (path !== '/restricted-access') {
+                            router.push("/restricted-access?reason=account");
+                        }
+                    } else {
+                        if (path === '/pending-approval' || path === '/restricted-access' || path === '/login' || path === '/signup') {
+                            const target = getLabsNext() || getHomeRouteForRole(role);
+                            router.push(target);
+                        }
+                    }
+                    setIsLoading(false);
+                }, (snapError) => {
+                    clearTimeout(safetyTimer);
+                    console.warn("StatusGuard listener error, continuing:", snapError);
+                    setIsLoading(false);
+                });
             } catch (error) {
-                console.error("StatusGuard: Error fetching profile:", error)
-            } finally {
+                console.error("StatusGuard: Error setting up profile listener:", error)
                 setIsLoading(false)
             }
         })
 
-        return () => unsubscribe()
+        return () => {
+            unsubscribe()
+            if (profileUnsubscribe) profileUnsubscribe()
+        }
     }, [router, pathname])
 
     if (isLoading) {

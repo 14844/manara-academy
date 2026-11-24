@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase/config"
-import { collection, query, where, getDocs, doc, updateDoc, orderBy } from "firebase/firestore"
+import { collection, query, where, getDocs } from "firebase/firestore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -10,9 +10,9 @@ import {
     CheckCircle,
     XCircle,
     Eye,
-    AlertCircle,
-    Loader2
+    AlertCircle
 } from "lucide-react"
+import { TablePageSkeleton } from "@/components/skeletons"
 import { toast } from "sonner"
 import Link from "next/link"
 
@@ -39,41 +39,47 @@ export default function AdminCoursesPage() {
         }
     }
 
+    /** Approve / reject through the server (permission check, pending-only update and trusted activity log). */
+    async function reviewCourse(courseId: string, decision: "approved" | "rejected", reason?: string) {
+        const res = await fetch("/api/admin/courses/review", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ courseId, decision, ...(reason ? { reason } : {}) }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (res.status === 409) {
+            // Already reviewed elsewhere: drop it from the pending list
+            setCourses(prev => prev.filter(c => c.id !== courseId))
+        }
+        if (!res.ok) {
+            throw new Error(data.error || "")
+        }
+    }
+
     const handleApprove = async (courseId: string) => {
         try {
-            await updateDoc(doc(db, "courses", courseId), {
-                status: "approved",
-                updated_at: new Date().toISOString()
-            })
+            await reviewCourse(courseId, "approved")
             toast.success("تم اعتماد الكورس بنجاح!")
-            setCourses(courses.filter(c => c.id !== courseId))
-        } catch (error) {
+            setCourses(prev => prev.filter(c => c.id !== courseId))
+        } catch (error: any) {
             console.error("Approval error:", error)
-            toast.error("حدث خطأ أثناء اعتماد الكورس")
+            toast.error(error?.message || "حدث خطأ أثناء اعتماد الكورس")
         }
     }
 
     const handleReject = async (courseId: string) => {
         try {
-            // we could also add a rejection reason field
-            await updateDoc(doc(db, "courses", courseId), {
-                status: "rejected",
-                updated_at: new Date().toISOString()
-            })
+            await reviewCourse(courseId, "rejected")
             toast.info("تم رفض الكورس")
-            setCourses(courses.filter(c => c.id !== courseId))
-        } catch (error) {
+            setCourses(prev => prev.filter(c => c.id !== courseId))
+        } catch (error: any) {
             console.error("Rejection error:", error)
-            toast.error("حدث خطأ أثناء رفض الكورس")
+            toast.error(error?.message || "حدث خطأ أثناء رفض الكورس")
         }
     }
 
     if (isLoading) {
-        return (
-            <div className="flex flex-col items-center justify-center py-20">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
+        return <TablePageSkeleton rowCount={6} />
     }
 
     return (

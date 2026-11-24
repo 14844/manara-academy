@@ -1,12 +1,64 @@
 "use client"
 
 import { StatusGuard } from "@/components/auth/status-guard"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { auth, db } from "@/lib/firebase/config"
+import { onAuthStateChanged } from "firebase/auth"
+import { doc, getDoc } from "firebase/firestore"
+import { DashboardSkeleton } from "@/components/skeletons"
+import { toast } from "sonner"
+import { isBackofficeRole } from "@/lib/permissions"
 
 export default function DashboardLayout({
     children,
 }: {
     children: React.ReactNode
 }) {
+    const router = useRouter()
+    const [isLoading, setIsLoading] = useState(true)
+    const [isStudent, setIsStudent] = useState(false)
+
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            if (!user) {
+                router.push("/login")
+                return
+            }
+
+            // Verify student role in Firestore
+            const docRef = doc(db, "profiles", user.uid)
+            const docSnap = await getDoc(docRef)
+
+            if (docSnap.exists() && docSnap.data().role === 'student') {
+                setIsStudent(true)
+            } else {
+                toast.error("عذراً، لا تمتلك صلاحيات الوصول لهذه الصفحة")
+                const role = docSnap.exists() ? docSnap.data().role : ''
+                if (isBackofficeRole(role)) {
+                    router.push("/admin")
+                } else if (role === 'instructor') {
+                    router.push("/instructor")
+                } else {
+                    router.push("/login")
+                }
+            }
+            setIsLoading(false)
+        })
+
+        return () => unsubscribe()
+    }, [router])
+
+    if (isLoading) {
+        return (
+            <div className="flex min-h-screen bg-background font-arabic">
+                <DashboardSkeleton />
+            </div>
+        )
+    }
+
+    if (!isStudent) return null
+
     return (
         <StatusGuard>
             {children}

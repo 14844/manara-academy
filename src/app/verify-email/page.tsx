@@ -33,11 +33,17 @@ export default function VerifyEmailPage() {
             const updatedUser = auth.currentUser
 
             if (updatedUser.emailVerified) {
-                // Update Firestore status to pending
-                await updateDoc(doc(db, "profiles", updatedUser.uid), {
-                    status: "pending",
-                    updated_at: new Date().toISOString()
+                const res = await fetch("/api/profile/update-status", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "email_verified" }),
                 })
+
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}))
+                    throw new Error(err.error || "فشل تحديث حالة الحساب")
+                }
+
                 toast.success("تم تفعيل البريد الإلكتروني بنجاح! حسابك بانتظار مراجعة الإدارة.")
                 router.push("/pending-approval")
             } else {

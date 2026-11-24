@@ -22,3 +22,18 @@ export function sanitizeFilename(filename: string): string {
 
   return ext ? `${sanitized}.${ext}` : sanitized
 }
+
+export function getCourseThumbnailUrl(url?: string | null): string {
+  const fallback = "https://images.unsplash.com/photo-1501504905252-473c47e087f8?q=80&w=2074&auto=format&fit=crop"
+  if (!url || typeof url !== "string" || !url.trim()) return fallback
+
+  // If it's a Supabase thumbnail (signed or raw), convert to permanent non-expiring route
+  if (url.includes("/thumbnails/")) {
+    const rawPath = url.split("/thumbnails/")[1]?.split("?")[0]
+    if (rawPath) {
+      return `/api/storage/thumbnail?path=thumbnails/${rawPath}`
+    }
+  }
+
+  return url
+}

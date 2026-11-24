@@ -21,6 +21,7 @@ import { auth, db } from "@/lib/firebase/config"
 import { onAuthStateChanged } from "firebase/auth"
 import { doc, getDoc } from "firebase/firestore"
 import Link from "next/link"
+import { getHomeRouteForRole, getRoleLabel, isBackofficeRole } from "@/lib/permissions"
 
 export function UserNav() {
     const [user, setUser] = useState<any>(null)
@@ -64,19 +65,19 @@ export function UserNav() {
                             {user.email}
                         </p>
                         <Badge variant="outline" className="w-fit text-[10px] mt-1">
-                            {profile?.role === 'admin' ? 'مدير المنصة' : profile?.role === 'instructor' ? 'مدرس' : 'طالب'}
+                            {getRoleLabel(profile?.role)}
                         </Badge>
                     </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup className="p-1">
                     <DropdownMenuItem asChild className="cursor-pointer rounded-lg">
-                        <Link href={profile?.role === 'instructor' ? '/instructor/settings' : profile?.role === 'admin' ? '/admin/settings' : '/profile/edit'}>
+                        <Link href={profile?.role === 'instructor' ? '/instructor/settings' : profile?.role === 'admin' ? '/admin/settings' : isBackofficeRole(profile?.role) ? '/admin' : '/profile/edit'}>
                             الملف الشخصي
                         </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild className="cursor-pointer rounded-lg">
-                        <Link href={profile?.role === 'instructor' ? '/instructor' : profile?.role === 'admin' ? '/admin' : '/dashboard'}>
+                        <Link href={getHomeRouteForRole(profile?.role)}>
                             لوحة التحكم
                         </Link>
                     </DropdownMenuItem>
