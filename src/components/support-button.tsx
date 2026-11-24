@@ -1,7 +1,7 @@
 "use client"
 
 import { MessageCircle, Phone, X, Bot, Send, Sparkles, User, ArrowRight, Loader2 } from "lucide-react"
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useSupportSettings } from "@/hooks/use-support-settings"
@@ -41,48 +41,83 @@ function getChatSessionId(): string {
     }
 }
 
+/** Only http(s) links are ever rendered as anchors. */
+function safeHref(url: string): string | null {
+    try {
+        const u = new URL(url)
+        return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : null
+    } catch {
+        return null
+    }
+}
+
+/** Inline markdown: **bold**, [label](url) and bare URLs. Everything else stays plain text (React escapes it). */
+function renderInline(text: string, keyBase: string): ReactNode[] {
+    const out: ReactNode[] = []
+    const re = /\*\*([^*]+)\*\*|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s)]+)/g
+    let last = 0
+    let m: RegExpExecArray | null
+    let i = 0
+    while ((m = re.exec(text))) {
+        if (m.index > last) out.push(text.slice(last, m.index))
+        const key = `${keyBase}-${i++}`
+        if (m[1] !== undefined) {
+            out.push(<strong key={key} className="font-extrabold text-foreground">{m[1]}</strong>)
+        } else {
+            const href = safeHref(m[3] ?? m[4])
+            const label = m[2] ?? "رابط"
+            out.push(
+                href ? (
+                    <a
+                        key={key}
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[12px] font-bold no-underline hover:bg-primary/20 align-middle whitespace-nowrap"
+                    >
+                        {label} ↗
+                    </a>
+                ) : (
+                    label
+                ),
+            )
+        }
+        last = re.lastIndex
+    }
+    if (last < text.length) out.push(text.slice(last))
+    return out
+}
+
 function FormattedMessage({ text, isUser }: { text: string; isUser: boolean }) {
     if (isUser) {
-        return <p className="leading-relaxed m-0 text-sm font-medium">{text}</p>
+        // dir="auto": English messages read left-to-right inside the RTL widget
+        return <p dir="auto" className="leading-relaxed m-0 text-sm font-medium text-start">{text}</p>
     }
 
     const lines = text.split("\n")
     return (
-        <div className="space-y-1.5 leading-relaxed text-[13px] sm:text-sm font-arabic">
+        <div className="space-y-1.5 leading-relaxed text-[13px] sm:text-sm font-arabic break-words">
             {lines.map((line, idx) => {
                 if (!line.trim()) {
                     return <div key={idx} className="h-1.5" />
                 }
 
-                // Bullet point detection
-                const isBullet = line.startsWith("•") || line.startsWith("*") || line.startsWith("- ")
+                // Bullet point detection ("**bold**" at line start is not a bullet)
+                const isBullet = line.startsWith("•") || (line.startsWith("*") && !line.startsWith("**")) || line.startsWith("- ")
                 const cleanLine = isBullet ? line.replace(/^([•\*\-]\s*)/, "") : line
-
-                // Parse **bold** parts
-                const parts = cleanLine.split(/(\*\*[^*]+\*\*)/g)
-
-                const content = parts.map((part, pIdx) => {
-                    if (part.startsWith("**") && part.endsWith("**")) {
-                        return (
-                            <strong key={pIdx} className="font-extrabold text-foreground">
-                                {part.slice(2, -2)}
-                            </strong>
-                        )
-                    }
-                    return part
-                })
+                const content = renderInline(cleanLine, String(idx))
 
                 if (isBullet) {
                     return (
-                        <div key={idx} className="flex items-start gap-2 mr-1">
+                        <div key={idx} dir="auto" className="flex items-start gap-2 ms-1">
                             <span className="text-primary mt-0.5 font-bold text-sm select-none shrink-0">•</span>
-                            <span className="flex-1 text-foreground/90">{content}</span>
+                            <span className="flex-1 text-foreground/90 text-start">{content}</span>
                         </div>
                     )
                 }
 
                 return (
-                    <p key={idx} className="m-0 text-foreground/90">
+                    <p key={idx} dir="auto" className="m-0 text-foreground/90 text-start">
                         {content}
                     </p>
                 )

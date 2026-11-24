@@ -79,6 +79,20 @@ function cannedReply(message: string): { reply: string; matched: boolean } {
     }
 }
 
+// Scripts the bot should never output (seen in practice: Gemini mixing Thai letters into "الكورس").
+const FOREIGN_SCRIPT = /[Ѐ-ӿ֐-׿ऀ-෿฀-໿぀-ヿ㐀-鿿가-힯]/
+const FOREIGN_SCRIPT_G = new RegExp(FOREIGN_SCRIPT.source, "g")
+
+/** Repair glitched model output: garbled link labels get a clean label, stray foreign letters are dropped. */
+function cleanAiReply(reply: string): string {
+    return reply
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_all, label: string, url: string) => {
+            if (!FOREIGN_SCRIPT.test(label)) return `[${label}](${url})`
+            return `[${/[؀-ۿ]/.test(label) ? "رابط الكورس" : "Course link"}](${url})`
+        })
+        .replace(FOREIGN_SCRIPT_G, "")
+}
+
 /** Ask the n8n AI agent. Returns null on any failure (not configured, down, timeout, quota, bad response). */
 async function askN8n(payload: Record<string, unknown>): Promise<string | null> {
     const url = process.env.N8N_CHAT_WEBHOOK_URL
@@ -103,7 +117,7 @@ async function askN8n(payload: Record<string, unknown>): Promise<string | null> 
         const item = Array.isArray(data) ? data[0] : data
         const reply = item?.reply ?? item?.output ?? item?.text
         if (typeof reply !== "string" || !reply.trim()) return null
-        return reply.trim().slice(0, 4000)
+        return cleanAiReply(reply.trim()).slice(0, 4000)
     } catch (e: any) {
         console.warn("n8n chat failed:", e?.name === "AbortError" ? "timeout" : e?.message)
         return null
